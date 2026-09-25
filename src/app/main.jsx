@@ -151,6 +151,20 @@ import {
 } from "./utils/kpi.js";
 import { apiFetch } from "./lib/backend-api.js";
 import {
+  TASK_UPLOAD_COLLECTIONS,
+  deleteStoredAttachment,
+  fetchUploadStatus,
+  fileToDataUrl,
+  filesFromDrop,
+  formatUploadLimit,
+  hasFileDrag,
+  inferFileType,
+  putFileToSignedUrl,
+  resolveAttachmentUrl,
+  signStoredUpload,
+  signTaskUpload,
+} from "./lib/task-uploads.js";
+import {
   getCallRoomAlias,
   getConsumedCallLinkUrl,
   resolveCallLink,
@@ -4749,6 +4763,19 @@ function App() {
     (task) => openTaskDetail(task, "managementTask"),
     [openTaskDetail],
   );
+  const attachFilesToTask = async (task, type, files) => {
+    const list = Array.from(files || []).filter(Boolean);
+    if (!task || list.length === 0) return;
+    openTaskDetail(task, type);
+    for (const file of list) {
+      try {
+        await addTaskAttachment(task, type, file);
+      } catch (error) {
+        alert(error?.message || "No se pudo subir el archivo.");
+        break;
+      }
+    }
+  };
   const triggerConfetti = () => {
     if (confetti) {
       const theme = getComputedStyle(document.documentElement);
@@ -6235,68 +6262,96 @@ function App() {
     await updateDoc(dataDoc(col, task.id), { checklist, updatedAt: nowIso() });
   };
 
-  const addTaskAttachment = async (task, type, file) => {
-    const colMap = {
-      accountTask: "account_tasks",
-      editingTask: "editing",
-      managementTask: "management_tasks",
-    };
-    const col = colMap[type];
+  const addTaskAttachment = async (task, type, file, onProgress) => {
+    const col = TASK_UPLOAD_COLLECTIONS[type];
     if (!col || !file) return;
-    if (file.size > EMBEDDED_UPLOAD_MAX_BYTES) {
-      alert("El archivo es demasiado grande (máx. 3 MB)");
+    const contentType = inferFileType(file);
+    const uploadedBy =
+      currentUserProfile?.name ||
+      (authEmail ? authEmail.split("@")[0] : "Usuario");
+    const status = await fetchUploadStatus();
+    const maxBytes = status.r2 ? Number(status.maxBytes) : EMBEDDED_UPLOAD_MAX_BYTES;
+    if (file.size > maxBytes) {
+      alert(`El archivo es demasiado grande (máx. ${formatUploadLimit(maxBytes)})`);
       return;
     }
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-    const newAttachment = {
-      id: Math.random().toString(36).slice(2, 10),
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      data: base64,
-      uploadedBy:
-        currentUserProfile?.name ||
-        (authEmail ? authEmail.split("@")[0] : "Usuario"),
-      uploadedAt: nowIso(),
-    };
-    // El listado con polling llega sin el base64 de los adjuntos existentes
-    // (ver stripAttachmentData en el backend), asi que se relee el registro
-    // completo antes de escribir para no perder los archivos ya guardados.
+
+    let newAttachment;
+    if (status.r2) {
+      const signed = await signTaskUpload({
+        collectionName: col,
+        taskId: task.id,
+        file,
+      });
+      await putFileToSignedUrl(
+        signed.uploadUrl,
+        file,
+        signed.headers,
+        onProgress,
+      );
+      newAttachment = {
+        id: signed.attachmentId,
+        name: file.name,
+        type: contentType,
+        size: file.size,
+        key: signed.key,
+        storage: "r2",
+        uploadedBy,
+        uploadedAt: nowIso(),
+      };
+    } else {
+      if (type === "editingTask") {
+        alert(
+          "Cloudflare R2 no está configurado. Agrega las variables R2_* para subir archivos de edición.",
+        );
+        return;
+      }
+      const base64 = await fileToDataUrl(file);
+      newAttachment = {
+        id: Math.random().toString(36).slice(2, 10),
+        name: file.name,
+        type: contentType || file.type,
+        size: file.size,
+        data: base64,
+        uploadedBy,
+        uploadedAt: nowIso(),
+      };
+    }
+
     const currentSnap = await getDoc(dataDoc(col, task.id));
     const currentAttachments = currentSnap.data()?.attachments || [];
-    const currentSize = currentAttachments.reduce(
-      (total, attachment) => total + Number(attachment?.size || 0),
-      0,
-    );
-    if (currentSize + file.size > EMBEDDED_UPLOAD_MAX_BYTES) {
-      alert("Los adjuntos de la tarea no pueden superar 3 MB en total.");
-      return;
+    if (!status.r2) {
+      const currentSize = currentAttachments.reduce(
+        (total, attachment) => total + Number(attachment?.size || 0),
+        0,
+      );
+      if (currentSize + file.size > EMBEDDED_UPLOAD_MAX_BYTES) {
+        alert("Los adjuntos de la tarea no pueden superar 3 MB en total.");
+        return;
+      }
     }
-    await updateDoc(dataDoc(col, task.id), {
-      attachments: [...currentAttachments, newAttachment],
-      updatedAt: nowIso(),
-    });
+    try {
+      await updateDoc(dataDoc(col, task.id), {
+        attachments: [...currentAttachments, newAttachment],
+        updatedAt: nowIso(),
+      });
+    } catch (error) {
+      if (newAttachment.key) await deleteStoredAttachment(newAttachment.key);
+      throw error;
+    }
   };
 
   const removeTaskAttachment = async (task, type, attachmentId) => {
-    const colMap = {
-      accountTask: "account_tasks",
-      editingTask: "editing",
-      managementTask: "management_tasks",
-    };
-    const col = colMap[type];
+    const col = TASK_UPLOAD_COLLECTIONS[type];
     if (!col) return;
     const currentSnap = await getDoc(dataDoc(col, task.id));
     const currentAttachments = currentSnap.data()?.attachments || [];
+    const removed = currentAttachments.find((item) => item.id === attachmentId);
     await updateDoc(dataDoc(col, task.id), {
       attachments: currentAttachments.filter((a) => a.id !== attachmentId),
       updatedAt: nowIso(),
     });
+    if (removed?.key) await deleteStoredAttachment(removed.key);
   };
 
   const addEvent = async (data) => {
@@ -7355,6 +7410,7 @@ function App() {
                 })
               }
               onTaskClick={handleAccountTaskClick}
+              onAttachFiles={(task, files) => attachFilesToTask(task, "accountTask", files)}
               onLoadHistory={handleLoadTaskHistory}
               historyLoaded={taskHistoryLoaded}
               historyLoading={isLoadingTaskHistory}
@@ -7395,6 +7451,7 @@ function App() {
                 })
               }
               onTaskClick={handleEditingTaskClick}
+              onAttachFiles={(task, files) => attachFilesToTask(task, "editingTask", files)}
               onLoadHistory={handleLoadTaskHistory}
               historyLoaded={taskHistoryLoaded}
               historyLoading={isLoadingTaskHistory}
@@ -7434,6 +7491,7 @@ function App() {
                 })
               }
               onTaskClick={handleManagementTaskClick}
+              onAttachFiles={(task, files) => attachFilesToTask(task, "managementTask", files)}
               onLoadHistory={handleLoadTaskHistory}
               historyLoaded={taskHistoryLoaded}
               historyLoading={isLoadingTaskHistory}
@@ -10180,11 +10238,21 @@ const CardMenu = ({ items = [] }) => {
 };
 
 // Tarjeta compartida: compacta, navegable y consistente en todas las salas.
+const FileDropHint = ({ active, label = "Suelta el archivo aquí" }) => {
+  if (!active) return null;
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[inherit] border-2 border-dashed border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary-soft)_88%,transparent)]">
+      <p className="px-3 text-center text-sm font-semibold text-[var(--text)]">{label}</p>
+    </div>
+  );
+};
+
 const KanbanCard = ({
   onClick,
   draggable,
   onDragStart,
   onDragEnd,
+  onDropFiles,
   accentTone,
   isOverdue,
   client,
@@ -10199,6 +10267,7 @@ const KanbanCard = ({
   statusControl = null,
   activityAction = null,
 }) => {
+  const [fileOver, setFileOver] = useState(false);
   const accent = isOverdue
     ? "border-l-red-500"
     : ACCENT_BORDER[accentTone] || "border-l-transparent";
@@ -10219,9 +10288,37 @@ const KanbanCard = ({
       }}
       draggable={draggable ? "true" : undefined}
       onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      className={`task-card group relative cursor-pointer rounded-xl border border-[var(--border)] border-l-[3px] bg-white p-4 transition-[border-color,background-color,transform] duration-200 hover:-translate-y-px hover:border-[var(--border-strong)] focus-visible:outline-none dark:border-white/10 dark:bg-[var(--surface-raised)] dark:hover:border-white/20 ${selected ? "ring-2 ring-[var(--status-yellow-text)] dark:ring-[var(--status-yellow-text)]" : ""} ${accent}`}
+      onDragEnd={(event) => {
+        setFileOver(false);
+        onDragEnd?.(event);
+      }}
+      onDragEnter={(event) => {
+        if (!onDropFiles || !hasFileDrag(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setFileOver(true);
+      }}
+      onDragOver={(event) => {
+        if (!onDropFiles || !hasFileDrag(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = "copy";
+        setFileOver(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFileOver(false);
+      }}
+      onDrop={(event) => {
+        if (!onDropFiles || !hasFileDrag(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setFileOver(false);
+        const files = filesFromDrop(event);
+        if (files.length) onDropFiles(files);
+      }}
+      className={`task-card group relative cursor-pointer rounded-xl border border-[var(--border)] border-l-[3px] bg-white p-4 transition-[border-color,background-color,transform] duration-200 hover:-translate-y-px hover:border-[var(--border-strong)] focus-visible:outline-none dark:border-white/10 dark:bg-[var(--surface-raised)] dark:hover:border-white/20 ${selected || fileOver ? "ring-2 ring-[var(--status-yellow-text)] dark:ring-[var(--status-yellow-text)]" : ""} ${accent}`}
     >
+      <FileDropHint active={fileOver} label="Soltar para adjuntar" />
       <div className="flex items-start justify-between gap-2 mb-1.5 min-h-[20px]">
         <div className="min-w-0 flex-1">
           {client && (
@@ -11164,6 +11261,7 @@ const AccountRoomView = ({
   onChangeStatus,
   onDelete,
   onTaskClick,
+  onAttachFiles,
   legacyColorMap,
   onLoadHistory,
   historyLoaded,
@@ -11185,7 +11283,6 @@ const AccountRoomView = ({
   });
   const [searchTerm, setSearchTerm] = useState("");
   const [draggedTaskId, setDraggedTaskId] = useState(null);
-  const [selectedTaskId, setSelectedTaskId] = useState(null);
   const todayStr = getHondurasTodayStr();
   const currentMonthPeriod = getRankingMonthPeriod(todayStr);
 
@@ -11306,13 +11403,6 @@ const AccountRoomView = ({
       : filterMode === "range"
         ? effectiveRangeStart
         : todayStr;
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId) || null;
-  const selectedManager = selectedTask
-    ? managers.find((manager) => manager.id === selectedTask.contextId)
-    : null;
-  const selectedClient = selectedTask
-    ? clients.find((client) => client.id === selectedTask.clientId)
-    : null;
   const accountGroups = [
     {
       id: "start",
@@ -11373,8 +11463,8 @@ const AccountRoomView = ({
     return (
       <KanbanCard
         key={task.id}
-        onClick={() => setSelectedTaskId(task.id)}
-        selected={selectedTaskId === task.id}
+        onClick={() => onTaskClick(task)}
+        onDropFiles={onAttachFiles ? (files) => onAttachFiles(task, files) : undefined}
         draggable
         onDragStart={(event) => handleDragStart(event, task.id)}
         onDragEnd={(event) => handleDragEnd(event, task.id)}
@@ -11438,18 +11528,6 @@ const AccountRoomView = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        inspector={
-          selectedTask ? (
-            <TaskRoomInspector
-              task={selectedTask}
-              client={selectedClient?.name}
-              assignee={buildAssignee(selectedManager, legacyColorMap)}
-              status={columns.find((column) => column.id === selectedTask.status)}
-              onClose={() => setSelectedTaskId(null)}
-              onOpenFull={() => onTaskClick(selectedTask)}
-            />
-          ) : null
-        }
       />
     </div>
   );
@@ -11465,6 +11543,7 @@ const EditionsRoomView = ({
   onChangeStatus,
   onDelete,
   onTaskClick,
+  onAttachFiles,
   onLoadHistory,
   historyLoaded,
   historyLoading,
@@ -11481,7 +11560,6 @@ const EditionsRoomView = ({
   });
   const [searchTerm, setSearchTerm] = useState("");
   const [draggedTaskId, setDraggedTaskId] = useState(null);
-  const [selectedTaskId, setSelectedTaskId] = useState(null);
   const todayStr = getHondurasTodayStr();
   const currentMonthPeriod = getRankingMonthPeriod(todayStr);
 
@@ -11618,13 +11696,6 @@ const EditionsRoomView = ({
   };
 
   const defaultAddDate = filterMode === "date" ? currentDate : todayStr;
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId) || null;
-  const selectedEditor = selectedTask
-    ? editors.find((editor) => editor.id === selectedTask.contextId)
-    : null;
-  const selectedClient = selectedTask
-    ? clients.find((client) => client.id === selectedTask.clientId)
-    : null;
   const editingGroups = [
     {
       id: "start",
@@ -11714,8 +11785,12 @@ const EditionsRoomView = ({
     return (
       <KanbanCard
         key={task.id}
-        onClick={() => setSelectedTaskId(task.id)}
-        selected={selectedTaskId === task.id}
+        onClick={() => onTaskClick(task)}
+        onDropFiles={
+          canManageEditingTasks && onAttachFiles
+            ? (files) => onAttachFiles(task, files)
+            : undefined
+        }
         draggable
         onDragStart={(event) => handleDragStart(event, task.id)}
         onDragEnd={(event) => handleDragEnd(event, task.id)}
@@ -11779,20 +11854,6 @@ const EditionsRoomView = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        inspector={
-          selectedTask ? (
-            <TaskRoomInspector
-              task={selectedTask}
-              client={selectedClient?.name}
-              assignee={buildAssignee(selectedEditor)}
-              status={columns.find(
-                (column) => column.id === normalizeEditingWorkflowStatus(selectedTask.status),
-              )}
-              onClose={() => setSelectedTaskId(null)}
-              onOpenFull={() => onTaskClick(selectedTask)}
-            />
-          ) : null
-        }
       />
     </div>
   );
@@ -11851,6 +11912,7 @@ const ManagementRoomView = ({
   onChangeStatus,
   onDelete,
   onTaskClick,
+  onAttachFiles,
   onLoadHistory,
   historyLoaded,
   historyLoading,
@@ -11868,7 +11930,6 @@ const ManagementRoomView = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [draggedTaskId, setDraggedTaskId] = useState(null);
   const [showTeam, setShowTeam] = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState(null);
   const todayStr = getHondurasTodayStr();
   const currentMonthPeriod = getRankingMonthPeriod(todayStr);
 
@@ -11943,13 +12004,6 @@ const ManagementRoomView = ({
       "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
     red: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
   };
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId) || null;
-  const selectedMember = selectedTask
-    ? members.find((member) => member.id === selectedTask.contextId)
-    : null;
-  const selectedClient = selectedTask
-    ? clients.find((client) => client.id === selectedTask.clientId)
-    : null;
   const buildManagementAssignee = (member) =>
     member
       ? {
@@ -12028,8 +12082,8 @@ const ManagementRoomView = ({
     return (
       <KanbanCard
         key={task.id}
-        onClick={() => setSelectedTaskId(task.id)}
-        selected={selectedTaskId === task.id}
+        onClick={() => onTaskClick(task)}
+        onDropFiles={onAttachFiles ? (files) => onAttachFiles(task, files) : undefined}
         draggable
         onDragStart={(event) => handleDragStart(event, task.id)}
         onDragEnd={handleDragEnd}
@@ -12259,18 +12313,6 @@ const ManagementRoomView = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        inspector={
-          selectedTask ? (
-            <TaskRoomInspector
-              task={selectedTask}
-              client={selectedClient?.name}
-              assignee={buildManagementAssignee(selectedMember)}
-              status={columns.find((column) => column.id === selectedTask.status)}
-              onClose={() => setSelectedTaskId(null)}
-              onOpenFull={() => onTaskClick(selectedTask)}
-            />
-          ) : null
-        }
       />
     </div>
   );
@@ -13536,7 +13578,7 @@ const ChatVoiceNote = ({
   const [duration, setDuration] = useState(
     Number(attachment?.duration) || 0,
   );
-  const source = attachment?.data || "";
+  const source = attachment?.data || attachment?.url || attachment?.localPreview || "";
   const loading = !source;
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
   const progress = safeDuration
@@ -13771,6 +13813,8 @@ const ClientChatView = ({
   const [submitting, setSubmitting] = useState(false);
   const [pending, setPending] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [composerOver, setComposerOver] = useState(false);
+  const [chatAttachmentUrls, setChatAttachmentUrls] = useState({});
   const [fullMap, setFullMap] = useState({});
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [stickerOpen, setStickerOpen] = useState(false);
@@ -14053,6 +14097,51 @@ const ClientChatView = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClient?.id, messages.length]);
 
+  const chatStoredSignature = messages
+    .flatMap((message) => (fullMap[message.id] || message.attachments || [])
+      .map((att) => att.key)
+      .filter(Boolean))
+    .sort()
+    .join(",");
+
+  useEffect(() => {
+    if (!activeClient) {
+      setChatAttachmentUrls({});
+      return;
+    }
+    const stored = messages.flatMap((message) => {
+      const atts = fullMap[message.id] || message.attachments || [];
+      return atts.filter((att) => att?.key && !att.data);
+    });
+    if (stored.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      stored.map(async (att) => {
+        try {
+          return [att.id || att.key, await resolveAttachmentUrl(att)];
+        } catch {
+          return [att.id || att.key, ""];
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setChatAttachmentUrls((prev) => {
+        const next = { ...prev, ...Object.fromEntries(entries) };
+        const keys = Object.keys(next);
+        if (
+          keys.length === Object.keys(prev).length &&
+          keys.every((id) => next[id] === prev[id])
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeClient?.id, chatStoredSignature]);
+
   // Monta la videollamada (Jitsi as a Service) cuando hay una llamada activa.
   useEffect(() => {
     if (!activeCall) return;
@@ -14151,14 +14240,45 @@ const ClientChatView = ({
 
   const handleFiles = async (fileList) => {
     const files = Array.from(fileList || []);
-    if (files.length === 0) return;
+    if (files.length === 0 || !activeClient?.id) return;
     let pendingSize = pending.reduce(
       (total, attachment) => total + Number(attachment?.size || 0),
       0,
     );
     setUploading(true);
     try {
+      const status = await fetchUploadStatus();
       for (const file of files) {
+        const contentType = inferFileType(file) || file.type;
+        if (status.r2) {
+          if (file.size > Number(status.maxBytes)) {
+            alert(`El archivo es demasiado grande (máx. ${formatUploadLimit(status.maxBytes)})`);
+            continue;
+          }
+          const signed = await signStoredUpload({
+            collectionName: "client_chats",
+            clientId: activeClient.id,
+            file,
+          });
+          await putFileToSignedUrl(signed.uploadUrl, file, signed.headers);
+          const localPreview =
+            isChatImage(contentType) || isChatVideo(contentType) || isChatAudio(contentType)
+              ? URL.createObjectURL(file)
+              : "";
+          setPending((prev) => [
+            ...prev,
+            {
+              id: signed.attachmentId,
+              name: file.name,
+              type: contentType,
+              size: file.size,
+              key: signed.key,
+              storage: "r2",
+              localPreview,
+            },
+          ]);
+          continue;
+        }
         if (pendingSize + file.size > EMBEDDED_UPLOAD_MAX_BYTES) {
           alert("Los archivos pendientes no pueden superar 3 MB en total.");
           continue;
@@ -14170,16 +14290,27 @@ const ClientChatView = ({
           {
             id: Math.random().toString(36).slice(2, 10),
             name: file.name,
-            type: file.type,
+            type: contentType,
             size: file.size,
             data,
           },
         ]);
       }
+    } catch (error) {
+      alert(error?.message || "No se pudo subir el archivo.");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  };
+
+  const removePendingAttachment = (attachmentId) => {
+    setPending((prev) => {
+      const item = prev.find((attachment) => attachment.id === attachmentId);
+      if (item?.localPreview) URL.revokeObjectURL(item.localPreview);
+      if (item?.key) deleteStoredAttachment(item.key);
+      return prev.filter((attachment) => attachment.id !== attachmentId);
+    });
   };
 
   const openFilePicker = (accept) => {
@@ -14342,7 +14473,7 @@ const ClientChatView = ({
         text: trimmed,
         mentionedIds,
         taskRef,
-        attachments: pending,
+        attachments: pending.map(({ localPreview, ...attachment }) => attachment),
         replyTo: replyingTo
           ? {
               id: replyingTo.id,
@@ -14355,6 +14486,9 @@ const ClientChatView = ({
       setText("");
       setMentionedIds([]);
       setTaskRef(null);
+      pending.forEach((att) => {
+        if (att.localPreview) URL.revokeObjectURL(att.localPreview);
+      });
       setPending([]);
       setReplyingTo(null);
       setMentionOpen(false);
@@ -14425,11 +14559,18 @@ const ClientChatView = ({
     { mine = false, authorName = "Usuario", avatarUrl = "", compact = false } = {},
   ) => {
     const key = att.id || att.name;
+    const src =
+      att.data ||
+      att.localPreview ||
+      att.url ||
+      chatAttachmentUrls[att.id] ||
+      chatAttachmentUrls[att.key] ||
+      "";
     if (isChatAudio(att.type)) {
       return (
         <ChatVoiceNote
           key={key}
-          attachment={att}
+          attachment={{ ...att, url: src }}
           mine={mine}
           authorName={authorName}
           avatarUrl={avatarUrl}
@@ -14437,29 +14578,30 @@ const ClientChatView = ({
         />
       );
     }
-    if (att.data && isChatImage(att.type)) {
+    if (src && isChatImage(att.type)) {
       return (
         <a
           key={key}
-          href={att.data}
+          href={src}
           target="_blank"
           rel="noreferrer"
           className="block"
         >
           <img
-            src={att.data}
+            src={src}
             alt={att.name}
             className="max-h-56 max-w-[260px] rounded-lg border border-slate-200 object-cover dark:border-white/10"
           />
         </a>
       );
     }
-    if (att.data && isChatVideo(att.type)) {
+    if (src && isChatVideo(att.type)) {
       return (
         <video
           key={key}
-          src={att.data}
+          src={src}
           controls
+          preload="metadata"
           className="max-h-60 max-w-[300px] rounded-lg border border-slate-200 dark:border-white/10"
         />
       );
@@ -14467,18 +14609,18 @@ const ClientChatView = ({
     return (
       <a
         key={key}
-        href={att.data || undefined}
+        href={src || undefined}
         download={att.name}
         target="_blank"
         rel="noreferrer"
-        className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-white/10 dark:bg-slate-800 ${att.data ? "hover:bg-slate-50 dark:hover:bg-slate-700" : "opacity-60"}`}
+        className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-white/10 dark:bg-slate-800 ${src ? "hover:bg-slate-50 dark:hover:bg-slate-700" : "opacity-60"}`}
       >
         <Icon name="Paperclip" size={14} className="shrink-0 text-slate-500" />
         <span className="max-w-[180px] truncate font-semibold text-slate-700 dark:text-slate-200">
           {att.name}
         </span>
         <span className="text-slate-400">
-          {att.data ? formatChatBytes(att.size) : "cargando…"}
+          {src ? formatChatBytes(att.size) : "cargando…"}
         </span>
       </a>
     );
@@ -15264,7 +15406,32 @@ const ClientChatView = ({
 
             {/* Composer de mensajería */}
             {canInteractWithActiveGroup ? (
-              <div className="chat-composer-shell shrink-0">
+              <div
+                className="chat-composer-shell relative shrink-0"
+                onDragEnter={(event) => {
+                  if (!hasFileDrag(event)) return;
+                  event.preventDefault();
+                  setComposerOver(true);
+                }}
+                onDragOver={(event) => {
+                  if (!hasFileDrag(event)) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                  setComposerOver(true);
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) {
+                    setComposerOver(false);
+                  }
+                }}
+                onDrop={(event) => {
+                  if (!hasFileDrag(event)) return;
+                  event.preventDefault();
+                  setComposerOver(false);
+                  handleFiles(event.dataTransfer.files);
+                }}
+              >
+                <FileDropHint active={composerOver} label="Suelta para adjuntar al chat" />
               {replyingTo && (
                 <div className="chat-reply-bar mb-2 flex items-center gap-2">
                   <Icon
@@ -15315,11 +15482,17 @@ const ClientChatView = ({
                   )}
                   {pending.map((att) => (
                     <div key={att.id} className="relative">
-                      {isChatImage(att.type) ? (
+                      {isChatImage(att.type) && (att.data || att.localPreview) ? (
                         <img
-                          src={att.data}
+                          src={att.data || att.localPreview}
                           alt={att.name}
                           className="h-16 w-16 rounded-lg border border-slate-200 object-cover dark:border-white/10"
+                        />
+                      ) : isChatVideo(att.type) && (att.data || att.localPreview) ? (
+                        <video
+                          src={att.data || att.localPreview}
+                          className="h-16 w-24 rounded-lg border border-slate-200 object-cover dark:border-white/10"
+                          muted
                         />
                       ) : isChatAudio(att.type) ? (
                         <div className="chat-voice-pending">
@@ -15343,11 +15516,7 @@ const ClientChatView = ({
                         </div>
                       )}
                       <button
-                        onClick={() =>
-                          setPending((prev) =>
-                            prev.filter((item) => item.id !== att.id),
-                          )
-                        }
+                        onClick={() => removePendingAttachment(att.id)}
                         aria-label="Quitar archivo"
                         className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-700 text-white"
                       >
@@ -16946,6 +17115,10 @@ const TaskDetailModal = ({
   const [submitting, setSubmitting] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState({ r2: false, maxBytes: EMBEDDED_UPLOAD_MAX_BYTES });
+  const [attachmentUrls, setAttachmentUrls] = useState({});
+  const [fileOver, setFileOver] = useState(false);
   const fileInputRef = useRef(null);
   const [timerRunning, setTimerRunning] = useState(false);
   const [timerElapsed, setTimerElapsed] = useState(0);
@@ -17044,6 +17217,46 @@ const TaskDetailModal = ({
       cancelled = true;
     };
   }, [config.isOpen, config.task?.id, config.type, attachmentsSignature]);
+
+  useEffect(() => {
+    if (!config.isOpen) return;
+    let cancelled = false;
+    fetchUploadStatus().then((status) => {
+      if (!cancelled) setUploadStatus(status);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [config.isOpen]);
+
+  useEffect(() => {
+    if (!config.isOpen || !config.task) {
+      setAttachmentUrls({});
+      return;
+    }
+    const pending = Array.isArray(fullAttachments)
+      ? fullAttachments
+      : Array.isArray(liveTaskForAttachments?.attachments)
+        ? liveTaskForAttachments.attachments
+        : [];
+    let cancelled = false;
+    Promise.all(
+      pending.map(async (att) => {
+        if (att.data) return [att.id, att.data];
+        try {
+          const url = await resolveAttachmentUrl(att);
+          return [att.id, url];
+        } catch {
+          return [att.id, att.url || ""];
+        }
+      }),
+    ).then((entries) => {
+      if (!cancelled) setAttachmentUrls(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [config.isOpen, config.task?.id, attachmentsSignature, fullAttachments]);
 
   if (!config.isOpen || !config.task) return null;
   const { type } = config;
@@ -17294,11 +17507,48 @@ const TaskDetailModal = ({
         aria-modal="true"
         aria-labelledby={dialogTitleId}
         tabIndex={-1}
-        className="task-detail-shell flex h-[92dvh] max-h-[860px] w-full max-w-[1320px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-subtle)] shadow-2xl outline-none dark:border-white/10 dark:bg-[var(--surface)]"
+        className="task-detail-shell relative flex h-[92dvh] max-h-[860px] w-full max-w-[1320px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-subtle)] shadow-2xl outline-none dark:border-white/10 dark:bg-[var(--surface)]"
         onClick={function (e) {
           e.stopPropagation();
         }}
+        onDragEnter={(event) => {
+          if (!canAct || !hasFileDrag(event)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setFileOver(true);
+        }}
+        onDragOver={(event) => {
+          if (!canAct || !hasFileDrag(event)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = "copy";
+          setFileOver(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setFileOver(false);
+        }}
+        onDrop={async (event) => {
+          if (!canAct || !hasFileDrag(event)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setFileOver(false);
+          const files = filesFromDrop(event);
+          if (!files.length || !onAddAttachment) return;
+          setUploadingFile(true);
+          setUploadProgress(0);
+          try {
+            for (const file of files) {
+              await onAddAttachment(task, type, file, setUploadProgress);
+            }
+          } catch (error) {
+            alert(error?.message || "No se pudo subir el archivo.");
+          } finally {
+            setUploadingFile(false);
+            setUploadProgress(0);
+          }
+        }}
       >
+        <FileDropHint active={fileOver && canAct} label="Suelta para adjuntar a esta tarea" />
         {/* Barra superior */}
         <div className="flex min-h-[68px] shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--surface-subtle)] px-4 dark:border-white/10 dark:bg-[var(--surface)] md:px-5">
           <div
@@ -17667,16 +17917,25 @@ const TaskDetailModal = ({
                   : Array.isArray(task.attachments)
                     ? task.attachments
                     : [];
-                const handleFileChange = async (e) => {
-                  const file = e.target.files && e.target.files[0];
-                  if (!file) return;
+                const uploadFiles = async (fileList) => {
+                  const files = Array.from(fileList || []).filter(Boolean);
+                  if (!files.length) return;
                   setUploadingFile(true);
+                  setUploadProgress(0);
                   try {
-                    await onAddAttachment(task, type, file);
+                    for (const file of files) {
+                      await onAddAttachment(task, type, file, setUploadProgress);
+                    }
+                  } catch (error) {
+                    alert(error?.message || "No se pudo subir el archivo.");
                   } finally {
                     setUploadingFile(false);
-                    e.target.value = "";
+                    setUploadProgress(0);
                   }
+                };
+                const handleFileChange = async (e) => {
+                  await uploadFiles(e.target.files);
+                  e.target.value = "";
                 };
                 const formatFileSize = (bytes) => {
                   if (bytes < 1024) return bytes + " B";
@@ -17684,16 +17943,24 @@ const TaskDetailModal = ({
                     return (bytes / 1024).toFixed(1) + " KB";
                   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
                 };
-                const downloadFile = (att) => {
-                  if (!att.data) return;
+                const openAttachment = async (att, download = false) => {
+                  const url = att.data || attachmentUrls[att.id] || await resolveAttachmentUrl(att, { download });
+                  if (!url) return;
                   const a = document.createElement("a");
-                  a.href = att.data;
-                  a.download = att.name;
+                  a.href = url;
+                  a.target = "_blank";
+                  a.rel = "noopener noreferrer";
+                  if (download) a.download = att.name;
                   a.click();
                 };
                 const isImage = (att) =>
                   att.type && att.type.startsWith("image/");
-                const isLoadingData = (att) => att.hasData && !att.data;
+                const isVideo = (att) =>
+                  att.type && att.type.startsWith("video/");
+                const previewUrl = (att) => att.data || attachmentUrls[att.id] || "";
+                const isLoadingData = (att) =>
+                  (att.hasData && !att.data) || (att.key && !previewUrl(att));
+                const limitLabel = formatUploadLimit(uploadStatus.maxBytes || EMBEDDED_UPLOAD_MAX_BYTES);
                 return (
                   <section
                     id="task-files"
@@ -17733,27 +18000,43 @@ const TaskDetailModal = ({
                     <input
                       ref={fileInputRef}
                       type="file"
+                      multiple
                       className="hidden"
                       onChange={handleFileChange}
-                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,.mp4,.mov"
+                      accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.mp4,.mov,.webm"
                     />
+                    {uploadingFile && (
+                      <div className="mb-3 rounded-lg border border-[var(--border)] bg-[var(--surface-subtle)] px-3 py-2 dark:border-white/10">
+                        <div className="mb-1.5 flex items-center justify-between text-xs font-semibold text-slate-500">
+                          <span>Subiendo archivo…</span>
+                          <span>{uploadProgress}%</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-[var(--surface-muted)]">
+                          <span
+                            className="block h-full rounded-full bg-[var(--primary)] transition-[width]"
+                            style={{ width: `${Math.max(uploadProgress, 6)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                     {attachments.length > 0 && (
                       <div className="space-y-2">
                         {attachments.map((att) => (
                           <div
                             key={att.id}
-                            className="group flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-subtle)] p-3 transition-colors hover:border-[var(--border-strong)] dark:border-white/10 dark:bg-[var(--surface-muted)] dark:hover:border-white/20"
+                            className="group rounded-lg border border-[var(--border)] bg-[var(--surface-subtle)] p-3 transition-colors hover:border-[var(--border-strong)] dark:border-white/10 dark:bg-[var(--surface-muted)] dark:hover:border-white/20"
                           >
-                            {isImage(att) && att.data ? (
+                            <div className="flex items-center gap-3">
+                            {isImage(att) && previewUrl(att) ? (
                               <img
-                                src={att.data}
+                                src={previewUrl(att)}
                                 alt={att.name}
                                 className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-200 dark:border-slate-700"
                               />
                             ) : (
                               <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
                                 <Icon
-                                  name={isLoadingData(att) ? "Loader2" : "FileText"}
+                                  name={isLoadingData(att) ? "Loader2" : isVideo(att) ? "Video" : "FileText"}
                                   size={16}
                                   className={
                                     isLoadingData(att)
@@ -17774,7 +18057,7 @@ const TaskDetailModal = ({
                             </div>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                               <button
-                                onClick={() => downloadFile(att)}
+                                onClick={() => openAttachment(att, true)}
                                 title={
                                   isLoadingData(att)
                                     ? "Cargando adjunto..."
@@ -17797,6 +18080,15 @@ const TaskDetailModal = ({
                                 </button>
                               )}
                             </div>
+                            </div>
+                            {isVideo(att) && previewUrl(att) && (
+                              <video
+                                src={previewUrl(att)}
+                                controls
+                                preload="metadata"
+                                className="mt-3 max-h-64 w-full rounded-lg bg-black"
+                              />
+                            )}
                           </div>
                         ))}
                       </div>
@@ -17813,10 +18105,12 @@ const TaskDetailModal = ({
                         <Icon name="Paperclip" size={16} />
                         <span className="text-left">
                           <strong className="block font-semibold text-slate-700 dark:text-slate-200">
-                            Selecciona un archivo
+                            Selecciona o suelta un archivo
                           </strong>
                           <span className="mt-0.5 block text-xs text-slate-500">
-                            Imágenes, documentos, hojas de cálculo o video
+                            {uploadStatus.r2
+                              ? `Imágenes, documentos o video · hasta ${limitLabel} por archivo`
+                              : `Imágenes, documentos o video · máx. ${limitLabel}`}
                           </span>
                         </span>
                       </button>
