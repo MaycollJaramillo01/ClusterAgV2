@@ -149,5 +149,20 @@ export const env = {
         appId: process.env.JAAS_APP_ID || '',
         kid: process.env.JAAS_KID || '',
         privateKey: normalizePem(process.env.JAAS_PRIVATE_KEY)
+    },
+    r2: {
+        accountId: process.env.R2_ACCOUNT_ID || '',
+        accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+        bucket: process.env.R2_BUCKET || '',
+        endpoint: process.env.R2_ENDPOINT || (
+            process.env.R2_ACCOUNT_ID
+                ? `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
+                : ''
+        ),
+        publicBaseUrl: String(process.env.R2_PUBLIC_BASE_URL || '').replace(/\/+$/, ''),
+        maxFileBytes: parseNumber(process.env.R2_MAX_UPLOAD_BYTES, 512 * 1024 * 1024),
+        signTtlSeconds: parseNumber(process.env.R2_SIGN_TTL_SECONDS, 15 * 60),
+        downloadTtlSeconds: parseNumber(process.env.R2_DOWNLOAD_TTL_SECONDS, 60 * 60)
     }
 };

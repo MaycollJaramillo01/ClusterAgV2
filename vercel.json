@@ -31,6 +31,10 @@
     "api/cron-entry.js": {
       "includeFiles": "server/**",
       "maxDuration": 60
+    },
+    "api/uploads-entry.js": {
+      "includeFiles": "server/**",
+      "maxDuration": 30
     }
   },
   "rewrites": [
@@ -61,6 +65,14 @@
     {
       "source": "/api/cron/:path*",
       "destination": "/api/cron-entry"
+    },
+    {
+      "source": "/api/uploads",
+      "destination": "/api/uploads-entry"
+    },
+    {
+      "source": "/api/uploads/:path*",
+      "destination": "/api/uploads-entry"
     },
     {
       "source": "/api/:path*",

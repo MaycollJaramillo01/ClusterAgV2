@@ -20,6 +20,7 @@ import { sendClientChatPush } from '../lib/push-notifications.js';
 import { buildChatGroups, canManageChatGroups } from '../lib/chat-groups.js';
 import { nowIso } from '../lib/time.js';
 import { writeAuditLog } from '../lib/audit.js';
+import { MAX_ATTACHMENT_COUNT, sanitizeAttachments } from '../lib/attachments.js';
 
 const router = express.Router();
 
@@ -67,32 +68,6 @@ const VALID_USER_ROLES = new Set([
 ]);
 const MAX_BATCH_OPERATIONS = 100;
 const MAX_RECORD_BYTES = 5 * 1024 * 1024;
-const MAX_EMBEDDED_ATTACHMENT_BYTES = 3 * 1024 * 1024;
-const MAX_ATTACHMENT_COUNT = 10;
-const ALLOWED_ATTACHMENT_TYPES = new Set([
-    'image/gif',
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'audio/mpeg',
-    'audio/mp4',
-    'audio/ogg',
-    'audio/wav',
-    'audio/webm',
-    'video/mp4',
-    'video/quicktime',
-    'video/webm',
-    'application/pdf',
-    'application/zip',
-    'application/msword',
-    'application/vnd.ms-excel',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'text/csv',
-    'text/plain'
-]);
 const DEFAULT_LIMIT_BY_COLLECTION = {
     client_chats: 1_000,
     chat_stickers: 200,
@@ -122,51 +97,6 @@ const assertPayload = (value) => {
         throw createHttpError(413, 'El documento supera el limite de 5 MB.', 'document/too-large');
     }
     return value;
-};
-
-const sanitizeEmbeddedAttachments = (value) => {
-    if (!Array.isArray(value) || value.length > MAX_ATTACHMENT_COUNT) {
-        throw createHttpError(400, 'Los adjuntos deben ser una lista de hasta 10 archivos.', 'attachment/invalid-list');
-    }
-
-    let totalBytes = 0;
-    const attachments = value.map((attachment, index) => {
-        if (!attachment || typeof attachment !== 'object' || Array.isArray(attachment)) {
-            throw createHttpError(400, 'El adjunto no es valido.', 'attachment/invalid');
-        }
-        const name = String(attachment.name || `archivo-${index + 1}`).trim().slice(0, 180);
-        const type = String(attachment.type || '').trim().toLowerCase();
-        const data = String(attachment.data || '');
-        if (!name || !ALLOWED_ATTACHMENT_TYPES.has(type)) {
-            throw createHttpError(400, 'El tipo de archivo no esta permitido.', 'attachment/type-denied');
-        }
-
-        const match = data.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
-        if (!match || match[1].toLowerCase() !== type) {
-            throw createHttpError(400, 'El contenido del adjunto no es valido.', 'attachment/invalid-data');
-        }
-        const decoded = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
-        if (decoded.length === 0) {
-            throw createHttpError(400, 'El adjunto esta vacio.', 'attachment/empty');
-        }
-        totalBytes += decoded.length;
-        if (totalBytes > MAX_EMBEDDED_ATTACHMENT_BYTES) {
-            throw createHttpError(413, 'Los adjuntos superan el limite total de 3 MB.', 'attachment/too-large');
-        }
-
-        const duration = Number(attachment.duration);
-        return {
-            id: String(attachment.id || `attachment-${index + 1}`).trim().slice(0, 120),
-            name,
-            type,
-            size: decoded.length,
-            data,
-            ...(Number.isFinite(duration) && duration >= 0 && duration <= 86_400
-                ? { duration }
-                : {})
-        };
-    });
-    return attachments;
 };
 
 const isOwnedByActor = (record, actor) => (
@@ -513,12 +443,16 @@ const isOwnedChange = (change, userRecord) => {
     return Boolean(userId && (recordId.startsWith(`${userId}__`) || recordId.endsWith(`__${userId}`)));
 };
 
-const prepareCollectionPayload = ({ collectionName, payload, existing = null, actor = null, isCreate = false }) => {
+const prepareCollectionPayload = ({ collectionName, payload, existing = null, actor = null, isCreate = false, recordId = null }) => {
     let safePayload = assertPayload(payload || {});
     if (Object.hasOwn(safePayload, 'attachments')) {
         safePayload = {
             ...safePayload,
-            attachments: sanitizeEmbeddedAttachments(safePayload.attachments)
+            attachments: sanitizeAttachments(safePayload.attachments, {
+                collectionName,
+                recordId: recordId || existing?.id || null,
+                clientId: existing?.clientId || safePayload.clientId || null
+            })
         };
     }
     const stamp = nowIso();
@@ -742,7 +676,8 @@ router.post('/_batch', asyncHandler(async (req, res) => {
                 payload: assertPayload(operation.data || {}),
                 existing,
                 actor,
-                isCreate: !existing
+                isCreate: !existing,
+                recordId
             });
             await validateReferences({ collectionName, existing, payload, trx });
 
@@ -908,7 +843,8 @@ router.post('/:collectionName', asyncHandler(async (req, res) => {
         collectionName,
         payload: rawPayload,
         actor: userRecord,
-        isCreate: true
+        isCreate: true,
+        recordId
     });
     if (collectionName === 'users') {
         await validateUserMutation({ payload, recordId });
@@ -965,7 +901,8 @@ router.put('/:collectionName/:recordId', asyncHandler(async (req, res) => {
         payload: selfEdit ? pickSelfProfileFields(rawPayload) : rawPayload,
         existing,
         actor: userRecord,
-        isCreate: !existing
+        isCreate: !existing,
+        recordId
     });
     if (collectionName === 'users' && !selfEdit) {
         await validateUserMutation({ existing, payload, recordId });
@@ -1007,7 +944,8 @@ router.patch('/:collectionName/:recordId', asyncHandler(async (req, res) => {
         payload: selfEdit ? pickSelfProfileFields(rawPayload) : rawPayload,
         existing,
         actor: userRecord,
-        isCreate: !existing
+        isCreate: !existing,
+        recordId
     });
     if (collectionName === 'users' && !selfEdit) {
         await validateUserMutation({ existing, payload, recordId });
