@@ -17069,6 +17069,169 @@ const relativeTime = (iso) => {
   return `hace ${Math.floor(hrs / 24)}d`;
 };
 
+const isImageAttachment = (att) => Boolean(att?.type && att.type.startsWith("image/"));
+const isVideoAttachment = (att) => Boolean(att?.type && att.type.startsWith("video/"));
+const isAudioAttachment = (att) => Boolean(att?.type && att.type.startsWith("audio/"));
+const isPdfAttachment = (att) => att?.type === "application/pdf";
+const canLightboxPreview = (att) => (
+  isImageAttachment(att) || isVideoAttachment(att) || isAudioAttachment(att) || isPdfAttachment(att)
+);
+
+const AttachmentLightbox = ({
+  attachments = [],
+  index,
+  urls = {},
+  onClose,
+  onChangeIndex,
+  onDownload,
+}) => {
+  const isOpen = index != null && Boolean(attachments[index]);
+  const dialogRef = useDialogA11y(isOpen, onClose);
+  const dialogTitleId = useId();
+  const attachment = isOpen ? attachments[index] : null;
+  const src = attachment ? (attachment.data || urls[attachment.id] || "") : "";
+  const total = attachments.length;
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        onChangeIndex((index - 1 + total) % total);
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        onChangeIndex((index + 1) % total);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, index, total, onChangeIndex]);
+
+  if (!isOpen || !attachment) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 p-3 backdrop-blur-sm md:p-6"
+      onClick={onClose}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={dialogTitleId}
+        tabIndex={-1}
+        className="relative flex h-[92dvh] w-full max-w-6xl flex-col outline-none"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center gap-3 text-white">
+          <div className="min-w-0 flex-1">
+            <p id={dialogTitleId} className="truncate text-sm font-semibold">
+              {attachment.name}
+            </p>
+            <p className="text-xs text-white/60">
+              {index + 1} / {total}
+              {attachment.uploadedBy ? ` · ${attachment.uploadedBy}` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onDownload(attachment)}
+            title="Descargar"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/20"
+          >
+            <Icon name="ArrowRight" size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Cerrar"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/20"
+          >
+            <Icon name="X" size={16} />
+          </button>
+        </div>
+        <div className="relative flex min-h-0 flex-1 items-center justify-center">
+          {total > 1 && (
+            <button
+              type="button"
+              onClick={() => onChangeIndex((index - 1 + total) % total)}
+              aria-label="Archivo anterior"
+              className="absolute left-0 z-10 flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+            >
+              <Icon name="ChevronLeft" size={20} />
+            </button>
+          )}
+          <div className="flex h-full w-full items-center justify-center px-12">
+            {!src ? (
+              <div className="flex flex-col items-center gap-3 text-white/70">
+                <Icon name="Loader2" size={28} className="animate-spin" />
+                <p className="text-sm">Cargando archivo…</p>
+              </div>
+            ) : isImageAttachment(attachment) ? (
+              <img
+                src={src}
+                alt={attachment.name}
+                className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+              />
+            ) : isVideoAttachment(attachment) ? (
+              <video
+                key={attachment.id}
+                src={src}
+                controls
+                autoPlay
+                playsInline
+                className="max-h-full max-w-full rounded-lg bg-black shadow-2xl"
+              />
+            ) : isAudioAttachment(attachment) ? (
+              <div className="w-full max-w-xl rounded-2xl bg-white/10 p-6">
+                <p className="mb-4 truncate text-center text-sm font-semibold text-white">
+                  {attachment.name}
+                </p>
+                <audio key={attachment.id} src={src} controls autoPlay className="w-full" />
+              </div>
+            ) : isPdfAttachment(attachment) ? (
+              <iframe
+                title={attachment.name}
+                src={src}
+                className="h-full w-full rounded-lg bg-white shadow-2xl"
+              />
+            ) : (
+              <div className="flex max-w-md flex-col items-center gap-4 rounded-2xl bg-white/10 px-8 py-10 text-center text-white">
+                <Icon name="FileText" size={36} />
+                <div>
+                  <p className="text-sm font-semibold">{attachment.name}</p>
+                  <p className="mt-1 text-xs text-white/60">
+                    Este tipo de archivo no tiene vista previa. Descárgalo para abrirlo.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onDownload(attachment)}
+                  className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-900"
+                >
+                  Descargar
+                </button>
+              </div>
+            )}
+          </div>
+          {total > 1 && (
+            <button
+              type="button"
+              onClick={() => onChangeIndex((index + 1) % total)}
+              aria-label="Archivo siguiente"
+              className="absolute right-0 z-10 flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+            >
+              <Icon name="ChevronRight" size={20} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
 const STATUS_COLOR_CLASSES = {
   slate:
     "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600",
@@ -17132,7 +17295,11 @@ const TaskDetailModal = ({
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionStart, setMentionStart] = useState(-1);
   const [mentionedIds, setMentionedIds] = useState([]);
-  const dialogRef = useDialogA11y(config.isOpen, onClose);
+  const [lightboxIndex, setLightboxIndex] = useState(null);
+  const dialogRef = useDialogA11y(config.isOpen, () => {
+    if (lightboxIndex != null) return;
+    onClose();
+  });
   const dialogTitleId = useId();
   const [fullAttachments, setFullAttachments] = useState(null);
   const [clientChatText, setClientChatText] = useState("");
@@ -17230,6 +17397,10 @@ const TaskDetailModal = ({
   }, [config.isOpen]);
 
   useEffect(() => {
+    if (!config.isOpen) setLightboxIndex(null);
+  }, [config.isOpen, config.task?.id]);
+
+  useEffect(() => {
     if (!config.isOpen || !config.task) {
       setAttachmentUrls({});
       return;
@@ -17269,6 +17440,11 @@ const TaskDetailModal = ({
   const task =
     (liveArrays[type] || []).find((t) => t.id === config.task.id) ||
     config.task;
+  const ticketAttachments = Array.isArray(fullAttachments)
+    ? fullAttachments
+    : Array.isArray(task.attachments)
+      ? task.attachments
+      : [];
 
   const client = clients.find((c) => c.id === task.clientId);
   // Mensajes del chat del cliente que referencian esta tarea.
@@ -17496,7 +17672,19 @@ const TaskDetailModal = ({
     </svg>
   );
 
+  const downloadTicketAttachment = async (att) => {
+    const url = att.data || attachmentUrls[att.id] || await resolveAttachmentUrl(att, { download: true });
+    if (!url) return;
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.download = att.name;
+    a.click();
+  };
+
   return (
+    <>
     <div
       className="task-detail-overlay fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-[var(--surface-overlay)] p-3 backdrop-blur-sm md:p-6"
       onClick={onClose}
@@ -17912,11 +18100,7 @@ const TaskDetailModal = ({
 
               {/* Adjuntos */}
               {(() => {
-                const attachments = Array.isArray(fullAttachments)
-                  ? fullAttachments
-                  : Array.isArray(task.attachments)
-                    ? task.attachments
-                    : [];
+                const attachments = ticketAttachments;
                 const uploadFiles = async (fileList) => {
                   const files = Array.from(fileList || []).filter(Boolean);
                   if (!files.length) return;
@@ -17938,10 +18122,13 @@ const TaskDetailModal = ({
                   e.target.value = "";
                 };
                 const formatFileSize = (bytes) => {
+                  if (!Number.isFinite(bytes) || bytes < 0) return "";
                   if (bytes < 1024) return bytes + " B";
                   if (bytes < 1024 * 1024)
                     return (bytes / 1024).toFixed(1) + " KB";
-                  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+                  if (bytes < 1024 * 1024 * 1024)
+                    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+                  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
                 };
                 const openAttachment = async (att, download = false) => {
                   const url = att.data || attachmentUrls[att.id] || await resolveAttachmentUrl(att, { download });
@@ -17953,14 +18140,28 @@ const TaskDetailModal = ({
                   if (download) a.download = att.name;
                   a.click();
                 };
-                const isImage = (att) =>
-                  att.type && att.type.startsWith("image/");
-                const isVideo = (att) =>
-                  att.type && att.type.startsWith("video/");
                 const previewUrl = (att) => att.data || attachmentUrls[att.id] || "";
                 const isLoadingData = (att) =>
                   (att.hasData && !att.data) || (att.key && !previewUrl(att));
+                const openLightbox = async (att) => {
+                  const nextIndex = attachments.findIndex((item) => item.id === att.id);
+                  if (nextIndex < 0) return;
+                  if (!previewUrl(att) && (att.key || att.hasData)) {
+                    try {
+                      const url = await resolveAttachmentUrl(att);
+                      if (url) {
+                        setAttachmentUrls((prev) => ({ ...prev, [att.id]: url }));
+                      }
+                    } catch {
+                      // El lightbox muestra el estado de carga o el fallback de descarga.
+                    }
+                  }
+                  setLightboxIndex(nextIndex);
+                };
                 const limitLabel = formatUploadLimit(uploadStatus.maxBytes || EMBEDDED_UPLOAD_MAX_BYTES);
+                const retentionLabel = uploadStatus.r2
+                  ? ` · se borran a los ${uploadStatus.retentionDays || 5} días`
+                  : "";
                 return (
                   <section
                     id="task-files"
@@ -18027,36 +18228,56 @@ const TaskDetailModal = ({
                             className="group rounded-lg border border-[var(--border)] bg-[var(--surface-subtle)] p-3 transition-colors hover:border-[var(--border-strong)] dark:border-white/10 dark:bg-[var(--surface-muted)] dark:hover:border-white/20"
                           >
                             <div className="flex items-center gap-3">
-                            {isImage(att) && previewUrl(att) ? (
+                            <button
+                              type="button"
+                              onClick={() => openLightbox(att)}
+                              className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+                              title="Ver archivo"
+                            >
+                            {isImageAttachment(att) && previewUrl(att) ? (
                               <img
                                 src={previewUrl(att)}
-                                alt={att.name}
-                                className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-200 dark:border-slate-700"
+                                alt=""
+                                className="h-10 w-10 rounded-lg border border-slate-200 object-cover dark:border-slate-700"
                               />
                             ) : (
-                              <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-700">
                                 <Icon
-                                  name={isLoadingData(att) ? "Loader2" : isVideo(att) ? "Video" : "FileText"}
+                                  name={isLoadingData(att) ? "Loader2" : isVideoAttachment(att) ? "Video" : canLightboxPreview(att) ? "Eye" : "FileText"}
                                   size={16}
                                   className={
                                     isLoadingData(att)
-                                      ? "text-slate-500 animate-spin"
+                                      ? "animate-spin text-slate-500"
                                       : "text-slate-500"
                                   }
                                 />
                               </div>
                             )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openLightbox(att)}
+                              className="min-w-0 flex-1 text-left"
+                            >
+                              <p className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
                                 {att.name}
                               </p>
                               <p className="text-xs text-slate-500">
                                 {formatFileSize(att.size)} · {att.uploadedBy} ·{" "}
                                 {relativeTime(att.uploadedAt)}
                               </p>
-                            </div>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                            </button>
+                            <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                               <button
+                                type="button"
+                                onClick={() => openLightbox(att)}
+                                title="Vista previa"
+                                className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                              >
+                                <Icon name="Eye" size={13} />
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => openAttachment(att, true)}
                                 title={
                                   isLoadingData(att)
@@ -18064,34 +18285,32 @@ const TaskDetailModal = ({
                                     : "Descargar"
                                 }
                                 disabled={isLoadingData(att)}
-                                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                                className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-40 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                               >
                                 <Icon name="ArrowRight" size={13} />
                               </button>
                               {canAct && (
                                 <button
+                                  type="button"
                                   onClick={() =>
                                     onRemoveAttachment(task, type, att.id)
                                   }
                                   title="Eliminar"
-                                  className="p-1.5 rounded-lg text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                                  className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
                                 >
                                   <Icon name="X" size={13} />
                                 </button>
                               )}
                             </div>
                             </div>
-                            {isVideo(att) && previewUrl(att) && (
-                              <video
-                                src={previewUrl(att)}
-                                controls
-                                preload="metadata"
-                                className="mt-3 max-h-64 w-full rounded-lg bg-black"
-                              />
-                            )}
                           </div>
                         ))}
                       </div>
+                    )}
+                    {uploadStatus.r2 && attachments.length > 0 && (
+                      <p className="mt-3 text-[11px] text-slate-500">
+                        Los archivos en R2 se borran automáticamente a los {uploadStatus.retentionDays || 5} días.
+                      </p>
                     )}
                     {attachments.length === 0 && (
                       <button
@@ -18109,7 +18328,7 @@ const TaskDetailModal = ({
                           </strong>
                           <span className="mt-0.5 block text-xs text-slate-500">
                             {uploadStatus.r2
-                              ? `Imágenes, documentos o video · hasta ${limitLabel} por archivo`
+                              ? `Imágenes, documentos o video · hasta ${limitLabel} por archivo${retentionLabel}`
                               : `Imágenes, documentos o video · máx. ${limitLabel}`}
                           </span>
                         </span>
@@ -18764,6 +18983,15 @@ const TaskDetailModal = ({
         </div>
       </div>
     </div>
+    <AttachmentLightbox
+      attachments={ticketAttachments}
+      index={lightboxIndex != null && !ticketAttachments[lightboxIndex] ? null : lightboxIndex}
+      urls={attachmentUrls}
+      onClose={() => setLightboxIndex(null)}
+      onChangeIndex={setLightboxIndex}
+      onDownload={downloadTicketAttachment}
+    />
+    </>
   );
 };
 

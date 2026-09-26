@@ -161,7 +161,8 @@ export const env = {
                 : ''
         ),
         publicBaseUrl: String(process.env.R2_PUBLIC_BASE_URL || '').replace(/\/+$/, ''),
-        maxFileBytes: parseNumber(process.env.R2_MAX_UPLOAD_BYTES, 512 * 1024 * 1024),
+        maxFileBytes: parseNumber(process.env.R2_MAX_UPLOAD_BYTES, 10 * 1024 * 1024 * 1024),
+        retentionDays: parseNumber(process.env.R2_RETENTION_DAYS, 5),
         signTtlSeconds: parseNumber(process.env.R2_SIGN_TTL_SECONDS, 15 * 60),
         downloadTtlSeconds: parseNumber(process.env.R2_DOWNLOAD_TTL_SECONDS, 60 * 60)
     }

@@ -11,6 +11,7 @@ import {
 } from '../lib/attachments.js';
 import { getCollectionPermission, hasPermission } from '../lib/permissions.js';
 import { getRecord } from '../lib/records.js';
+import { env } from '../config/env.js';
 import { deleteObject, getR2MaxFileBytes, isR2Configured, publicObjectUrl, signDownloadUrl, signUploadUrl } from '../lib/r2.js';
 import { requireAuthenticatedUser } from '../lib/sessions.js';
 
@@ -44,7 +45,8 @@ router.get('/status', asyncHandler(async (req, res) => {
     requireAuthenticatedUser(req);
     res.json({
         r2: isR2Configured(),
-        maxBytes: isR2Configured() ? getR2MaxFileBytes() : 3 * 1024 * 1024
+        maxBytes: isR2Configured() ? getR2MaxFileBytes() : 3 * 1024 * 1024,
+        retentionDays: isR2Configured() ? env.r2.retentionDays : 0
     });
 }));
 

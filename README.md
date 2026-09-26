@@ -19,7 +19,7 @@ La base local se crea en `.tmp/clusterag.sqlite`. El proyecto no copia ni restau
 - Declara los usuarios iniciales mediante `SEED_SUPER_ADMIN_EMAILS`, `SEED_MANAGEMENT_TEAM_JSON` y `SEED_EDITOR_TEAM_JSON`; no hay identidades privilegiadas dentro del codigo.
 - Ejecuta el bootstrap solo de forma deliberada con `RUN_BOOTSTRAP_ON_START=true`. En Vercel permanece desactivado por defecto.
 - Completa `FIREBASE_*` para autenticacion por correo y push, y `SMTP_*` para reportes/notificaciones por email.
-- Completa `R2_*` para subir archivos de tareas a Cloudflare R2. El cliente pide una URL firmada y sube directo al bucket (hasta 512 MB por archivo). Si `R2_PUBLIC_BASE_URL` esta vacio, las descargas usan URLs firmadas de una hora.
+- Completa `R2_*` para subir archivos de tareas a Cloudflare R2. El cliente pide una URL firmada y sube directo al bucket (hasta 10 GB por archivo). Los archivos de R2 se borran automaticamente a los 5 dias. Si `R2_PUBLIC_BASE_URL` esta vacio, las descargas usan URLs firmadas de una hora.
 
 CORS de R2 (necesario para que el navegador haga PUT directo al bucket):
 

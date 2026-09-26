@@ -99,6 +99,7 @@ test('upload status requires a session', async () => {
     const authed = await request('/api/uploads/status', { token: editorToken });
     assert.equal(authed.status, 200);
     assert.equal(authed.payload.r2, false);
+    assert.equal(authed.payload.retentionDays, 0);
 });
 
 test('signing an upload without R2 stays unavailable', async () => {
