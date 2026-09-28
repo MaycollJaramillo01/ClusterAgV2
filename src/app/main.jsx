@@ -151,6 +151,7 @@ import {
 } from "./utils/kpi.js";
 import { apiFetch } from "./lib/backend-api.js";
 import {
+  MAX_TASK_ATTACHMENTS,
   TASK_UPLOAD_COLLECTIONS,
   deleteStoredAttachment,
   fetchUploadStatus,
@@ -164,6 +165,13 @@ import {
   signStoredUpload,
   signTaskUpload,
 } from "./lib/task-uploads.js";
+import {
+  CLIENT_PRIORITY_FLAGS,
+  compareClientsByPriority,
+  getClientPriority,
+  groupClientsByPriority,
+  shouldNotifyClientPriority,
+} from "./lib/client-priority.js";
 import {
   getCallRoomAlias,
   getConsumedCallLinkUrl,
@@ -1957,6 +1965,7 @@ function App() {
   const lastReconciledDuplicateSignatureRef = useRef("");
   const lastIdentityLinkSyncSignatureRef = useRef("");
   const [clients, setClients] = useState([]);
+  const [teamGroups, setTeamGroups] = useState([]);
   const [events, setEvents] = useState([]);
   const [managers, setManagers] = useState([]);
   const [editors, setEditors] = useState([]);
@@ -2598,9 +2607,8 @@ function App() {
   const appUserById = new Map(appUsers.map((item) => [item.id, item]));
   const managementMemberCandidates = [
     ...appUsers.filter((item) => item.isActive !== false),
-    // `users` se entrega acotado al perfil propio para roles sin view_users.
-    // El directorio del chat contiene los ids reales y el perfil publico minimo
-    // del equipo, de modo que esas personas tambien puedan recibir tareas.
+    // `users` llega acotado al perfil propio si no hay view_users.
+    // El directorio del chat trae el perfil publico del equipo.
     ...chatDirectory,
     ...managers.map((item) => {
       const linkedUser = item.userId ? appUserById.get(item.userId) : null;
@@ -3215,6 +3223,17 @@ function App() {
         dataCollection("chat_stickers"),
         (snapshot) =>
           setChatStickers(
+            snapshot.docs.map((docItem) => ({
+              id: docItem.id,
+              ...docItem.data(),
+            })),
+          ),
+        errHandler,
+      ),
+      onSnapshot(
+        dataCollection("team_groups"),
+        (snapshot) =>
+          setTeamGroups(
             snapshot.docs.map((docItem) => ({
               id: docItem.id,
               ...docItem.data(),
@@ -5006,6 +5025,147 @@ function App() {
       afterSuccess: closeModal,
     });
   };
+  const updateClientPriority = async (client, priorityFlag) => {
+    if (!client?.id) return;
+    const nextFlag = String(priorityFlag || "ninguna");
+    await runMutation({
+      permission: "manage_clients",
+      action: "update",
+      entityType: "client",
+      entityId: client.id,
+      description: `Cambia prioridad de ${client.name} a ${nextFlag}`,
+      changes: { priorityFlag: nextFlag },
+      successMessage: "Prioridad actualizada",
+      execute: () =>
+        updateDoc(dataDoc("clients", client.id), {
+          priorityFlag: nextFlag,
+          updatedAt: nowIso(),
+        }),
+    });
+    if (shouldNotifyClientPriority(nextFlag)) {
+      const manager = managers.find((item) => item.id === client.managerId);
+      const email = manager?.email;
+      if (email) {
+        const flag = getClientPriority({ priorityFlag: nextFlag });
+        sendNotification({
+          to: email,
+          type: "client_priority",
+          senderName: currentUserProfile?.name || "Alguien",
+          clientId: client.id,
+          clientName: client.name,
+          priorityLabel: flag.label,
+        });
+      }
+    }
+  };
+  const createTeamGroup = async ({ name, memberIds }) => {
+    const title = String(name || "").trim();
+    const ids = [...new Set((memberIds || []).map(String).filter(Boolean))];
+    const me = currentUserProfile?.id;
+    if (me && !ids.includes(me)) ids.unshift(me);
+    if (!title || ids.length < 1) {
+      showToast("El grupo necesita nombre e integrantes.", "error");
+      return null;
+    }
+    return runMutation({
+      permission: "send_client_chat",
+      action: "create",
+      entityType: "teamGroup",
+      description: `Crea grupo ${title}`,
+      changes: { name: title, memberIds: ids },
+      successMessage: "Grupo creado",
+      execute: () =>
+        addDoc(dataCollection("team_groups"), {
+          name: title,
+          memberIds: ids,
+          createdById: me || "",
+          createdByName: currentUserProfile?.name || "",
+          createdAt: nowIso(),
+          updatedAt: nowIso(),
+        }),
+    });
+  };
+  const updateTeamGroupMembers = async (groupId, memberIds) => {
+    const ids = [...new Set((memberIds || []).map(String).filter(Boolean))];
+    if (!groupId || ids.length < 1) return;
+    return runMutation({
+      permission: "send_client_chat",
+      action: "update",
+      entityType: "teamGroup",
+      entityId: groupId,
+      description: `Actualiza integrantes del grupo ${groupId}`,
+      changes: { memberIds: ids },
+      successMessage: "Grupo actualizado",
+      execute: () =>
+        updateDoc(dataDoc("team_groups", groupId), {
+          memberIds: ids,
+          updatedAt: nowIso(),
+        }),
+    });
+  };
+  const assignTaskFromChat = async ({
+    conversation,
+    title,
+    taskType = "accountTask",
+    assigneeIds = [],
+    clientId = "",
+  }) => {
+    const trimmed = String(title || "").trim();
+    if (!trimmed) return null;
+    const ids = [...new Set((assigneeIds || []).map(String).filter(Boolean))];
+    const payload = {
+      title: trimmed,
+      date: getHondurasTodayStr(),
+      contextId: ids[0] || "",
+      assignees: ids,
+      clientId: clientId || (conversation?.isTeamGroup ? "" : conversation?.id) || "",
+      notes: conversation?.isTeamGroup
+        ? `Asignada desde el grupo ${conversation.name}`
+        : `Asignada desde el chat de ${conversation?.name || "cliente"}`,
+      pendingFiles: [],
+    };
+    let result = null;
+    if (taskType === "editingTask") {
+      result = await addEditingTask({ ...payload, priority: "normal", hierarchy: "p2", status: "editar" });
+    } else if (taskType === "managementTask") {
+      result = await addManagementTask({
+        ...payload,
+        time: "18:00",
+        category: "seguimiento",
+        notificationsEnabled: false,
+      });
+    } else {
+      result = await addAccountTask(payload);
+    }
+    if (result?.id && conversation?.id) {
+      await addClientChatMessage({
+        clientId: conversation.id,
+        kind: conversation.isTeamGroup ? "team_group" : "client",
+        text: `Asignó la tarea "${trimmed}"`,
+        mentionedIds: ids,
+        taskRef: {
+          taskId: result.id,
+          taskType,
+          taskTitle: trimmed,
+        },
+      });
+      ids.forEach((uid) => {
+        const person = chatMentionables.find((item) => item.id === uid);
+        const email = person?.email;
+        if (email) {
+          sendNotification({
+            to: email,
+            type: "assigned",
+            senderName: currentUserProfile?.name || "Alguien",
+            taskTitle: trimmed,
+            taskType,
+            taskId: result.id,
+          });
+        }
+      });
+    }
+    return result;
+  };
   const reassignClientManager = async (client, newManagerId) => {
     if (!newManagerId) return;
     const newManager = managers.find((m) => m.id === newManagerId);
@@ -5041,12 +5201,8 @@ function App() {
     });
   };
 
-  // "Agregar a Editores/Accounts" solo escribia la ficha del directorio: la
-  // persona quedaba visible pero sin cuenta, sin correo de acceso y sin poder
-  // entrar. Ahora tambien se le crea el usuario con el rol que le corresponde.
-  // ponytail: la ficha y el usuario se emparejan por correo, que es lo que ya
-  // usan el directorio, el login y el selector de responsable; no se escribe
-  // userId/linkedEditorId porque el puente que los mantenia esta apagado.
+  // "Agregar a Editores/Accounts" solo escribia la ficha del directorio.
+  // Tambien se crea el usuario. Ficha y cuenta se emparejan por correo.
   const ensureTeamMemberAccount = async (fd = {}, role) => {
     const normalizedEmail = normalizeEmail(fd.email);
     if (!normalizedEmail) return;
@@ -5176,31 +5332,37 @@ function App() {
   };
 
   const addAccountTask = async (data) => {
+    const { pendingFiles, onUploadProgress, ...taskData } = data || {};
     const assignee = accountTaskAssignees.find(
-      (item) => item.id === data.contextId && item.isActive !== false,
+      (item) => item.id === taskData.contextId && item.isActive !== false,
     );
-    await runMutation({
+    return await runMutation({
       permission: "create_account_tasks",
       action: "create",
       entityType: "accountTask",
-      description: `Crea tarea de account ${data.title}`,
-      changes: data,
+      description: `Crea tarea de account ${taskData.title}`,
+      changes: taskData,
       successMessage: "Agendado",
       execute: () =>
         addDoc(dataCollection("account_tasks"), {
-          ...data,
+          ...taskData,
+          assignees: Array.isArray(taskData.assignees)
+            ? taskData.assignees
+            : [taskData.contextId].filter(Boolean),
+          contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
           assigneeUserId: assignee?.assigneeUserId || "",
-          notificationsEnabled: data.notificationsEnabled !== false,
+          notificationsEnabled: taskData.notificationsEnabled !== false,
           status: "por_disenar",
           createdAt: nowIso(),
           updatedAt: nowIso(),
         }),
-      afterSuccess: closeModal,
+      afterSuccess: pendingFiles?.length ? undefined : closeModal,
     });
   };
   const updateAccountTask = async (id, data) => {
+    const { pendingFiles, onUploadProgress, ...taskData } = data || {};
     const assignee = accountTaskAssignees.find(
-      (item) => item.id === data.contextId && item.isActive !== false,
+      (item) => item.id === taskData.contextId && item.isActive !== false,
     );
     const existingTask = accountTasks.find((item) => item.id === id);
     const historicalOwnerPatch =
@@ -5215,22 +5377,22 @@ function App() {
               normalizeDateOnlyString(existingTask.date),
           }
         : {};
-    await runMutation({
+    return await runMutation({
       permission: "manage_account_tasks",
       action: "update",
       entityType: "accountTask",
       entityId: id,
       description: `Actualiza tarea de account ${id}`,
-      changes: data,
+      changes: taskData,
       successMessage: "Guardado",
       execute: () =>
         updateDoc(dataDoc("account_tasks", id), {
-          ...data,
+          ...taskData,
           assigneeUserId: assignee?.assigneeUserId || "",
           ...historicalOwnerPatch,
           updatedAt: nowIso(),
         }),
-      afterSuccess: closeModal,
+      afterSuccess: pendingFiles?.length ? undefined : closeModal,
     });
   };
   const changeAccountTaskStatus = async (task, newStatus) => {
@@ -5259,28 +5421,33 @@ function App() {
   };
 
   const addEditingTask = async (data) => {
+    const { pendingFiles, onUploadProgress, ...taskData } = data || {};
     const assignee = editingTaskAssignees.find(
-      (item) => item.id === data.contextId && item.isActive !== false,
+      (item) => item.id === taskData.contextId && item.isActive !== false,
     );
     const stamp = nowIso();
-    const initialStatus = data.status || "editar";
-    const initialTask = { ...data, status: initialStatus };
-    await runMutation({
+    const initialStatus = taskData.status || "editar";
+    const initialTask = { ...taskData, status: initialStatus };
+    return await runMutation({
       permission: "create_editing_tasks",
       action: "create",
       entityType: "editingTask",
-      description: `Crea video ${data.title}`,
+      description: `Crea video ${taskData.title}`,
       changes: {
-        ...data,
-        hierarchy: data.hierarchy || getEditingHierarchyId(data),
+        ...taskData,
+        hierarchy: taskData.hierarchy || getEditingHierarchyId(taskData),
       },
       successMessage: "Agendado",
       execute: () =>
         addDoc(dataCollection("editing"), {
-          ...data,
-          hierarchy: data.hierarchy || getEditingHierarchyId(data),
+          ...taskData,
+          hierarchy: taskData.hierarchy || getEditingHierarchyId(taskData),
+          assignees: Array.isArray(taskData.assignees)
+            ? taskData.assignees
+            : [taskData.contextId].filter(Boolean),
+          contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
           assigneeUserId: assignee?.assigneeUserId || "",
-          notificationsEnabled: data.notificationsEnabled !== false,
+          notificationsEnabled: taskData.notificationsEnabled !== false,
           status: initialStatus,
           ...getStatusTimestampPatch(
             initialTask,
@@ -5292,44 +5459,45 @@ function App() {
           createdAt: stamp,
           updatedAt: stamp,
         }),
-      afterSuccess: closeModal,
+      afterSuccess: pendingFiles?.length ? undefined : closeModal,
     });
   };
   const updateEditingTask = async (id, data) => {
+    const { pendingFiles, onUploadProgress, ...taskData } = data || {};
     const assignee = editingTaskAssignees.find(
-      (item) => item.id === data.contextId && item.isActive !== false,
+      (item) => item.id === taskData.contextId && item.isActive !== false,
     );
     const existingTask = editingTasks.find((item) => item.id === id);
     const stamp = nowIso();
     const statusPatch =
       existingTask?.status &&
-      data.status &&
-      existingTask.status !== data.status
+      taskData.status &&
+      existingTask.status !== taskData.status
         ? getStatusTimestampPatch(
             existingTask,
-            data.status,
+            taskData.status,
             stamp,
             currentUserProfile?.id,
             "editing",
           )
         : {};
-    await runMutation({
+    return await runMutation({
       permission: "manage_editing_tasks",
       action: "update",
       entityType: "editingTask",
       entityId: id,
       description: `Actualiza video ${id}`,
-      changes: data,
+      changes: taskData,
       successMessage: "Guardado",
       execute: () =>
         updateDoc(dataDoc("editing", id), {
-          ...data,
-          hierarchy: data.hierarchy || getEditingHierarchyId(data),
+          ...taskData,
+          hierarchy: taskData.hierarchy || getEditingHierarchyId(taskData),
           assigneeUserId: assignee?.assigneeUserId || "",
           ...statusPatch,
           updatedAt: stamp,
         }),
-      afterSuccess: closeModal,
+      afterSuccess: pendingFiles?.length ? undefined : closeModal,
     });
   };
   const changeEditingTaskStatus = async (task, newStatus) => {
@@ -5363,14 +5531,15 @@ function App() {
   };
 
   const addManagementTask = async (data) => {
-    const member = managementUsers.find((item) => item.id === data.contextId);
-    const normalizedDate = normalizeDateOnlyString(data.date);
-    const normalizedTime = normalizeTimeValue(data.time);
+    const { pendingFiles, onUploadProgress, ...taskData } = data || {};
+    const member = managementUsers.find((item) => item.id === taskData.contextId);
+    const normalizedDate = normalizeDateOnlyString(taskData.date);
+    const normalizedTime = normalizeTimeValue(taskData.time);
     if (!normalizedDate || !normalizedTime) {
       showToast("La tarea de gestion requiere fecha y hora limite.", "error");
       return null;
     }
-    if (data.notificationsEnabled !== false && !normalizeEmail(member?.email)) {
+    if (taskData.notificationsEnabled !== false && !normalizeEmail(member?.email)) {
       showToast(
         "El integrante asignado necesita un correo para recibir recordatorios automaticos.",
         "error",
@@ -5381,31 +5550,36 @@ function App() {
       permission: "create_management_tasks",
       action: "create",
       entityType: "managementTask",
-      description: `Crea tarea de gestion ${data.title}`,
-      changes: data,
+      description: `Crea tarea de gestion ${taskData.title}`,
+      changes: taskData,
       successMessage: "Agendado",
       execute: () =>
         addDoc(dataCollection("management_tasks"), {
-          ...data,
+          ...taskData,
           date: normalizedDate,
           time: normalizedTime,
+          assignees: Array.isArray(taskData.assignees)
+            ? taskData.assignees
+            : [taskData.contextId].filter(Boolean),
+          contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
           assigneeUserId: member?.id || "",
           status: "pendiente",
           createdAt: nowIso(),
           updatedAt: nowIso(),
         }),
-      afterSuccess: closeModal,
+      afterSuccess: pendingFiles?.length ? undefined : closeModal,
     });
   };
   const updateManagementTask = async (id, data) => {
-    const member = managementUsers.find((item) => item.id === data.contextId);
-    const normalizedDate = normalizeDateOnlyString(data.date);
-    const normalizedTime = normalizeTimeValue(data.time);
+    const { pendingFiles, onUploadProgress, ...taskData } = data || {};
+    const member = managementUsers.find((item) => item.id === taskData.contextId);
+    const normalizedDate = normalizeDateOnlyString(taskData.date);
+    const normalizedTime = normalizeTimeValue(taskData.time);
     if (!normalizedDate || !normalizedTime) {
       showToast("La tarea de gestion requiere fecha y hora limite.", "error");
       return null;
     }
-    if (data.notificationsEnabled !== false && !normalizeEmail(member?.email)) {
+    if (taskData.notificationsEnabled !== false && !normalizeEmail(member?.email)) {
       showToast(
         "El integrante asignado necesita un correo para recibir recordatorios automaticos.",
         "error",
@@ -5424,17 +5598,17 @@ function App() {
       entityType: "managementTask",
       entityId: id,
       description: `Actualiza tarea de gestion ${id}`,
-      changes: data,
+      changes: taskData,
       successMessage: "Guardado",
       execute: () =>
         updateDoc(dataDoc("management_tasks", id), {
-          ...data,
+          ...taskData,
           date: normalizedDate,
           time: normalizedTime,
           assigneeUserId: member?.id || "",
           updatedAt: nowIso(),
         }),
-      afterSuccess: closeModal,
+      afterSuccess: pendingFiles?.length ? undefined : closeModal,
     });
   };
   const changeManagementTaskStatus = async (task, newStatus) => {
@@ -5511,10 +5685,21 @@ function App() {
       editingTask: "editing",
       managementTask: "management_tasks",
     };
+    const poolMap = {
+      accountTask: accountTaskAssignees,
+      editingTask: editingTaskAssignees,
+      managementTask: managementUsers,
+    };
     const col = colMap[type];
     if (!col) return;
+    const ids = (assigneeIds || []).map(String).filter(Boolean);
+    const primary = ids[0] || "";
+    const pool = poolMap[type] || [];
+    const assignee = pool.find((item) => item.id === primary);
     await updateDoc(dataDoc(col, task.id), {
-      assignees: assigneeIds,
+      assignees: ids,
+      contextId: primary || null,
+      assigneeUserId: assignee?.assigneeUserId || assignee?.id || "",
       updatedAt: nowIso(),
     });
   };
@@ -5602,6 +5787,7 @@ function App() {
     forwarded = false,
     call = null,
     sticker = null,
+    kind = "client",
   }) => {
     const trimmed = (text || "").trim();
     const safeAttachments = Array.isArray(attachments) ? attachments : [];
@@ -5616,6 +5802,7 @@ function App() {
       (authEmail ? authEmail.split("@")[0] : "Usuario");
     const createdMessage = await addDoc(dataCollection("client_chats"), {
       clientId,
+      kind: kind === "team_group" ? "team_group" : "client",
       text: trimmed,
       authorName: senderName,
       authorId: currentUserProfile?.id || "",
@@ -5645,7 +5832,8 @@ function App() {
       createdAt: nowIso(),
     });
     const client = clients.find((item) => item.id === clientId);
-    const clientName = client?.name || "Cliente";
+    const teamGroup = teamGroups.find((item) => item.id === clientId);
+    const clientName = client?.name || teamGroup?.name || "Chat";
     for (const uid of mentionedIds) {
       const person = chatMentionables.find((p) => p.id === uid);
       const email = person?.email;
@@ -6011,9 +6199,7 @@ function App() {
     handleNavigate(viewByType[taskRef.taskType] || "account-room");
   };
 
-  // Directorio completo de personas. ClientChatView lo cruza con la membresía
-  // del grupo activo para que menciones y llamadas nunca muestren a todo el
-  // equipo indiscriminadamente.
+  // Directorio de personas. ClientChatView lo cruza con la membresía del grupo.
   const chatMentionables = (() => {
     if (chatDirectory.length > 0) return chatDirectory;
     const seenEmail = new Set();
@@ -6302,7 +6488,7 @@ function App() {
     } else {
       if (type === "editingTask") {
         alert(
-          "Cloudflare R2 no está configurado. Agrega las variables R2_* para subir archivos de edición.",
+          "R2 no está configurado.",
         );
         return;
       }
@@ -7160,6 +7346,7 @@ function App() {
               managers={managers}
               legacyColorMap={LEGACY_COLOR_MAP}
               onReassignManager={reassignClientManager}
+              onChangePriority={updateClientPriority}
               onAdd={() => setModalConfig({ isOpen: true, type: "client" })}
               onSelect={(c) => {
                 setSelectedClient(c);
@@ -7173,6 +7360,7 @@ function App() {
               managers={managers}
               legacyColorMap={LEGACY_COLOR_MAP}
               onReassignManager={reassignClientManager}
+              onChangePriority={updateClientPriority}
               onBack={() => handleNavigate("clients")}
               onUpdate={updateClient}
               onDelete={() =>
@@ -7248,6 +7436,10 @@ function App() {
               fetchFullMessage={fetchClientChatMessage}
               incomingCallToJoin={incomingCallToJoin}
               onIncomingCallJoined={() => setIncomingCallToJoin(null)}
+              teamGroups={teamGroups}
+              onCreateTeamGroup={createTeamGroup}
+              onUpdateTeamGroup={updateTeamGroupMembers}
+              onAssignTaskFromChat={assignTaskFromChat}
             />
           )}
           {view === "managers" && (
@@ -7734,6 +7926,7 @@ function App() {
               updateManagementTask,
               addUserRecord,
               updateUserRecord,
+              addAttachment: addTaskAttachment,
             }}
           />
         )}
@@ -13061,6 +13254,49 @@ const ManagerPicker = ({
   );
 };
 
+const ClientPriorityFlag = ({ client, onChange, compact = false }) => {
+  const [open, setOpen] = useState(false);
+  const current = getClientPriority(client);
+  return (
+    <div className="relative" data-priority-flag>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((value) => !value);
+        }}
+        className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-black uppercase tracking-wide ${current.chip}`}
+        title="Prioridad del cliente"
+      >
+        <span className={`h-1.5 w-1.5 rounded-full ${current.dot}`} />
+        {compact ? current.label.slice(0, 1) : current.label}
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 top-full z-30 mt-1 w-40 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-800"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {CLIENT_PRIORITY_FLAGS.map((flag) => (
+            <button
+              key={flag.id}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onChange?.(client, flag.id);
+                setOpen(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              <span className={`h-2 w-2 rounded-full ${flag.dot}`} />
+              {flag.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ClientsView = ({
   clients,
   managers = [],
@@ -13068,6 +13304,7 @@ const ClientsView = ({
   onAdd,
   onSelect,
   onReassignManager,
+  onChangePriority,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -13077,16 +13314,19 @@ const ClientsView = ({
     { id: "Pausado", label: "Pausados" },
     { id: "Inactivo", label: "Inactivos" },
   ];
-  const filteredClients = clients.filter((c) => {
-    const term = searchTerm.toLowerCase();
-    const matchesSearch =
-      c.name.toLowerCase().includes(term) ||
-      (c.niche || "").toLowerCase().includes(term);
-    if (!matchesSearch) return false;
-    if (statusFilter !== "all" && (c.status || "Activo") !== statusFilter)
-      return false;
-    return true;
-  });
+  const filteredClients = clients
+    .filter((c) => {
+      const term = searchTerm.toLowerCase();
+      const matchesSearch =
+        c.name.toLowerCase().includes(term) ||
+        (c.niche || "").toLowerCase().includes(term);
+      if (!matchesSearch) return false;
+      if (statusFilter !== "all" && (c.status || "Activo") !== statusFilter)
+        return false;
+      return true;
+    })
+    .sort(compareClientsByPriority);
+  const priorityGroups = groupClientsByPriority(filteredClients);
 
   return (
     <div className="space-y-5 fade-in">
@@ -13128,8 +13368,18 @@ const ClientsView = ({
           <EmptyState icon="Briefcase" text="No hay clientes que coincidan." />
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredClients.map((c) => {
+        <div className="space-y-8">
+          {priorityGroups.map(({ flag, clients: groupClients }) => (
+            <section key={flag.id}>
+              <div className="mb-3 flex items-center gap-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${flag.dot}`} />
+                <h3 className="text-sm font-black uppercase tracking-[0.14em] text-slate-500">
+                  {flag.label}
+                </h3>
+                <span className="text-xs text-slate-400">{groupClients.length}</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {groupClients.map((c) => {
             const status = getClientStatus(c);
             const manager = managers.find((m) => m.id === c.managerId) || null;
             const inactive = status.id === "Inactivo";
@@ -13151,12 +13401,17 @@ const ClientsView = ({
                       {c.name ? c.name.charAt(0).toUpperCase() : "C"}
                     </div>
                   )}
-                  <span
-                    className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full shrink-0 ${status.bg} ${status.text}`}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-                    {status.label}
-                  </span>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    {onChangePriority && (
+                      <ClientPriorityFlag client={c} onChange={onChangePriority} />
+                    )}
+                    <span
+                      className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full ${status.bg} ${status.text}`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
+                      {status.label}
+                    </span>
+                  </div>
                 </div>
                 <h3 className="text-base font-bold text-slate-800 dark:text-white truncate">
                   {c.name}
@@ -13202,6 +13457,9 @@ const ClientsView = ({
               </div>
             );
           })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </div>
@@ -13213,6 +13471,7 @@ const ClientDetail = ({
   managers,
   legacyColorMap = {},
   onReassignManager,
+  onChangePriority,
   onBack,
   onUpdate,
   onDelete,
@@ -13258,7 +13517,7 @@ const ClientDetail = ({
           <div>
             <h1 className="text-2xl md:text-3xl font-black">{client.name}</h1>
 
-            <div className="mt-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <ManagerPicker
                 managers={managers}
                 value={client.managerId || ""}
@@ -13267,6 +13526,9 @@ const ClientDetail = ({
                 placeholder="Asignar Account Manager..."
                 buttonClassName="flex items-center gap-2 bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg border border-white/10 text-white font-bold text-xs transition-all max-w-full"
               />
+              {onChangePriority && (
+                <ClientPriorityFlag client={client} onChange={onChangePriority} />
+              )}
             </div>
             {onOpenChat && (
               <button
@@ -13781,6 +14043,10 @@ const ClientChatView = ({
   fetchFullMessage,
   incomingCallToJoin = null,
   onIncomingCallJoined,
+  teamGroups = [],
+  onCreateTeamGroup,
+  onUpdateTeamGroup,
+  onAssignTaskFromChat,
 }) => {
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -13810,6 +14076,16 @@ const ClientChatView = ({
   const [mentionStart, setMentionStart] = useState(-1);
   const [taskRef, setTaskRef] = useState(null);
   const [taskPickerOpen, setTaskPickerOpen] = useState(false);
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [groupMemberIds, setGroupMemberIds] = useState([]);
+  const [savingGroup, setSavingGroup] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignTitle, setAssignTitle] = useState("");
+  const [assignType, setAssignType] = useState("accountTask");
+  const [assignIds, setAssignIds] = useState([]);
+  const [assignClientId, setAssignClientId] = useState("");
+  const [assigning, setAssigning] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pending, setPending] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -13926,11 +14202,30 @@ const ClientChatView = ({
   const matchingClients = [...clients]
     .filter((client) => !term || (client.name || "").toLowerCase().includes(term))
     .sort((a, b) => {
+      const priorityDiff = compareClientsByPriority(a, b);
+      if (priorityDiff !== 0) return priorityDiff;
       const aTime = lastMsgByClient[a.id]?.createdAt || "";
       const bTime = lastMsgByClient[b.id]?.createdAt || "";
       if (aTime !== bTime) return aTime > bTime ? -1 : 1;
       return (a.name || "").localeCompare(b.name || "");
     });
+  const visibleTeamGroups = teamGroups
+    .filter((group) => {
+      const members = (group.memberIds || []).map(String);
+      const mine = !membershipIdentity || members.includes(membershipIdentity);
+      const matches = !term || (group.name || "").toLowerCase().includes(term);
+      return mine && matches;
+    })
+    .sort((a, b) => {
+      const aTime = lastMsgByClient[a.id]?.createdAt || "";
+      const bTime = lastMsgByClient[b.id]?.createdAt || "";
+      if (aTime !== bTime) return aTime > bTime ? -1 : 1;
+      return (a.name || "").localeCompare(b.name || "");
+    })
+    .map((group) => ({
+      ...group,
+      isTeamGroup: true,
+    }));
   const activeClients = groupsLoaded
     ? matchingClients.filter((client) => belongsToChatGroup(client.id))
     : matchingClients;
@@ -13975,21 +14270,37 @@ const ClientChatView = ({
     (message) => pinnedIds.has(String(message.id)) && !message.deleted,
   );
 
+  const taskTouchesGroup = (task) => {
+    if (!activeClient) return false;
+    if (!activeClient.isTeamGroup) return task.clientId === activeClient.id;
+    const ids = new Set([
+      ...(Array.isArray(task.assignees) ? task.assignees : []),
+      task.contextId,
+      task.assigneeUserId,
+    ].filter(Boolean).map(String));
+    return (activeClient.memberIds || []).some((id) => ids.has(String(id)));
+  };
   const clientTasks = activeClient
     ? [
         ...accountTasks
-          .filter((task) => task.clientId === activeClient.id)
+          .filter(taskTouchesGroup)
           .map((task) => ({ id: task.id, title: task.title, type: "accountTask" })),
         ...editingTasks
-          .filter((task) => task.clientId === activeClient.id)
+          .filter(taskTouchesGroup)
           .map((task) => ({ id: task.id, title: task.title, type: "editingTask" })),
         ...managementTasks
-          .filter((task) => task.clientId === activeClient.id)
+          .filter(taskTouchesGroup)
           .map((task) => ({ id: task.id, title: task.title, type: "managementTask" })),
       ]
     : [];
 
-  const activeGroup = activeClient
+  const activeGroup = activeClient?.isTeamGroup
+    ? {
+        clientId: String(activeClient.id),
+        memberIds: activeClient.memberIds || [],
+        source: "managed",
+      }
+    : activeClient
     ? groupsByClient[String(activeClient.id)] || {
         clientId: String(activeClient.id),
         memberIds: [],
@@ -13998,7 +14309,8 @@ const ClientChatView = ({
     : null;
   const activeGroupMemberIds = (activeGroup?.memberIds || []).map(String);
   const activeGroupMemberSet = new Set(activeGroupMemberIds);
-  const isActiveGroupMember = activeGroupMemberSet.has(membershipIdentity);
+  const isActiveGroupMember = activeGroupMemberSet.has(membershipIdentity)
+    || activeGroupMemberSet.has(String(currentUserProfile?.id || ""));
   const canInteractWithActiveGroup =
     !groupsLoaded || isActiveGroupMember;
   const activeGroupMembers = mentionables.filter((person) =>
@@ -14033,10 +14345,14 @@ const ClientChatView = ({
   };
 
   const saveMembers = async () => {
-    if (!activeClient?.id || !onUpdateMembers || savingMembers) return;
+    const updater = activeClient?.isTeamGroup ? onUpdateTeamGroup : onUpdateMembers;
+    if (!activeClient?.id || !updater || savingMembers) return;
     setSavingMembers(true);
     try {
-      await onUpdateMembers(activeClient.id, memberDraftIds);
+      await updater(activeClient.id, memberDraftIds);
+      if (activeClient.isTeamGroup) {
+        onSelectClient({ ...activeClient, memberIds: memberDraftIds });
+      }
       setMembersOpen(false);
     } catch {
       // El contenedor ya muestra el mensaje devuelto por el servidor.
@@ -14348,6 +14664,7 @@ const ClientChatView = ({
       recordSecondsRef.current = 0;
       recordContextRef.current = {
         clientId: activeClient?.id || "",
+        kind: activeClient?.isTeamGroup ? "team_group" : "client",
         replyTo: replyingTo
           ? {
               id: replyingTo.id,
@@ -14400,6 +14717,7 @@ const ClientChatView = ({
           try {
             await onSendMessage({
               clientId: recordContextRef.current.clientId,
+              kind: recordContextRef.current.kind || "client",
               attachments: [voiceAttachment],
               replyTo: recordContextRef.current.replyTo,
             });
@@ -14470,6 +14788,7 @@ const ClientChatView = ({
     try {
       await onSendMessage({
         clientId: activeClient.id,
+        kind: activeClient.isTeamGroup ? "team_group" : "client",
         text: trimmed,
         mentionedIds,
         taskRef,
@@ -14504,6 +14823,7 @@ const ClientChatView = ({
     try {
       await onSendMessage({
         clientId: activeClient.id,
+        kind: activeClient.isTeamGroup ? "team_group" : "client",
         sticker: stickerId,
         replyTo: replyingTo
           ? {
@@ -14670,6 +14990,20 @@ const ClientChatView = ({
                 {chatUnread.total}
               </span>
             )}
+            {!showArchived && onCreateTeamGroup && (
+              <button
+                type="button"
+                onClick={() => {
+                  setGroupName("");
+                  setGroupMemberIds(currentUserProfile?.id ? [currentUserProfile.id] : []);
+                  setCreateGroupOpen(true);
+                }}
+                className="chat-header-button ml-auto shrink-0"
+                title="Nuevo grupo"
+              >
+                <Icon name="Users" size={16} />
+              </button>
+            )}
           </div>
           <div className="chat-search relative mt-5">
             <Icon
@@ -14733,6 +15067,49 @@ const ClientChatView = ({
                     ? "Los grupos que abandones aparecerán aquí."
                     : "Los grupos activos aparecerán en este espacio."}
               </span>
+            </div>
+          )}
+          {!showArchived && visibleTeamGroups.length > 0 && (
+            <div className="px-4 pb-1 pt-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+              Grupos de equipo
+            </div>
+          )}
+          {!showArchived &&
+            visibleTeamGroups.map((group) => {
+              const unread = chatUnread.byClient?.[group.id] || 0;
+              const last = lastMsgByClient[group.id];
+              const isActive = activeClient?.id === group.id;
+              return (
+                <button
+                  key={group.id}
+                  type="button"
+                  onClick={() => onSelectClient(group)}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`chat-list-item flex w-full items-center gap-3 text-left ${isActive ? "is-active" : ""}`}
+                >
+                  <span className="chat-list-avatar-wrap relative shrink-0">
+                    <span
+                      className="chat-list-avatar flex items-center justify-center text-xs font-black text-white"
+                      style={{ backgroundColor: chatAvatarColor(group.name || group.id) }}
+                    >
+                      <Icon name="Users" size={14} />
+                    </span>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <strong className="block truncate">{group.name}</strong>
+                    <small className="block truncate text-slate-500">
+                      {previewText(last)}
+                    </small>
+                  </span>
+                  {unread > 0 && (
+                    <span className="chat-item-unread">{unread}</span>
+                  )}
+                </button>
+              );
+            })}
+          {!showArchived && visibleTeamGroups.length > 0 && (
+            <div className="px-4 pb-1 pt-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+              Clientes
             </div>
           )}
           {sortedClients.map((client) => {
@@ -14903,6 +15280,26 @@ const ClientChatView = ({
                   {activeGroupMembers.length || 0}
                 </span>
               </button>
+              {onAssignTaskFromChat && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssignTitle("");
+                    setAssignType("accountTask");
+                    setAssignIds(
+                      activeClient.isTeamGroup
+                        ? (activeClient.memberIds || []).map(String)
+                        : (activeGroup?.memberIds || []).map(String),
+                    );
+                    setAssignClientId(activeClient.isTeamGroup ? "" : activeClient.id);
+                    setAssignOpen(true);
+                  }}
+                  className="chat-header-button shrink-0"
+                  title="Asignar tarea"
+                >
+                  <Icon name="ClipboardList" size={16} />
+                </button>
+              )}
               <div className="relative shrink-0">
                 <button
                   type="button"
@@ -16376,6 +16773,7 @@ const ClientChatView = ({
                   if (onSendMessage) {
                     created = await onSendMessage({
                       clientId: activeClient.id,
+                      kind: activeClient.isTeamGroup ? "team_group" : "client",
                       text:
                         callPicker.mode === "add"
                           ? "Invitó a la llamada"
@@ -16461,6 +16859,178 @@ const ClientChatView = ({
             )}
           </div>
         </div>,
+          document.body,
+        )}
+      {createGroupOpen &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 p-4"
+            onClick={() => setCreateGroupOpen(false)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h3 className="text-lg font-black text-slate-800 dark:text-white">Nuevo grupo</h3>
+              <input
+                value={groupName}
+                onChange={(event) => setGroupName(event.target.value)}
+                placeholder="Nombre del grupo"
+                className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+              <div className="mt-3 max-h-56 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                {mentionables.map((person) => {
+                  const checked = groupMemberIds.includes(person.id);
+                  return (
+                    <button
+                      key={person.id}
+                      type="button"
+                      onClick={() =>
+                        setGroupMemberIds((current) =>
+                          checked
+                            ? current.filter((id) => id !== person.id)
+                            : [...current, person.id],
+                        )
+                      }
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                    >
+                      <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300"}`}>
+                        {checked ? <Icon name="Check" size={9} /> : null}
+                      </span>
+                      {person.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" onClick={() => setCreateGroupOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500">
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={savingGroup || !groupName.trim() || groupMemberIds.length < 1}
+                  onClick={async () => {
+                    setSavingGroup(true);
+                    try {
+                      const created = await onCreateTeamGroup({
+                        name: groupName.trim(),
+                        memberIds: groupMemberIds,
+                      });
+                      if (created?.id) {
+                        onSelectClient({
+                          id: created.id,
+                          name: created.name || groupName.trim(),
+                          memberIds: created.memberIds || groupMemberIds,
+                          isTeamGroup: true,
+                        });
+                      }
+                      setCreateGroupOpen(false);
+                    } finally {
+                      setSavingGroup(false);
+                    }
+                  }}
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  {savingGroup ? "Creando…" : "Crear grupo"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+      {assignOpen &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 p-4"
+            onClick={() => setAssignOpen(false)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h3 className="text-lg font-black text-slate-800 dark:text-white">Asignar tarea</h3>
+              <input
+                value={assignTitle}
+                onChange={(event) => setAssignTitle(event.target.value)}
+                placeholder="Título de la tarea"
+                className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+              <select
+                value={assignType}
+                onChange={(event) => setAssignType(event.target.value)}
+                className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              >
+                <option value="accountTask">Account</option>
+                <option value="editingTask">Edición</option>
+                <option value="managementTask">Gestión</option>
+              </select>
+              {activeClient?.isTeamGroup && (
+                <select
+                  value={assignClientId}
+                  onChange={(event) => setAssignClientId(event.target.value)}
+                  className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                >
+                  <option value="">Cliente (opcional)</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <div className="mt-3 max-h-48 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                {mentionables.map((person) => {
+                  const checked = assignIds.includes(person.id);
+                  return (
+                    <button
+                      key={person.id}
+                      type="button"
+                      onClick={() =>
+                        setAssignIds((current) =>
+                          checked
+                            ? current.filter((id) => id !== person.id)
+                            : [...current, person.id],
+                        )
+                      }
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                    >
+                      <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300"}`}>
+                        {checked ? <Icon name="Check" size={9} /> : null}
+                      </span>
+                      {person.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" onClick={() => setAssignOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500">
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={assigning || !assignTitle.trim() || assignIds.length < 1}
+                  onClick={async () => {
+                    setAssigning(true);
+                    try {
+                      await onAssignTaskFromChat({
+                        conversation: activeClient,
+                        title: assignTitle.trim(),
+                        taskType: assignType,
+                        assigneeIds: assignIds,
+                        clientId: assignClientId,
+                      });
+                      setAssignOpen(false);
+                    } finally {
+                      setAssigning(false);
+                    }
+                  }}
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  {assigning ? "Asignando…" : "Asignar"}
+                </button>
+              </div>
+            </div>
+          </div>,
           document.body,
         )}
     </div>
@@ -18152,9 +18722,7 @@ const TaskDetailModal = ({
                       if (url) {
                         setAttachmentUrls((prev) => ({ ...prev, [att.id]: url }));
                       }
-                    } catch {
-                      // El lightbox muestra el estado de carga o el fallback de descarga.
-                    }
+                    } catch { /* noop */ }
                   }
                   setLightboxIndex(nextIndex);
                 };
@@ -18309,7 +18877,7 @@ const TaskDetailModal = ({
                     )}
                     {uploadStatus.r2 && attachments.length > 0 && (
                       <p className="mt-3 text-[11px] text-slate-500">
-                        Los archivos en R2 se borran automáticamente a los {uploadStatus.retentionDays || 5} días.
+                        Se borran a los {uploadStatus.retentionDays || 5} días.
                       </p>
                     )}
                     {attachments.length === 0 && (
@@ -18328,8 +18896,8 @@ const TaskDetailModal = ({
                           </strong>
                           <span className="mt-0.5 block text-xs text-slate-500">
                             {uploadStatus.r2
-                              ? `Imágenes, documentos o video · hasta ${limitLabel} por archivo${retentionLabel}`
-                              : `Imágenes, documentos o video · máx. ${limitLabel}`}
+                              ? `Hasta ${limitLabel} por archivo${retentionLabel}`
+                              : `Máx. ${limitLabel}`}
                           </span>
                         </span>
                       </button>
@@ -19189,6 +19757,7 @@ const CreateTaskModal = ({
   const [notes, setNotes] = useState("");
   const [showDesc, setShowDesc] = useState(false);
   const [assigneeId, setAssigneeId] = useState("");
+  const [assigneeIds, setAssigneeIds] = useState([]);
   const [clientId, setClientId] = useState("");
   const [date, setDate] = useState("");
   const [priority, setPriority] = useState("");
@@ -19203,15 +19772,40 @@ const CreateTaskModal = ({
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [confirmNoDate, setConfirmNoDate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [uploadStatus, setUploadStatus] = useState({
+    r2: false,
+    maxBytes: EMBEDDED_UPLOAD_MAX_BYTES,
+    retentionDays: 0,
+  });
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [fileOver, setFileOver] = useState(false);
+  const createFileInputRef = useRef(null);
 
   // Reset / pre-fill when modal opens
   useEffect(() => {
+    if (!config.isOpen) {
+      setPendingFiles((current) => {
+        current.forEach((item) => {
+          if (item.preview) URL.revokeObjectURL(item.preview);
+        });
+        return [];
+      });
+      return;
+    }
     if (config.isOpen) {
       if (config.isEdit && data) {
         setTitle(data.title || "");
         setNotes(data.notes || "");
         setShowDesc(!!data.notes);
         setAssigneeId(data.contextId || "");
+        setAssigneeIds(
+          Array.isArray(data.assignees) && data.assignees.length
+            ? data.assignees
+            : data.contextId
+              ? [data.contextId]
+              : [],
+        );
         setClientId(data.clientId || "");
         setDate(data.date || "");
         setPriority(data.priority || "");
@@ -19228,6 +19822,7 @@ const CreateTaskModal = ({
         setNotes("");
         setShowDesc(false);
         setAssigneeId(data?.contextId || "");
+        setAssigneeIds(data?.contextId ? [data.contextId] : []);
         setClientId(data?.clientId || "");
         setDate(data?.date || "");
         setPriority("");
@@ -19240,8 +19835,27 @@ const CreateTaskModal = ({
       setClientOpen(false);
       setPriorityOpen(false);
       setDatePickerOpen(false);
+      setPendingFiles((current) => {
+        current.forEach((item) => {
+          if (item.preview) URL.revokeObjectURL(item.preview);
+        });
+        return [];
+      });
+      setUploadProgress(0);
+      setFileOver(false);
     }
   }, [config.isOpen, config.type, config.isEdit]);
+
+  useEffect(() => {
+    if (!config.isOpen) return undefined;
+    let cancelled = false;
+    fetchUploadStatus().then((status) => {
+      if (!cancelled) setUploadStatus(status);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [config.isOpen]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -19267,7 +19881,8 @@ const CreateTaskModal = ({
           ? editors
           : managementUsers
     ).filter((person) => person.isActive !== false);
-  const assignee = peoplePool.find((p) => p.id === assigneeId);
+  const assignee = peoplePool.find((p) => p.id === (assigneeIds[0] || assigneeId));
+  const selectedAssignees = peoplePool.filter((p) => assigneeIds.includes(p.id));
   const client = clients.find((c) => c.id === clientId);
   const tagColor =
     type === "accountTask"
@@ -19347,9 +19962,65 @@ const CreateTaskModal = ({
     </button>
   );
 
+  const formatCreateFileSize = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes < 0) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  };
+  const limitLabel = formatUploadLimit(uploadStatus.maxBytes || EMBEDDED_UPLOAD_MAX_BYTES);
+  const queueCreateFiles = (fileList) => {
+    const incoming = Array.from(fileList || []).filter(Boolean);
+    if (!incoming.length) return;
+    const maxBytes = uploadStatus.r2
+      ? Number(uploadStatus.maxBytes)
+      : EMBEDDED_UPLOAD_MAX_BYTES;
+    setPendingFiles((current) => {
+      const next = [...current];
+      for (const file of incoming) {
+        if (next.length >= MAX_TASK_ATTACHMENTS) {
+          alert(`Puedes adjuntar hasta ${MAX_TASK_ATTACHMENTS} archivos.`);
+          break;
+        }
+        if (file.size > maxBytes) {
+          alert(`El archivo es demasiado grande (máx. ${formatUploadLimit(maxBytes)})`);
+          continue;
+        }
+        if (type === "editingTask" && !uploadStatus.r2) {
+          alert(
+            "R2 no está configurado.",
+          );
+          break;
+        }
+        next.push({
+          id: Math.random().toString(36).slice(2, 10),
+          file,
+          name: file.name,
+          size: file.size,
+          type: inferFileType(file) || file.type,
+          preview: (inferFileType(file) || file.type || "").startsWith("image/")
+            ? URL.createObjectURL(file)
+            : "",
+        });
+      }
+      return next;
+    });
+  };
+  const removeCreateFile = (fileId) => {
+    setPendingFiles((current) => {
+      const target = current.find((item) => item.id === fileId);
+      if (target?.preview) URL.revokeObjectURL(target.preview);
+      return current.filter((item) => item.id !== fileId);
+    });
+  };
+
   const doSubmit = async () => {
     if (submitting) return null;
+    const files = pendingFiles.map((item) => item.file).filter(Boolean);
+    const payload = { pendingFiles: files };
     setSubmitting(true);
+    setUploadProgress(0);
     try {
       let result;
       if (config.isEdit && data?.id) {
@@ -19358,10 +20029,12 @@ const CreateTaskModal = ({
             date,
             title: title.trim(),
             time,
-            contextId: assigneeId,
+            contextId: assigneeIds[0] || assigneeId || "",
+            assignees: assigneeIds,
             clientId,
             notes,
             priority,
+            ...payload,
           });
         if (type === "editingTask")
           result = await actions.updateEditingTask(data.id, {
@@ -19371,20 +20044,24 @@ const CreateTaskModal = ({
             hierarchy,
             status,
             notes,
-            contextId: assigneeId,
+            contextId: assigneeIds[0] || assigneeId || "",
+            assignees: assigneeIds,
             clientId,
+            ...payload,
           });
         if (type === "managementTask")
           result = await actions.updateManagementTask(data.id, {
             date,
             title: title.trim(),
             time,
-            contextId: assigneeId,
+            contextId: assigneeIds[0] || assigneeId || "",
+            assignees: assigneeIds,
             clientId,
             category,
             notes,
             priority,
             notificationsEnabled: data.notificationsEnabled || false,
+            ...payload,
           });
       } else {
         if (type === "accountTask")
@@ -19392,10 +20069,12 @@ const CreateTaskModal = ({
             date,
             title: title.trim(),
             time,
-            contextId: assigneeId,
+            contextId: assigneeIds[0] || assigneeId || "",
+            assignees: assigneeIds,
             clientId,
             notes,
             priority,
+            ...payload,
           });
         if (type === "editingTask")
           result = await actions.addEditingTask({
@@ -19405,26 +20084,49 @@ const CreateTaskModal = ({
             hierarchy,
             status,
             notes,
-            contextId: assigneeId,
+            contextId: assigneeIds[0] || assigneeId || "",
+            assignees: assigneeIds,
             clientId,
+            ...payload,
           });
         if (type === "managementTask")
           result = await actions.addManagementTask({
             date,
             title: title.trim(),
             time,
-            contextId: assigneeId,
+            contextId: assigneeIds[0] || assigneeId || "",
+            assignees: assigneeIds,
             clientId,
             category,
             notes,
             priority,
             notificationsEnabled: false,
+            ...payload,
           });
+      }
+      const taskForFiles = result?.id
+        ? result
+        : config.isEdit && data?.id
+          ? { ...data, id: data.id }
+          : null;
+      if (result && files.length && actions.addAttachment) {
+        const taskForFiles = result.id ? result : { ...data, id: data.id };
+        try {
+          for (const file of files) {
+            await actions.addAttachment(taskForFiles, type, file, setUploadProgress);
+          }
+        } catch (error) {
+          alert(
+            error?.message ||
+              "La tarea se guardó, pero no se pudieron subir algunos archivos.",
+          );
+        }
       }
       if (type !== "managementTask" || result !== null) onClose();
       return result;
     } finally {
       setSubmitting(false);
+      setUploadProgress(0);
     }
   };
 
@@ -19467,8 +20169,30 @@ const CreateTaskModal = ({
         aria-modal="true"
         aria-labelledby={dialogTitleId}
         tabIndex={-1}
-        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-visible outline-none"
+        className={`bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl border flex flex-col overflow-visible outline-none ${fileOver ? "border-blue-400 dark:border-blue-500" : "border-slate-200 dark:border-slate-800"}`}
         onClick={(e) => e.stopPropagation()}
+        onDragEnter={(event) => {
+          if (!hasFileDrag(event)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setFileOver(true);
+        }}
+        onDragOver={(event) => {
+          if (!hasFileDrag(event)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setFileOver(true);
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget)) return;
+          setFileOver(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setFileOver(false);
+          queueCreateFiles(filesFromDrop(event));
+        }}
       >
         <h2 id={dialogTitleId} className="sr-only">
           {config.isEdit ? `Editar ${typeLabel}` : `Nueva ${typeLabel}`}
@@ -19533,6 +20257,95 @@ const CreateTaskModal = ({
           )}
         </div>
 
+        <div className="px-6 pb-4">
+          <input
+            ref={createFileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.mp4,.mov,.webm"
+            onChange={(event) => {
+              queueCreateFiles(event.target.files);
+              event.target.value = "";
+            }}
+          />
+          {pendingFiles.length === 0 ? (
+            <button
+              type="button"
+              onClick={() => createFileInputRef.current?.click()}
+              className={`flex min-h-[64px] w-full items-center justify-center gap-3 rounded-xl border border-dashed px-4 py-3 text-sm transition-colors ${
+                fileOver
+                  ? "border-blue-400 bg-blue-50 text-slate-700 dark:border-blue-500/60 dark:bg-blue-500/10 dark:text-slate-200"
+                  : "border-slate-200 bg-slate-50 text-slate-500 hover:border-blue-400 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:hover:border-blue-500/60 dark:hover:text-slate-200"
+              }`}
+            >
+              <Icon name="Paperclip" size={16} />
+              <span className="text-left">
+                <strong className="block font-semibold text-slate-700 dark:text-slate-200">
+                  Adjuntar archivos
+                </strong>
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  {uploadStatus.r2
+                    ? `Hasta ${limitLabel} · se borran a los ${uploadStatus.retentionDays || 5} días`
+                    : `Máx. ${limitLabel}`}
+                </span>
+              </span>
+            </button>
+          ) : (
+            <div className="space-y-2">
+              {pendingFiles.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50"
+                >
+                  {item.preview ? (
+                    <img
+                      src={item.preview}
+                      alt=""
+                      className="h-9 w-9 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700">
+                      <Icon
+                        name={item.type?.startsWith("video/") ? "Video" : "FileText"}
+                        size={14}
+                        className="text-slate-500"
+                      />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
+                      {item.name}
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      {formatCreateFileSize(item.size)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeCreateFile(item.id)}
+                    disabled={submitting}
+                    title="Quitar"
+                    className="rounded-lg p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-500/10"
+                  >
+                    <Icon name="X" size={13} />
+                  </button>
+                </div>
+              ))}
+              {pendingFiles.length < MAX_TASK_ATTACHMENTS && (
+                <button
+                  type="button"
+                  onClick={() => createFileInputRef.current?.click()}
+                  disabled={submitting}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:border-blue-400 hover:text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:hover:border-blue-500/60"
+                >
+                  <Icon name="Plus" size={12} /> Agregar otro archivo
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Divider */}
         <div className="border-t border-slate-100 dark:border-slate-800" />
 
@@ -19541,19 +20354,21 @@ const CreateTaskModal = ({
           {/* Persona asignada */}
           <div className="relative" data-ctdrop>
             <Chip
-              icon={assignee ? null : "UserCircle2"}
-              active={!!assignee}
+              icon={selectedAssignees.length ? null : "UserCircle2"}
+              active={selectedAssignees.length > 0}
               onClick={() => setAssigneeOpen((o) => !o)}
             >
-              {assignee ? (
+              {selectedAssignees.length === 1 ? (
                 <>
                   <div className="w-4 h-4 rounded-full bg-[var(--text-muted)] flex items-center justify-center text-white font-black text-[8px]">
-                    {assignee.name.slice(0, 2).toUpperCase()}
+                    {selectedAssignees[0].name.slice(0, 2).toUpperCase()}
                   </div>
-                  {assignee.name}
+                  {selectedAssignees[0].name}
                 </>
+              ) : selectedAssignees.length > 1 ? (
+                `${selectedAssignees.length} asignados`
               ) : (
-                "Persona asignada"
+                "Asignar personas"
               )}
             </Chip>
             {assigneeOpen && (
@@ -19562,34 +20377,40 @@ const CreateTaskModal = ({
                 data-ctdrop
               >
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-4 pt-2 pb-1 sticky top-0 bg-white dark:bg-slate-800">
-                  Asignar a
+                  Asignar a varios
                 </p>
-                {peoplePool.map((p) => (
+                {peoplePool.map((p) => {
+                  const checked = assigneeIds.includes(p.id);
+                  return (
                   <button
                     key={p.id}
                     onClick={() => {
-                      setAssigneeId(assigneeId === p.id ? "" : p.id);
-                      setAssigneeOpen(false);
+                      setAssigneeIds((current) => {
+                        const next = checked
+                          ? current.filter((id) => id !== p.id)
+                          : [...current, p.id];
+                        setAssigneeId(next[0] || "");
+                        return next;
+                      });
                     }}
                     className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   >
+                    <div
+                      className={`flex h-4 w-4 items-center justify-center rounded border-2 ${checked ? "border-purple-500 bg-purple-500" : "border-slate-300 dark:border-slate-600"}`}
+                    >
+                      {checked && <Icon name="Check" size={9} className="text-white" />}
+                    </div>
                     <div className="w-6 h-6 rounded-full bg-[var(--text-muted)] flex items-center justify-center text-white font-black text-[9px] shrink-0">
                       {p.name.slice(0, 2).toUpperCase()}
                     </div>
                     <span
-                      className={`text-sm font-semibold flex-1 ${assigneeId === p.id ? "text-purple-600 dark:text-purple-400" : "text-slate-700 dark:text-slate-200"}`}
+                      className={`text-sm font-semibold flex-1 ${checked ? "text-purple-600 dark:text-purple-400" : "text-slate-700 dark:text-slate-200"}`}
                     >
                       {p.name}
                     </span>
-                    {assigneeId === p.id && (
-                      <Icon
-                        name="Check"
-                        size={12}
-                        className="text-purple-500"
-                      />
-                    )}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -19838,9 +20659,13 @@ const CreateTaskModal = ({
             disabled={!title.trim() || submitting}
             className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-${tagColor}-600 hover:bg-${tagColor}-700 shadow-sm`}
           >
-            <Icon name={config.isEdit ? "Save" : "Plus"} size={14} />
+            <Icon name={submitting ? "Loader2" : config.isEdit ? "Save" : "Plus"} size={14} className={submitting ? "animate-spin" : ""} />
             {submitting
-              ? "Guardando..."
+              ? pendingFiles.length
+                ? uploadProgress
+                  ? `Subiendo… ${uploadProgress}%`
+                  : "Guardando..."
+                : "Guardando..."
               : config.isEdit
                 ? "Guardar cambios"
                 : `Crear ${typeLabel}`}

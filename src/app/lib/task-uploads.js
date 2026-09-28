@@ -8,6 +8,8 @@ export const TASK_UPLOAD_COLLECTIONS = {
     managementTask: 'management_tasks'
 };
 
+export const MAX_TASK_ATTACHMENTS = 10;
+
 let cachedStatus = null;
 
 const EXTENSION_TYPES = {

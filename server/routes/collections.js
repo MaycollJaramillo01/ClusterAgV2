@@ -21,6 +21,8 @@ import { buildChatGroups, canManageChatGroups } from '../lib/chat-groups.js';
 import { nowIso } from '../lib/time.js';
 import { writeAuditLog } from '../lib/audit.js';
 import { MAX_ATTACHMENT_COUNT, sanitizeAttachments } from '../lib/attachments.js';
+import { normalizeClientPriority } from '../lib/client-priority.js';
+import { normalizeTaskAssignees } from '../lib/task-assignees.js';
 
 const router = express.Router();
 
@@ -159,19 +161,36 @@ const validateReferences = async ({ collectionName, existing = null, payload, tr
         if (existing && String(record[field] ?? '') === String(existing[field] ?? '')) return;
         const recordId = String(record[field] || '');
         if (!recordId) return;
+        await requireReferenceValue(recordId, collections);
+    };
+
+    const requireReferenceValue = async (recordId, collections) => {
+        const id = String(recordId || '').trim();
+        if (!id) return;
         for (const name of collections) {
-            if (await getRecord({ collectionName: name, recordId, trx })) return;
+            if (await getRecord({ collectionName: name, recordId: id, trx })) return;
         }
-        throw createHttpError(400, `La referencia ${field} no existe.`, 'document/invalid-reference');
+        throw createHttpError(400, `La referencia ${id} no existe.`, 'document/invalid-reference');
     };
 
     if (TASK_COLLECTIONS.has(collectionName)) {
         await requireReference('clientId', ['clients']);
         await requireReference('contextId', PEOPLE_COLLECTIONS);
         await requireReference('assigneeUserId', PEOPLE_COLLECTIONS);
+        for (const assigneeId of (Array.isArray(record.assignees) ? record.assignees : [])) {
+            await requireReferenceValue(assigneeId, PEOPLE_COLLECTIONS);
+        }
     }
     if (collectionName === 'clients') {
         await requireReference('managerId', ['managers']);
+    }
+    if (collectionName === 'client_chats' && (record.kind === 'team_group' || existing?.kind === 'team_group')) {
+        await requireReference('clientId', ['team_groups']);
+    }
+    if (collectionName === 'team_groups') {
+        for (const memberId of (Array.isArray(record.memberIds) ? record.memberIds : [])) {
+            await requireReferenceValue(memberId, PEOPLE_COLLECTIONS);
+        }
     }
     if (collectionName === 'managers' || collectionName === 'editors') {
         await requireReference('userId', ['users']);
@@ -478,6 +497,7 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         }
         return {
             ...safePayload,
+            ...normalizeTaskAssignees(safePayload, existing),
             title,
             createdAt: existing?.createdAt || safePayload.createdAt || stamp,
             updatedAt: stamp
@@ -491,6 +511,34 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         return {
             ...safePayload,
             name,
+            priorityFlag: normalizeClientPriority(
+                Object.hasOwn(safePayload, 'priorityFlag')
+                    ? safePayload.priorityFlag
+                    : (existing?.priorityFlag || existing?.priority)
+            ),
+            createdAt: existing?.createdAt || safePayload.createdAt || stamp,
+            updatedAt: stamp
+        };
+    }
+    if (collectionName === 'team_groups') {
+        const name = String(safePayload.name ?? existing?.name ?? '').trim();
+        const memberIds = [...new Set(
+            (Array.isArray(safePayload.memberIds) ? safePayload.memberIds : (existing?.memberIds || []))
+                .map((id) => String(id || '').trim())
+                .filter(Boolean)
+        )];
+        if (!name) {
+            throw createHttpError(400, 'El nombre del grupo es obligatorio.', 'team-groups/name-required');
+        }
+        if (memberIds.length < 1) {
+            throw createHttpError(400, 'El grupo debe tener al menos un integrante.', 'team-groups/members-required');
+        }
+        return {
+            ...safePayload,
+            name: name.slice(0, 80),
+            memberIds,
+            createdById: existing?.createdById || actor?.id || '',
+            createdByName: existing?.createdByName || actor?.name || '',
             createdAt: existing?.createdAt || safePayload.createdAt || stamp,
             updatedAt: stamp
         };
@@ -528,8 +576,12 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         if (call && !/^[A-Za-z0-9_-]{3,120}$/.test(String(call.roomId || ''))) {
             throw createHttpError(400, 'La sala de llamada no es valida.', 'chat/invalid-call-room');
         }
+        const kind = String(safePayload.kind || existing?.kind || 'client') === 'team_group'
+            ? 'team_group'
+            : 'client';
         return {
             ...safePayload,
+            kind,
             text: text.slice(0, 20_000),
             attachments,
             mentionedIds: normalizeMentionIds(safePayload.mentionedIds ?? existing?.mentionedIds),
