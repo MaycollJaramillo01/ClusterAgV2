@@ -13,6 +13,10 @@
     {
       "path": "/api/cron/weekly-module-reports",
       "schedule": "0 18 * * 6"
+    },
+    {
+      "path": "/api/cron/purge-expired-r2-attachments",
+      "schedule": "15 6 * * *"
     }
   ],
   "functions": {
@@ -30,7 +34,7 @@
     },
     "api/cron-entry.js": {
       "includeFiles": "server/**",
-      "maxDuration": 60
+      "maxDuration": 120
     },
     "api/uploads-entry.js": {
       "includeFiles": "server/**",

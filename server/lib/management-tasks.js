@@ -1,4 +1,5 @@
 import { createHttpError } from './http.js';
+import { normalizeTaskAssignees } from './task-assignees.js';
 
 const DATE_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
 const TIME_RE = /^(\d{1,2}):(\d{2})$/;
@@ -44,6 +45,7 @@ export const prepareManagementTaskPayload = ({
     if ('category' in nextPayload) nextPayload.category = normalizeText(nextPayload.category) || 'seguimiento';
     if ('contextId' in nextPayload) nextPayload.contextId = normalizeText(nextPayload.contextId);
     if ('assigneeUserId' in nextPayload) nextPayload.assigneeUserId = normalizeText(nextPayload.assigneeUserId);
+    Object.assign(nextPayload, normalizeTaskAssignees(nextPayload, existing));
     if ('notificationsEnabled' in nextPayload || isCreate) nextPayload.notificationsEnabled = nextPayload.notificationsEnabled !== false;
 
     const titleAfterPatch = normalizeText('title' in nextPayload ? nextPayload.title : existing?.title);

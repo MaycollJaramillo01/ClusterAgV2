@@ -8,6 +8,8 @@ export const TASK_UPLOAD_COLLECTIONS = {
     managementTask: 'management_tasks'
 };
 
+export const MAX_TASK_ATTACHMENTS = 10;
+
 let cachedStatus = null;
 
 const EXTENSION_TYPES = {
@@ -50,13 +52,17 @@ export const fetchUploadStatus = async () => {
         cachedStatus = await apiFetch('/api/uploads/status');
         return cachedStatus;
     } catch {
-        cachedStatus = { r2: false, maxBytes: EMBEDDED_UPLOAD_MAX_BYTES };
+        cachedStatus = { r2: false, maxBytes: EMBEDDED_UPLOAD_MAX_BYTES, retentionDays: 0 };
         return cachedStatus;
     }
 };
 
 export const formatUploadLimit = (bytes) => {
-    const mega = Number(bytes) / (1024 * 1024);
+    const value = Number(bytes);
+    if (!Number.isFinite(value) || value <= 0) return '';
+    const giga = value / (1024 * 1024 * 1024);
+    if (giga >= 1) return `${giga % 1 === 0 ? giga : giga.toFixed(1)} GB`;
+    const mega = value / (1024 * 1024);
     if (mega >= 10) return `${Math.round(mega)} MB`;
     return `${mega.toFixed(1)} MB`;
 };

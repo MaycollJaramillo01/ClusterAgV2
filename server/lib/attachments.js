@@ -13,7 +13,8 @@ export const STORED_ATTACHMENT_COLLECTIONS = new Set([
 
 export const MAX_ATTACHMENT_COUNT = 10;
 export const MAX_EMBEDDED_ATTACHMENT_BYTES = 3 * 1024 * 1024;
-export const DEFAULT_R2_MAX_FILE_BYTES = 512 * 1024 * 1024;
+export const DEFAULT_R2_MAX_FILE_BYTES = 10 * 1024 * 1024 * 1024;
+export const DEFAULT_R2_RETENTION_DAYS = 5;
 
 export const ALLOWED_ATTACHMENT_TYPES = new Set([
     'image/gif',

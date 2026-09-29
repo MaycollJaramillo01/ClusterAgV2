@@ -19,17 +19,7 @@ La base local se crea en `.tmp/clusterag.sqlite`. El proyecto no copia ni restau
 - Declara los usuarios iniciales mediante `SEED_SUPER_ADMIN_EMAILS`, `SEED_MANAGEMENT_TEAM_JSON` y `SEED_EDITOR_TEAM_JSON`; no hay identidades privilegiadas dentro del codigo.
 - Ejecuta el bootstrap solo de forma deliberada con `RUN_BOOTSTRAP_ON_START=true`. En Vercel permanece desactivado por defecto.
 - Completa `FIREBASE_*` para autenticacion por correo y push, y `SMTP_*` para reportes/notificaciones por email.
-- Completa `R2_*` para subir archivos de tareas a Cloudflare R2. El cliente pide una URL firmada y sube directo al bucket (hasta 512 MB por archivo). Si `R2_PUBLIC_BASE_URL` esta vacio, las descargas usan URLs firmadas de una hora.
-
-CORS de R2 (necesario para que el navegador haga PUT directo al bucket):
-
-1. El token S3 del bucket tiene que poder editar CORS, no solo objetos.
-2. Con el `.env` cargado: `npm run r2:cors`.
-3. Para ver la politica sin escribir: `npm run r2:cors:dry-run`.
-4. Si las variables estan solo en Vercel: `npx vercel env pull .env` y despues `npm run r2:cors`.
-5. Origenes extra: `R2_CORS_ORIGINS=https://otro-dominio.example`.
-
-Tambien se puede pegar la misma politica en Cloudflare: R2 → bucket → Settings → CORS policy. El token sin permiso de administracion del bucket falla con `AccessDenied`.
+- Completa `R2_*` para archivos de tareas en Cloudflare R2 (hasta 10 GB). El endpoint se arma con `R2_ACCOUNT_ID`. Sin `R2_PUBLIC_BASE_URL` las descargas van por URL firmada. Los objetos se borran a los 5 dias (`R2_RETENTION_DAYS`). CORS: `npm run r2:cors`.
 
 El acceso es por invitacion: una identidad de Google o Firebase que no exista previamente en `users` ni en la configuracion de bootstrap es rechazada.
 

@@ -220,5 +220,11 @@ export const COLLECTION_PERMISSIONS = {
         create: 'send_client_chat',
         update: 'moderate_client_chat',
         delete: 'moderate_client_chat'
+    },
+    team_groups: {
+        read: 'view_client_chat',
+        create: 'send_client_chat',
+        update: 'send_client_chat',
+        delete: 'moderate_client_chat'
     }
 };
