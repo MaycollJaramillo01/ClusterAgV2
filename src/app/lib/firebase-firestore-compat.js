@@ -1,15 +1,15 @@
 import { apiFetch } from './backend-api.js?v=20260525-local-api';
+import {
+    TASK_WINDOW_COLLECTIONS,
+    getBaseTaskWindow,
+    recordMatchesTaskWindow
+} from './task-window.js';
 
 const registry = new Map();
 const DEFAULT_POLL_MS = 120000;
 const IDLE_AFTER_MS = 240000;
-const TASK_COLLECTIONS = new Set(['account_tasks', 'editing', 'management_tasks']);
+const TASK_COLLECTIONS = TASK_WINDOW_COLLECTIONS;
 const STATIC_COLLECTIONS = new Set(['clients', 'events', 'managers', 'editors', 'users', 'client_chats', 'chat_reads', 'chat_mutes', 'chat_hidden', 'chat_reactions', 'chat_pins', 'chat_stickers', 'team_groups']);
-const CLOSED_STATUS_BY_COLLECTION = {
-    account_tasks: new Set(['publicado']),
-    editing: new Set(['aprobado', 'publicado']),
-    management_tasks: new Set(['cerrado'])
-};
 const LIVE_COLLECTION_BY_VIEW = {
     'account-room': 'account_tasks',
     editions: 'editing',
@@ -69,20 +69,6 @@ const buildQueryOptions = (ref) => {
     return options;
 };
 
-const getBaseTaskWindow = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const from = new Date(year, month - 3, 1);
-    const to = new Date(year, month + 1, 0);
-    const format = (date) => [
-        date.getFullYear(),
-        String(date.getMonth() + 1).padStart(2, '0'),
-        String(date.getDate()).padStart(2, '0')
-    ].join('-');
-    return { dateFrom: format(from), dateTo: format(to) };
-};
-
 const isPollingAllowed = ({ visibilityState = 'visible', lastActivity = 0, now = Date.now(), idleAfter = IDLE_AFTER_MS }) => (
     visibilityState === 'visible' && now - lastActivity < idleAfter
 );
@@ -92,10 +78,10 @@ const recordMatchesRef = (record, ref) => {
     if (!TASK_COLLECTIONS.has(collectionName) || (typeof window !== 'undefined' && window.__cluster_task_history === 'all')) {
         return true;
     }
-    const { dateFrom, dateTo } = getBaseTaskWindow();
-    const date = String(record?.date || '');
-    if (date >= dateFrom && date <= dateTo) return true;
-    return date < dateFrom && !CLOSED_STATUS_BY_COLLECTION[collectionName]?.has(record?.status);
+    return recordMatchesTaskWindow(record, collectionName, {
+        ...getBaseTaskWindow(),
+        includeOpenOutside: true
+    });
 };
 
 const applyQueryOptions = (records, ref) => {
@@ -512,4 +498,4 @@ export const writeBatch = () => {
     };
 };
 
-export const _pollingInternals = { isPollingAllowed, mergeEntryChanges };
+export const _pollingInternals = { isPollingAllowed, mergeEntryChanges, recordMatchesRef, getBaseTaskWindow };

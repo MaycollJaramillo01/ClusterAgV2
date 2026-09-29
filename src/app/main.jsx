@@ -1245,6 +1245,13 @@ const isDateWithinPeriod = (value = "", period = getRankingMonthPeriod()) => {
   );
 };
 
+const isUpcomingOrUndatedOpenTask = (task = {}, period = getRankingMonthPeriod()) => {
+  if (isCompletedStatus(task.status)) return false;
+  const date = normalizeDateOnlyString(task.date);
+  if (!date) return true;
+  return compareDateOnlyStrings(date, period.end) > 0;
+};
+
 const toKpiPercent = (value = 0, maxValue = 0) => {
   const numericValue = Number(value);
   const numericMax = Number(maxValue);
@@ -11517,6 +11524,7 @@ const AccountRoomView = ({
       return compareDateOnlyStrings(t.date, currentDate) === 0;
     if (filterMode === "overdue")
       return (
+        Boolean(normalizeDateOnlyString(t.date)) &&
         isDateBeforeDateString(t.date, todayStr) && t.status !== "publicado"
       );
     if (filterMode === "range")
@@ -11525,12 +11533,12 @@ const AccountRoomView = ({
         compareDateOnlyStrings(t.date, effectiveRangeEnd) <= 0
       );
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(t.date, currentMonthPeriod);
+    return isDateWithinPeriod(t.date, currentMonthPeriod)
+      || isUpcomingOrUndatedOpenTask(t, currentMonthPeriod);
   });
   const handleAddTask = (dateStr) => {
     const nextDate = normalizeDateOnlyString(dateStr) || todayStr;
     setCurrentDate(nextDate);
-    setFilterMode("date");
     onAdd(nextDate);
   };
 
@@ -11803,10 +11811,12 @@ const EditionsRoomView = ({
       return compareDateOnlyStrings(t.date, currentDate) === 0;
     if (filterMode === "overdue")
       return (
+        Boolean(normalizeDateOnlyString(t.date)) &&
         isDateBeforeDateString(t.date, todayStr) && t.status !== "publicado"
       );
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(t.date, currentMonthPeriod);
+    return isDateWithinPeriod(t.date, currentMonthPeriod)
+      || isUpcomingOrUndatedOpenTask(t, currentMonthPeriod);
   });
   const canManageEditingTasks = userHasPermission(
     currentUserProfile,
@@ -11819,7 +11829,6 @@ const EditionsRoomView = ({
   const handleAddTask = (dateStr) => {
     const nextDate = normalizeDateOnlyString(dateStr) || todayStr;
     setCurrentDate(nextDate);
-    setFilterMode("date");
     onAdd(nextDate);
   };
   const rankedTasks = rankPendingEditingTasks(filteredTasks, todayStr);
@@ -12155,16 +12164,17 @@ const ManagementRoomView = ({
       return compareDateOnlyStrings(task.date, currentDate) === 0;
     if (filterMode === "overdue")
       return (
+        Boolean(normalizeDateOnlyString(task.date)) &&
         isDateBeforeDateString(task.date, todayStr) && task.status !== "cerrado"
       );
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(task.date, currentMonthPeriod);
+    return isDateWithinPeriod(task.date, currentMonthPeriod)
+      || isUpcomingOrUndatedOpenTask(task, currentMonthPeriod);
   });
 
   const handleAddTask = (dateStr) => {
     const nextDate = normalizeDateOnlyString(dateStr) || todayStr;
     setCurrentDate(nextDate);
-    setFilterMode("date");
     onAdd(nextDate);
   };
 
@@ -21981,7 +21991,8 @@ const UnifiedModuleKanbanView = ({
       );
     }
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(item._date, monthPeriod);
+    return isDateWithinPeriod(item._date, monthPeriod)
+      || isUpcomingOrUndatedOpenTask(item, monthPeriod);
   });
 
   const filteredByLane = {
