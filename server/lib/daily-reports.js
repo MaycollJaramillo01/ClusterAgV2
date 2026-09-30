@@ -1,7 +1,7 @@
-import PDFDocument from 'pdfkit';
 import { listRecords } from './records.js';
 import { sendDailyReportEmail } from './email.js';
 import { nowIso } from './time.js';
+import { createPdfDocument } from './pdf.js';
 
 const HONDURAS_TIMEZONE = 'America/Tegucigalpa';
 const HONDURAS_OFFSET = '-06:00';
@@ -176,7 +176,7 @@ export const summarizeRolePerformance = ({ people = [], tasks = [], collectionNa
 };
 
 const buildPdfBuffer = async ({ title, people, totals, generatedAt, periodLabel }) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const doc = createPdfDocument();
     const chunks = [];
     doc.on('data', (chunk) => chunks.push(chunk));
 
@@ -279,11 +279,16 @@ export const sendDailyRoleReports = async ({ to = '' } = {}) => {
     }
 
     const generatedAt = nowIso();
+    const window = getDailyReportWindow(now);
     const editors = await getCollectionPeople({ collectionName: 'editors' });
     const communityManagers = await getCollectionPeople({ collectionName: 'managers' });
 
-    const editingTasks = await listRecords({ collectionName: 'editing' });
-    const accountTasks = await listRecords({ collectionName: 'account_tasks' });
+    const createdFrom = new Date(window.startMs - 12 * 60 * 60 * 1000).toISOString();
+    const createdTo = new Date(window.endMs).toISOString();
+    const [editingTasks, accountTasks] = await Promise.all([
+        listRecords({ collectionName: 'editing', createdFrom, createdTo }),
+        listRecords({ collectionName: 'account_tasks', createdFrom, createdTo })
+    ]);
 
     const editorsSummary = summarizeRolePerformance({
         people: editors,
@@ -301,7 +306,7 @@ export const sendDailyRoleReports = async ({ to = '' } = {}) => {
         now
     });
 
-    const periodLabel = editorsSummary.window?.periodLabel || getDailyReportWindow(now).periodLabel;
+    const periodLabel = editorsSummary.window?.periodLabel || window.periodLabel;
 
     const editorPdf = await buildDailyRoleReportPdf({
         title: 'Resumen diario de Editores',
@@ -319,7 +324,7 @@ export const sendDailyRoleReports = async ({ to = '' } = {}) => {
         periodLabel
     });
 
-    await sendDailyReportEmail({
+    const delivery = await sendDailyReportEmail({
         to: recipient,
         subject: 'Resumen diario de Editores y Community Managers',
         editorPdf,
@@ -333,6 +338,7 @@ export const sendDailyRoleReports = async ({ to = '' } = {}) => {
         to: recipient,
         generatedAt,
         periodLabel,
+        delivery: delivery.mode,
         editors: editorsSummary.totals,
         communityManagers: communityManagersSummary.totals
     };

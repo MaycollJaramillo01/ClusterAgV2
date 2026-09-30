@@ -122,10 +122,16 @@ export const listRecords = async ({
     dateFrom,
     dateTo,
     includeOpenBefore = false,
+    createdFrom,
+    createdTo,
+    updatedFrom,
     trx
 }) => {
     const query = getClient(trx)('app_records').where({ collection_name: collectionName });
     applyTaskWindow(query, { collectionName, dateFrom, dateTo, includeOpenBefore });
+    if (createdFrom) query.andWhere('created_at', '>=', String(createdFrom));
+    if (createdTo) query.andWhere('created_at', '<', String(createdTo));
+    if (updatedFrom) query.andWhere('updated_at', '>=', String(updatedFrom));
 
     const stripHeavyFields = ATTACHMENT_COLLECTIONS.has(collectionName)
         ? (record) => stripAttachmentData(record)

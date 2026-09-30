@@ -33,7 +33,7 @@
       "maxDuration": 30
     },
     "api/cron-entry.js": {
-      "includeFiles": "server/**",
+      "includeFiles": "{server/**,node_modules/pdfkit/js/data/**}",
       "maxDuration": 120
     },
     "api/uploads-entry.js": {

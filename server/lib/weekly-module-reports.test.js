@@ -44,7 +44,7 @@ test('isReadyStatus matches Kanban ready lane', () => {
     assert.equal(isReadyStatus('event', 'en_produccion'), false);
 });
 
-test('summarizeModuleWeek counts created and finalized in window only', () => {
+test('summarizeModuleWeek counts tasks finalized in the window', () => {
     const people = [
         { id: 'p1', name: 'Ana' },
         { id: 'p2', name: 'Luis' }
@@ -110,9 +110,9 @@ test('summarizeModuleWeek counts created and finalized in window only', () => {
         now: Date.parse('2026-08-08T12:00:00-06:00')
     });
 
-    assert.equal(podcast.people[0].finalized, 1);
+    assert.equal(podcast.people[0].finalized, 2);
     assert.equal(podcast.people[1].finalized, 0);
-    assert.equal(podcast.totals.finalized, 1);
+    assert.equal(podcast.totals.finalized, 2);
 
     const production = summarizeModuleWeek({
         people,
