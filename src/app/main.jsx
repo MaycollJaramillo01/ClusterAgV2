@@ -143,13 +143,14 @@ import {
 import {
   KPI_MIN_TASKS,
   buildManagerKpiStats,
+  getMeasuredCompletionIso,
   isEditingDelivered,
   isEditingActionable,
   isWorkflowCompleted,
   normalizeEditingWorkflowStatus,
   rankPendingEditingTasks,
 } from "./utils/kpi.js";
-import { apiFetch } from "./lib/backend-api.js";
+import { apiFetch, buildApiUrl } from "./lib/backend-api.js";
 import {
   MAX_TASK_ATTACHMENTS,
   TASK_UPLOAD_COLLECTIONS,
@@ -22794,6 +22795,8 @@ const ReportsView = ({
   const [fromDate, setFromDate] = useState(firstOfMonth);
   const [toDate, setToDate] = useState(todayStr);
   const [activeTab, setActiveTab] = useState("content");
+  const [downloadingPdf, setDownloadingPdf] = useState("");
+  const [pdfError, setPdfError] = useState("");
   const hasAutoExpandedRangeRef = useRef(false);
 
   const inRange = (dateStr) => {
@@ -23007,32 +23010,40 @@ const ReportsView = ({
     return [...keys].filter(Boolean);
   };
   const dailyPerformanceByKey = new Map();
+  const taskCreatedDay = (task) =>
+    getHondurasDateFromIso(task.createdAt) ||
+    normalizeDateOnlyString(task.date);
   const addDailyPerformanceTask = (task, type) => {
-    const date = normalizeDateOnlyString(
-      type === "editing" && isEditingDelivered(task)
-        ? task.editorDueDateAtCompletion || task.date
-        : task.date,
-    );
-    if (!date) return;
+    const createdDate = taskCreatedDay(task);
+    if (!createdDate || !inRange(createdDate)) return;
     const areaKey =
       type === "account"
         ? "account"
         : type === "editing"
           ? "editing"
           : "management";
-    const isDone =
+    const isDoneStatus =
       type === "account"
-        ? task.status === "publicado"
+        ? ["publicado", "aprobado_internamente"].includes(task.status)
         : type === "editing"
           ? isEditingDelivered(task)
           : task.status === "cerrado";
+    const completionIso =
+      getMeasuredCompletionIso(task) ||
+      (isDoneStatus ? task.updatedAt || task.createdAt || "" : "");
+    const completedDate = isDoneStatus
+      ? getHondurasDateFromIso(completionIso) || createdDate
+      : "";
+    const sameDayDone = Boolean(
+      isDoneStatus && completedDate && completedDate === createdDate,
+    );
     getTaskAssigneeKeys(task, type).forEach((personKey) => {
       const person =
         performancePeopleByKey.get(personKey) ||
         addPerformancePerson(personKey, {});
-      const rowKey = `${date}:${person.id}`;
+      const rowKey = `${createdDate}:${person.id}`;
       const current = dailyPerformanceByKey.get(rowKey) || {
-        date,
+        date: createdDate,
         userId: person.id,
         name: person.name,
         email: person.email,
@@ -23046,21 +23057,15 @@ const ReportsView = ({
       current.email = person.email || current.email;
       current.roles = person.roles;
       current.total += 1;
-      current.done += isDone ? 1 : 0;
-      current.pending += isDone ? 0 : 1;
+      current.done += sameDayDone ? 1 : 0;
+      current.pending += sameDayDone ? 0 : 1;
       current.areas[areaKey] += 1;
       dailyPerformanceByKey.set(rowKey, current);
     });
   };
-  filteredAccountTasks.forEach((task) =>
-    addDailyPerformanceTask(task, "account"),
-  );
-  filteredEditingTasks.forEach((task) =>
-    addDailyPerformanceTask(task, "editing"),
-  );
-  filteredManagementTasks.forEach((task) =>
-    addDailyPerformanceTask(task, "management"),
-  );
+  accountTasks.forEach((task) => addDailyPerformanceTask(task, "account"));
+  editingTasks.forEach((task) => addDailyPerformanceTask(task, "editing"));
+  managementTasks.forEach((task) => addDailyPerformanceTask(task, "management"));
   const dailyPerformanceStats = [...dailyPerformanceByKey.values()].sort(
     (left, right) =>
       compareDateOnlyStrings(right.date, left.date) ||
@@ -23079,6 +23084,36 @@ const ReportsView = ({
     .size;
   const dailyDateCount = new Set(dailyPerformanceStats.map((row) => row.date))
     .size;
+
+  const downloadDailyPdf = async (scope) => {
+    if (downloadingPdf) return;
+    setPdfError("");
+    setDownloadingPdf(scope);
+    try {
+      const response = await fetch(
+        buildApiUrl(
+          `/api/reports/rendimiento-diario.pdf?scope=${encodeURIComponent(scope)}`,
+        ),
+        { credentials: "include" },
+      );
+      if (!response.ok) {
+        throw new Error("No se pudo generar el PDF");
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `rendimiento-${scope}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      setPdfError(error.message || "No se pudo generar el PDF");
+    } finally {
+      setDownloadingPdf("");
+    }
+  };
 
   const accountPublished = filteredAccountTasks.filter(
     (t) => t.status === "publicado",
@@ -23163,8 +23198,32 @@ const ReportsView = ({
               className="text-sm font-bold text-slate-700 dark:text-slate-200 bg-transparent outline-none"
             />
           </div>
+          <button
+            type="button"
+            onClick={() => downloadDailyPdf("general")}
+            disabled={Boolean(downloadingPdf)}
+            className="flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"
+          >
+            <Icon
+              name={downloadingPdf === "general" ? "Loader2" : "FileText"}
+              size={14}
+              className={downloadingPdf === "general" ? "animate-spin" : ""}
+            />
+            PDF general
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadDailyPdf("editors")}
+            disabled={Boolean(downloadingPdf)}
+            className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
+          >
+            PDF editores
+          </button>
         </div>
       </div>
+      {pdfError ? (
+        <p className="text-sm font-semibold text-red-600">{pdfError}</p>
+      ) : null}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <ReportStatCard
@@ -23343,18 +23402,18 @@ const ReportsView = ({
               sub={`${dailyDateCount} dias con actividad`}
             />
             <ReportStatCard
-              label="Tareas del Rango"
+              label="Creadas"
               value={dailyPerformanceTotals.total}
               color="indigo"
               icon="LayoutList"
-              sub="accounts + edicion + gestion"
+              sub="creadas en el rango"
             />
             <ReportStatCard
-              label="Finalizadas"
+              label="Completadas mismo dia"
               value={dailyPerformanceTotals.done}
               color="emerald"
               icon="CheckCircle2"
-              sub={`${Math.round(dailyPerformanceTotals.total > 0 ? (dailyPerformanceTotals.done / dailyPerformanceTotals.total) * 100 : 0)}% completado`}
+              sub={`${Math.round(dailyPerformanceTotals.total > 0 ? (dailyPerformanceTotals.done / dailyPerformanceTotals.total) * 100 : 0)}% de cierre`}
             />
             <ReportStatCard
               label="Pendientes"
@@ -23366,9 +23425,9 @@ const ReportsView = ({
           </div>
 
           <p className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-semibold text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300">
-            En Edicion, la tarea cuenta como finalizada para el editor al pasar
-            a Revision Interna. La espera de aprobacion del cliente no reduce
-            su desempeno.
+            Criterio: tareas creadas ese dia y completadas el mismo dia. En
+            Edicion cuenta al pasar a Revision Interna. El PDF automatico usa la
+            ventana 6:00 AM a 6:00 AM Honduras.
           </p>
 
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">

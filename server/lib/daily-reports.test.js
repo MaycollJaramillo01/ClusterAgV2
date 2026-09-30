@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
     summarizeRolePerformance,
     shouldSendDailyRoleReport,
-    getDailyReportWindow
+    getDailyReportWindow,
+    mergeGeneralPerformance
 } from './daily-reports.js';
 
 test('getDailyReportWindow at 6am covers previous 24h ending at cutoff', () => {
@@ -191,6 +192,68 @@ test('summarizeRolePerformance keeps people without tasks with zero values', () 
     assert.equal(andres.inProgress, 0);
 });
 
+test('summarizeRolePerformance only counts same-day completions', () => {
+    const people = [
+        { id: 'editor-1', name: 'Ana' }
+    ];
+
+    const tasks = [
+        {
+            id: 'same-day',
+            contextId: 'editor-1',
+            status: 'aprobado',
+            createdAt: '2026-08-06T10:00:00-06:00',
+            completedAt: '2026-08-06T16:00:00-06:00'
+        },
+        {
+            id: 'next-day',
+            contextId: 'editor-1',
+            status: 'aprobado',
+            createdAt: '2026-08-06T11:00:00-06:00',
+            completedAt: '2026-08-07T08:00:00-06:00'
+        }
+    ];
+
+    const result = summarizeRolePerformance({
+        people,
+        tasks,
+        collectionName: 'editing',
+        closedStatuses: new Set(['aprobado', 'publicado']),
+        now: Date.parse('2026-08-07T06:00:00-06:00')
+    });
+
+    assert.equal(result.people[0].created, 2);
+    assert.equal(result.people[0].completed, 1);
+    assert.equal(result.people[0].inProgress, 1);
+    assert.equal(result.people[0].rate, 50);
+});
+
+test('mergeGeneralPerformance combines rooms without duplicating the same email', () => {
+    const merged = mergeGeneralPerformance([
+        {
+            areaLabel: 'Edicion',
+            people: [
+                { id: 'e1', name: 'Ana', email: 'ana@cluster.ag', created: 3, completed: 2, inProgress: 1, lastActivity: 2, lastActivityLabel: 'tarde' }
+            ]
+        },
+        {
+            areaLabel: 'Account',
+            people: [
+                { id: 'm1', name: 'Ana Vega', email: 'ana@cluster.ag', created: 2, completed: 2, inProgress: 0, lastActivity: 9, lastActivityLabel: 'noche' },
+                { id: 'm2', name: 'Luis', email: 'luis@cluster.ag', created: 4, completed: 1, inProgress: 3, lastActivity: 1, lastActivityLabel: 'manana' }
+            ]
+        }
+    ]);
+
+    assert.equal(merged.people.length, 2);
+    const ana = merged.people.find((person) => person.email === 'ana@cluster.ag');
+    assert.equal(ana.created, 5);
+    assert.equal(ana.completed, 4);
+    assert.equal(ana.area, 'Edicion / Account');
+    assert.equal(merged.totals.created, 9);
+    assert.equal(merged.totals.completed, 5);
+});
+
 test('summarizeRolePerformance excludes tasks without createdAt', () => {
     const people = [
         { id: 'editor-1', name: 'Ana' }
@@ -215,4 +278,20 @@ test('summarizeRolePerformance excludes tasks without createdAt', () => {
 
     assert.equal(result.people[0].created, 0);
     assert.equal(result.totals.created, 0);
+});
+
+test('buildDailyRoleReportPdf writes a PDF with same-day completion columns', async () => {
+    const { buildDailyRoleReportPdf } = await import('./daily-reports.js');
+    const buffer = await buildDailyRoleReportPdf({
+        title: 'Rendimiento diario general',
+        periodLabel: '29 sep 2026, 06:00 – 30 sep 2026, 06:00 (Honduras)',
+        generatedAt: '2026-09-30T12:00:00.000Z',
+        showArea: true,
+        people: [
+            { name: 'Ana Vega', area: 'Edicion', created: 8, completed: 7, inProgress: 1, rate: 88, lastActivityLabel: '29 sep, 18:40' }
+        ],
+        totals: { created: 8, completed: 7, inProgress: 1, rate: 88 }
+    });
+    assert.equal(buffer.slice(0, 4).toString(), '%PDF');
+    assert.ok(buffer.length > 400);
 });

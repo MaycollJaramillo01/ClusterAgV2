@@ -29,7 +29,7 @@
       "maxDuration": 30
     },
     "api/collections-entry.js": {
-      "includeFiles": "server/**",
+      "includeFiles": "{server/**,node_modules/pdfkit/js/data/**}",
       "maxDuration": 30
     },
     "api/cron-entry.js": {
