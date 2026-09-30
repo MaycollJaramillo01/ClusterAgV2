@@ -495,9 +495,16 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         if (!title) {
             throw createHttpError(400, 'El titulo de la tarea es obligatorio.', 'task/title-required');
         }
+        const assignerName = String(actor?.name || actor?.email || existing?.assignedByName || '').trim();
+        const shouldStampAssigner = isCreate || !String(existing?.assignedByEmail || '').trim();
         return {
             ...safePayload,
             ...normalizeTaskAssignees(safePayload, existing),
+            ...(shouldStampAssigner ? {
+                assignedByUserId: actor?.id || existing?.assignedByUserId || '',
+                assignedByName: assignerName || 'Sistema',
+                assignedByEmail: normalizeEmail(actor?.email || existing?.assignedByEmail || '')
+            } : {}),
             title,
             createdAt: existing?.createdAt || safePayload.createdAt || stamp,
             updatedAt: stamp

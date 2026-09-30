@@ -1,7 +1,7 @@
-import PDFDocument from 'pdfkit';
 import { listRecords } from './records.js';
 import { sendWeeklyModuleReportEmail } from './email.js';
 import { nowIso } from './time.js';
+import { createPdfDocument } from './pdf.js';
 
 const HONDURAS_TIMEZONE = 'America/Tegucigalpa';
 const HONDURAS_OFFSET = '-06:00';
@@ -213,7 +213,6 @@ export const summarizeModuleWeek = ({
     for (const item of itemList) {
         if (!isModuleItem(item, moduleKey)) continue;
         if (!isReadyStatus(item._taskType, item.status)) continue;
-        if (!isTimestampInWindow(item.createdAt || '', window)) continue;
         const completionIso = getTaskCompletionIso(item);
         if (!isTimestampInWindow(completionIso, window)) continue;
 
@@ -265,7 +264,7 @@ export const summarizeModuleWeek = ({
 };
 
 const buildPdfBuffer = async ({ title, people, totals, generatedAt, periodLabel }) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const doc = createPdfDocument();
     const chunks = [];
     doc.on('data', (chunk) => chunks.push(chunk));
 
@@ -277,7 +276,7 @@ const buildPdfBuffer = async ({ title, people, totals, generatedAt, periodLabel 
         doc.fontSize(10).fillColor('#64748b').text(`Periodo: ${periodLabel}`, { align: 'left' });
         doc.moveDown(0.2);
         doc.fontSize(10).fillColor('#64748b').text(
-            'Tareas creadas y finalizadas (columna listo) en el periodo',
+            'Tareas pasadas a listo en el periodo',
             { align: 'left' }
         );
         doc.moveDown(1);
@@ -368,10 +367,12 @@ export const sendWeeklyModuleReports = async ({ to = '' } = {}) => {
     const managers = await listRecords({ collectionName: 'managers' });
     const people = mergeRosterPeople(editors, managers);
 
+    const window = getWeeklyModuleReportWindow(now);
+    const updatedFrom = new Date(window.startMs - DAY_MS).toISOString();
     const [events, accountTasks, editingTasks] = await Promise.all([
-        listRecords({ collectionName: 'events' }),
-        listRecords({ collectionName: 'account_tasks' }),
-        listRecords({ collectionName: 'editing' })
+        listRecords({ collectionName: 'events', updatedFrom }),
+        listRecords({ collectionName: 'account_tasks', updatedFrom }),
+        listRecords({ collectionName: 'editing', updatedFrom })
     ]);
 
     const items = normalizeItemsWithType(events, accountTasks, editingTasks);
@@ -409,7 +410,7 @@ export const sendWeeklyModuleReports = async ({ to = '' } = {}) => {
         periodLabel
     });
 
-    await sendWeeklyModuleReportEmail({
+    const delivery = await sendWeeklyModuleReportEmail({
         to: recipient,
         subject: 'Resumen semanal de Podcast y Producción',
         podcastPdf,
@@ -423,6 +424,7 @@ export const sendWeeklyModuleReports = async ({ to = '' } = {}) => {
         to: recipient,
         generatedAt,
         periodLabel,
+        delivery: delivery.mode,
         podcast: podcastSummary.totals,
         production: productionSummary.totals
     };

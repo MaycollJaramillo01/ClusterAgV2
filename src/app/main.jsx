@@ -1245,6 +1245,13 @@ const isDateWithinPeriod = (value = "", period = getRankingMonthPeriod()) => {
   );
 };
 
+const isUpcomingOrUndatedOpenTask = (task = {}, period = getRankingMonthPeriod()) => {
+  if (isCompletedStatus(task.status)) return false;
+  const date = normalizeDateOnlyString(task.date);
+  if (!date) return true;
+  return compareDateOnlyStrings(date, period.end) > 0;
+};
+
 const toKpiPercent = (value = 0, maxValue = 0) => {
   const numericValue = Number(value);
   const numericMax = Number(maxValue);
@@ -5633,6 +5640,31 @@ function App() {
     }
   };
 
+  const addManagementDevStatus = async (task, { label, note = "" } = {}) => {
+    const trimmed = String(label || "").trim();
+    if (!task?.id || !trimmed) return;
+    const taskRef = dataDoc("management_tasks", task.id);
+    const currentSnap = await getDoc(taskRef);
+    const currentLog = Array.isArray(currentSnap.data()?.devStatusLog)
+      ? currentSnap.data().devStatusLog
+      : [];
+    const entry = {
+      id: Math.random().toString(36).slice(2, 10),
+      label: trimmed.slice(0, 80),
+      note: String(note || "").trim().slice(0, 280),
+      authorId: currentUserProfile?.id || "",
+      authorName:
+        currentUserProfile?.name ||
+        (authEmail ? authEmail.split("@")[0] : "Usuario"),
+      createdAt: nowIso(),
+    };
+    await updateDoc(taskRef, {
+      devStatusLog: [...currentLog, entry],
+      devStatus: entry.label,
+      updatedAt: nowIso(),
+    });
+  };
+
   const changeTaskPriority = async (task, type, priority) => {
     const colMap = {
       accountTask: "account_tasks",
@@ -8024,6 +8056,7 @@ function App() {
             changeManagementTaskStatus(task, newStatus);
         }}
         onAddComment={addTaskComment}
+        onAddDevStatus={addManagementDevStatus}
         onAddTimeEntry={addTaskTimeEntry}
         onUpdateChecklist={updateTaskChecklist}
         onChangePriority={changeTaskPriority}
@@ -11517,6 +11550,7 @@ const AccountRoomView = ({
       return compareDateOnlyStrings(t.date, currentDate) === 0;
     if (filterMode === "overdue")
       return (
+        Boolean(normalizeDateOnlyString(t.date)) &&
         isDateBeforeDateString(t.date, todayStr) && t.status !== "publicado"
       );
     if (filterMode === "range")
@@ -11525,12 +11559,12 @@ const AccountRoomView = ({
         compareDateOnlyStrings(t.date, effectiveRangeEnd) <= 0
       );
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(t.date, currentMonthPeriod);
+    return isDateWithinPeriod(t.date, currentMonthPeriod)
+      || isUpcomingOrUndatedOpenTask(t, currentMonthPeriod);
   });
   const handleAddTask = (dateStr) => {
     const nextDate = normalizeDateOnlyString(dateStr) || todayStr;
     setCurrentDate(nextDate);
-    setFilterMode("date");
     onAdd(nextDate);
   };
 
@@ -11803,10 +11837,12 @@ const EditionsRoomView = ({
       return compareDateOnlyStrings(t.date, currentDate) === 0;
     if (filterMode === "overdue")
       return (
+        Boolean(normalizeDateOnlyString(t.date)) &&
         isDateBeforeDateString(t.date, todayStr) && t.status !== "publicado"
       );
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(t.date, currentMonthPeriod);
+    return isDateWithinPeriod(t.date, currentMonthPeriod)
+      || isUpcomingOrUndatedOpenTask(t, currentMonthPeriod);
   });
   const canManageEditingTasks = userHasPermission(
     currentUserProfile,
@@ -11819,7 +11855,6 @@ const EditionsRoomView = ({
   const handleAddTask = (dateStr) => {
     const nextDate = normalizeDateOnlyString(dateStr) || todayStr;
     setCurrentDate(nextDate);
-    setFilterMode("date");
     onAdd(nextDate);
   };
   const rankedTasks = rankPendingEditingTasks(filteredTasks, todayStr);
@@ -12090,10 +12125,28 @@ const MGMT_CATEGORY_COLORS = {
     "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 border-orange-200 dark:border-orange-500/20",
   revision:
     "bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300 border-teal-200 dark:border-teal-500/20",
+  desarrollo:
+    "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 border-indigo-200 dark:border-indigo-500/20",
 };
+const MANAGEMENT_CATEGORIES = [
+  { id: "seguimiento", label: "Seguimiento" },
+  { id: "reunion", label: "Reunión" },
+  { id: "revision", label: "Revisión" },
+  { id: "entrega", label: "Entrega" },
+  { id: "desarrollo", label: "Desarrollo" },
+  { id: "otro", label: "Otro" },
+];
 const getMgmtCategoryColor = (cat) =>
   MGMT_CATEGORY_COLORS[(cat || "").toLowerCase()] ||
   "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700";
+const getMgmtCategoryLabel = (cat) =>
+  MANAGEMENT_CATEGORIES.find(
+    (item) => item.id === String(cat || "").toLowerCase(),
+  )?.label || cat || "";
+const isDevelopmentTask = (task) =>
+  String(task?.category || "")
+    .trim()
+    .toLowerCase() === "desarrollo";
 
 const ManagementRoomView = ({
   tasks,
@@ -12155,16 +12208,17 @@ const ManagementRoomView = ({
       return compareDateOnlyStrings(task.date, currentDate) === 0;
     if (filterMode === "overdue")
       return (
+        Boolean(normalizeDateOnlyString(task.date)) &&
         isDateBeforeDateString(task.date, todayStr) && task.status !== "cerrado"
       );
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(task.date, currentMonthPeriod);
+    return isDateWithinPeriod(task.date, currentMonthPeriod)
+      || isUpcomingOrUndatedOpenTask(task, currentMonthPeriod);
   });
 
   const handleAddTask = (dateStr) => {
     const nextDate = normalizeDateOnlyString(dateStr) || todayStr;
     setCurrentDate(nextDate);
-    setFilterMode("date");
     onAdd(nextDate);
   };
 
@@ -12249,7 +12303,16 @@ const ManagementRoomView = ({
     const dueBadge = computeManagementDueBadge(task);
     const badges = [];
     if (task.category)
-      badges.push({ label: task.category, className: getMgmtCategoryColor(task.category) });
+      badges.push({
+        label: getMgmtCategoryLabel(task.category),
+        className: getMgmtCategoryColor(task.category),
+      });
+    if (isDevelopmentTask(task) && task.devStatus)
+      badges.push({
+        label: task.devStatus,
+        className:
+          "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200 border-indigo-200 dark:border-indigo-500/20",
+      });
     if (dueBadge && stage.id !== "cerrado")
       badges.push({ label: dueBadge.label, tone: dueBadge.tone });
     const menuItems = [];
@@ -17827,6 +17890,7 @@ const TaskDetailModal = ({
   onEdit,
   onChangeStatus,
   onAddComment,
+  onAddDevStatus,
   onAddTimeEntry,
   onUpdateChecklist,
   onChangePriority,
@@ -17874,6 +17938,9 @@ const TaskDetailModal = ({
   const [fullAttachments, setFullAttachments] = useState(null);
   const [clientChatText, setClientChatText] = useState("");
   const [sendingClientChat, setSendingClientChat] = useState(false);
+  const [devStatusLabel, setDevStatusLabel] = useState("");
+  const [devStatusNote, setDevStatusNote] = useState("");
+  const [savingDevStatus, setSavingDevStatus] = useState(false);
 
   // Cerrar dropdowns al click fuera
   useEffect(() => {
@@ -17968,6 +18035,8 @@ const TaskDetailModal = ({
 
   useEffect(() => {
     if (!config.isOpen) setLightboxIndex(null);
+    setDevStatusLabel("");
+    setDevStatusNote("");
   }, [config.isOpen, config.task?.id]);
 
   useEffect(() => {
@@ -18078,6 +18147,16 @@ const TaskDetailModal = ({
   const currentStatus =
     statuses.find((s) => s.id === task.status) || statuses[0];
   const canAct = canEdit(type);
+  const isDevTask = type === "managementTask" && isDevelopmentTask(task);
+  const canAddDevStatus =
+    isDevTask &&
+    (canAct ||
+      isTaskAssignedToProfile(task, currentUserProfile, [
+        currentUserProfile?.id,
+      ]));
+  const devStatusLog = Array.isArray(task.devStatusLog)
+    ? task.devStatusLog
+    : [];
   const comments = Array.isArray(task.comments)
     ? [...task.comments].reverse()
     : [];
@@ -18116,6 +18195,21 @@ const TaskDetailModal = ({
       setMentionedIds([]);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleAddDevStatus = async () => {
+    if (!onAddDevStatus || !devStatusLabel.trim() || savingDevStatus) return;
+    setSavingDevStatus(true);
+    try {
+      await onAddDevStatus(task, {
+        label: devStatusLabel.trim(),
+        note: devStatusNote.trim(),
+      });
+      setDevStatusLabel("");
+      setDevStatusNote("");
+    } finally {
+      setSavingDevStatus(false);
     }
   };
 
@@ -18479,6 +18573,9 @@ const TaskDetailModal = ({
               >
                 {[
                   { id: "task-summary", label: "Resumen" },
+                  ...(isDevTask
+                    ? [{ id: "task-dev-status", label: "Estados" }]
+                    : []),
                   { id: "task-activity", label: "Actividad" },
                   {
                     id: "task-files",
@@ -18527,6 +18624,99 @@ const TaskDetailModal = ({
                   </button>
                 )}
               </section>
+
+              {isDevTask && (
+                <section
+                  id="task-dev-status"
+                  className="mb-4 scroll-mt-16 rounded-xl border border-indigo-200 bg-white p-5 dark:border-indigo-500/20 dark:bg-[var(--surface-raised)]"
+                >
+                  <p className="mb-1 text-[11px] font-black uppercase tracking-[0.16em] text-indigo-600 dark:text-indigo-300">
+                    Estados de desarrollo
+                  </p>
+                  <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+                    El equipo puede ir registrando avances sin mover la columna del tablero.
+                  </p>
+                  {devStatusLog.length > 0 ? (
+                    <ol className="mb-4 space-y-3">
+                      {[...devStatusLog].reverse().map((entry, index) => (
+                        <li
+                          key={entry.id || `${entry.createdAt}-${index}`}
+                          className="rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2.5 dark:border-indigo-500/15 dark:bg-indigo-500/10"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                              {entry.label}
+                            </p>
+                            {index === 0 && (
+                              <span className="shrink-0 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                Actual
+                              </span>
+                            )}
+                          </div>
+                          {entry.note ? (
+                            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap">
+                              {entry.note}
+                            </p>
+                          ) : null}
+                          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                            {entry.authorName || "Equipo"}
+                            {entry.createdAt
+                              ? ` · ${new Date(entry.createdAt).toLocaleString("es-HN", {
+                                  day: "numeric",
+                                  month: "short",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}`
+                              : ""}
+                          </p>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                      Todavía no hay estados. Agregá el primero para dejar rastro del avance.
+                    </p>
+                  )}
+                  {canAddDevStatus ? (
+                    <div className="space-y-2">
+                      <input
+                        value={devStatusLabel}
+                        onChange={(event) => setDevStatusLabel(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            handleAddDevStatus();
+                          }
+                        }}
+                        placeholder="Nuevo estado (ej. En code review)"
+                        maxLength={80}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 dark:border-white/10 dark:bg-[var(--surface)] dark:text-slate-100"
+                      />
+                      <textarea
+                        value={devStatusNote}
+                        onChange={(event) => setDevStatusNote(event.target.value)}
+                        placeholder="Nota (opcional)"
+                        maxLength={280}
+                        rows={2}
+                        className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 dark:border-white/10 dark:bg-[var(--surface)] dark:text-slate-100"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddDevStatus}
+                        disabled={!devStatusLabel.trim() || savingDevStatus}
+                        className="flex min-h-10 items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Icon
+                          name={savingDevStatus ? "Loader2" : "Plus"}
+                          size={13}
+                          className={savingDevStatus ? "animate-spin" : ""}
+                        />
+                        Agregar estado
+                      </button>
+                    </div>
+                  ) : null}
+                </section>
+              )}
 
               {/* Checklist */}
               {(() => {
@@ -19434,7 +19624,7 @@ const TaskDetailModal = ({
                     Categoría
                   </p>
                   <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                    {task.category}
+                    {getMgmtCategoryLabel(task.category)}
                   </span>
                 </div>
               )}
@@ -19765,6 +19955,7 @@ const CreateTaskModal = ({
   const [hierarchy, setHierarchy] = useState("p2");
   const [time, setTime] = useState("");
   const [category, setCategory] = useState("seguimiento");
+  const [notifyEmail, setNotifyEmail] = useState(true);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [clientOpen, setClientOpen] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
@@ -19812,6 +20003,7 @@ const CreateTaskModal = ({
         setTime(data.time || "");
         setHierarchy(data.hierarchy || data.editingHierarchy || "p2");
         setCategory(data.category || "seguimiento");
+        setNotifyEmail(data.notificationsEnabled !== false);
         setStatus(
           type === "editingTask"
             ? normalizeEditingWorkflowStatus(data.status || "editar")
@@ -19829,6 +20021,7 @@ const CreateTaskModal = ({
         setTime("");
         setHierarchy("p2");
         setCategory("seguimiento");
+        setNotifyEmail(true);
         setStatus("editar");
       }
       setAssigneeOpen(false);
@@ -20060,7 +20253,7 @@ const CreateTaskModal = ({
             category,
             notes,
             priority,
-            notificationsEnabled: data.notificationsEnabled || false,
+            notificationsEnabled: notifyEmail,
             ...payload,
           });
       } else {
@@ -20100,7 +20293,7 @@ const CreateTaskModal = ({
             category,
             notes,
             priority,
-            notificationsEnabled: false,
+            notificationsEnabled: notifyEmail,
             ...payload,
           });
       }
@@ -20622,13 +20815,11 @@ const CreateTaskModal = ({
               onChange={(e) => setCategory(e.target.value)}
               className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 outline-none cursor-pointer"
             >
-              {["seguimiento", "reunion", "revision", "entrega", "otro"].map(
-                (c) => (
-                  <option key={c} value={c}>
-                    {c.charAt(0).toUpperCase() + c.slice(1)}
-                  </option>
-                ),
-              )}
+              {MANAGEMENT_CATEGORIES.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
             </select>
           )}
 
@@ -20645,6 +20836,32 @@ const CreateTaskModal = ({
             </div>
           )}
         </div>
+
+        {type === "managementTask" && (
+          <div className="px-6 pb-2">
+            {category === "desarrollo" && (
+              <p className="mb-3 text-xs text-indigo-600 dark:text-indigo-300">
+                El equipo de desarrollo podrá ir agregando estados de avance en la tarea.
+              </p>
+            )}
+            <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950">
+              <input
+                type="checkbox"
+                checked={notifyEmail}
+                onChange={(event) => setNotifyEmail(event.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-violet-600"
+              />
+              <span>
+                <span className="block text-sm font-bold text-slate-700 dark:text-slate-200">
+                  Recordar por correo
+                </span>
+                <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">
+                  Avisa al admin, a quien asignó y al asignado 24 h y 8 h antes, al vencer, y cada 24 h si sigue abierta.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="border-t border-slate-100 dark:border-slate-800 px-6 py-4 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50 rounded-b-2xl">
@@ -21333,6 +21550,7 @@ const Modal = ({
                   className={`${selectClassName} font-bold`}
                 >
                   <option value="seguimiento">Seguimiento</option>
+                  <option value="desarrollo">Desarrollo</option>
                   <option value="coordinacion">Coordinacion</option>
                   <option value="aprobacion">Aprobacion</option>
                   <option value="soporte">Soporte</option>
@@ -21357,8 +21575,8 @@ const Modal = ({
                       Recordar por correo
                     </p>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Envia avisos al asignado 8 horas antes, al vencer y cada
-                      24 horas si sigue abierta.
+                      Envia avisos al admin, a quien asigno y al asignado 24 h y
+                      8 h antes, al vencer y cada 24 horas si sigue abierta.
                     </p>
                   </div>
                 </label>
@@ -21981,7 +22199,8 @@ const UnifiedModuleKanbanView = ({
       );
     }
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(item._date, monthPeriod);
+    return isDateWithinPeriod(item._date, monthPeriod)
+      || isUpcomingOrUndatedOpenTask(item, monthPeriod);
   });
 
   const filteredByLane = {

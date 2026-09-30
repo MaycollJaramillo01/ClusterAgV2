@@ -4,16 +4,12 @@ import { createHttpError } from './http.js';
 import { nowIso } from './time.js';
 import { normalizeEmail } from './text.js';
 import { isDeepStrictEqual } from 'node:util';
+import { CLOSED_STATUS_BY_COLLECTION, TASK_WINDOW_COLLECTIONS } from './task-window.js';
 
-const TASK_COLLECTIONS = new Set(['account_tasks', 'editing', 'management_tasks']);
+const TASK_COLLECTIONS = TASK_WINDOW_COLLECTIONS;
 // Colecciones cuyos adjuntos (base64) se recortan en los listados para no
 // transferir MB en cada polling; el detalle completo se pide via getRecord.
 const ATTACHMENT_COLLECTIONS = new Set([...TASK_COLLECTIONS, 'client_chats']);
-const CLOSED_STATUS_BY_COLLECTION = {
-    account_tasks: new Set(['publicado']),
-    editing: new Set(['aprobado', 'publicado']),
-    management_tasks: new Set(['cerrado'])
-};
 
 const stripUndefined = (value) => JSON.parse(JSON.stringify(value));
 
@@ -94,9 +90,18 @@ const applyTaskWindow = (query, { collectionName, dateFrom, dateTo, includeOpenB
     return query.andWhere((builder) => {
         builder.whereBetween('date_index', [dateFrom, dateTo]);
         if (includeOpenBefore) {
-            builder.orWhere((overdue) => {
-                overdue.where('date_index', '<', dateFrom);
-                if (closedStatuses.length > 0) overdue.whereNotIn('status_index', closedStatuses);
+            builder.orWhere((openOutside) => {
+                openOutside.where((dates) => {
+                    dates.whereNull('date_index')
+                        .orWhere('date_index', '<', dateFrom)
+                        .orWhere('date_index', '>', dateTo);
+                });
+                if (closedStatuses.length > 0) {
+                    openOutside.where((statusClause) => {
+                        statusClause.whereNotIn('status_index', closedStatuses)
+                            .orWhereNull('status_index');
+                    });
+                }
             });
         }
     });
@@ -117,10 +122,16 @@ export const listRecords = async ({
     dateFrom,
     dateTo,
     includeOpenBefore = false,
+    createdFrom,
+    createdTo,
+    updatedFrom,
     trx
 }) => {
     const query = getClient(trx)('app_records').where({ collection_name: collectionName });
     applyTaskWindow(query, { collectionName, dateFrom, dateTo, includeOpenBefore });
+    if (createdFrom) query.andWhere('created_at', '>=', String(createdFrom));
+    if (createdTo) query.andWhere('created_at', '<', String(createdTo));
+    if (updatedFrom) query.andWhere('updated_at', '>=', String(updatedFrom));
 
     const stripHeavyFields = ATTACHMENT_COLLECTIONS.has(collectionName)
         ? (record) => stripAttachmentData(record)

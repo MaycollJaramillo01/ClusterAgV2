@@ -49,4 +49,27 @@ assert.deepEqual(
     []
 );
 
+const monthEndEntry = {
+    ref: { __kind: 'collection', segments: ['account_tasks'] },
+    records: []
+};
+assert.deepEqual(
+    mergeEntryChanges(monthEndEntry, [{
+        collectionName: 'account_tasks',
+        recordId: 'alta',
+        action: 'upsert',
+        record: { id: 'alta', date: '2026-10-01', status: 'por_disenar', priority: 'alta' }
+    }]).map((record) => record.id),
+    ['alta']
+);
+assert.deepEqual(
+    mergeEntryChanges(monthEndEntry, [{
+        collectionName: 'account_tasks',
+        recordId: 'sin-fecha',
+        action: 'upsert',
+        record: { id: 'sin-fecha', date: '', status: 'por_disenar', priority: 'alta' }
+    }]).map((record) => record.id),
+    ['sin-fecha']
+);
+
 console.log('Polling adaptativo: OK');
