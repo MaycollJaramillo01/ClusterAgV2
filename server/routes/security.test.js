@@ -609,10 +609,43 @@ test('editor performance report is protected and database portable', async () =>
     assert.equal((await request('/api/reports/rendimiento-semanal.pdf')).status, 401);
     assert.equal((await request('/api/reports/rendimiento-editores', { token: viewerToken })).status, 403);
 
+    await createRecord({
+        collectionName: 'users',
+        recordId: 'developer-without-session',
+        payload: {
+            name: 'Leandro Matias',
+            email: 'leandro@example.test',
+            role: 'super_admin',
+            isActive: true,
+            lastDisconnectedAt: '2026-08-07T15:30:00.000Z',
+            lastSeenAt: '2026-08-07T15:30:00.000Z'
+        }
+    });
+
     const response = await request('/api/reports/rendimiento-editores', { token: operationsToken });
     assert.equal(response.status, 200);
     assert.equal(response.payload?.success, true);
     assert.ok(response.payload?.data?.some((item) => item.email === 'viewer@example.test'));
+    assert.ok(response.payload?.data?.some((item) => (
+        item.nombre === 'Leandro Matias'
+        && item.ultima_desconexion === '2026-08-07T15:30:00.000Z'
+    )));
+});
+
+test('presence records disconnection time without requiring a new Google login', async () => {
+    const response = await request('/api/auth/presence/disconnect', {
+        token: viewerToken,
+        method: 'POST'
+    });
+    assert.equal(response.status, 204);
+
+    const viewer = await getRecord({ collectionName: 'users', recordId: 'viewer' });
+    assert.ok(Number.isFinite(Date.parse(viewer.lastDisconnectedAt)));
+    assert.equal(viewer.lastSeenAt, viewer.lastDisconnectedAt);
+
+    const sessionResponse = await request('/api/auth/session', { token: viewerToken });
+    assert.equal(sessionResponse.status, 200);
+    assert.equal(sessionResponse.payload?.user?.email, 'viewer@example.test');
 });
 
 test('OAuth web redirects stay on the application origin', () => {

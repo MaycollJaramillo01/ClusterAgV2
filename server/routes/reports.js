@@ -28,20 +28,23 @@ router.get('/rendimiento-editores', asyncHandler(async (req, res) => {
         throw createHttpError(403, 'No tienes permisos para ver este reporte.', 'auth/insufficient-permission');
     }
 
-    const rows = await db('auth_sessions as s')
-        .join('app_records as u', 'u.record_id', 's.user_record_id')
-        .where('u.collection_name', 'users')
-        .select('s.user_record_id', 'u.payload_json')
-        .max({ last_seen_at: 's.last_seen_at' })
-        .groupBy('s.user_record_id', 'u.payload_json');
+    // El reporte debe incluir a todo el equipo, incluso cuando ya no tiene una
+    // sesion activa. Consultar auth_sessions ocultaba precisamente a quienes se
+    // habian desconectado.
+    const rows = await db('app_records')
+        .where('collection_name', 'users')
+        .select('record_id', 'payload_json');
 
     const data = rows.map((row) => {
         const user = parseUserPayload(row.payload_json);
+        const lastDisconnectedAt = user.lastDisconnectedAt || null;
         return {
-            user_id: row.user_record_id,
+            user_id: row.record_id,
             email: user.email || '',
             nombre: user.name || '',
-            ultimo_login: row.last_seen_at || null
+            ultimo_acceso: lastDisconnectedAt,
+            ultima_desconexion: lastDisconnectedAt,
+            ultimo_login: user.lastLoginAt || null
         };
     });
 
