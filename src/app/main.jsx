@@ -144,7 +144,9 @@ import {
 } from "./utils/date.js";
 import {
   KPI_MIN_TASKS,
-  buildManagerKpiStats,
+  buildTeamKpiStats,
+  calculateKpiScore,
+  getKpiTaskWeight,
   getMeasuredCompletionIso,
   isEditingDelivered,
   isEditingActionable,
@@ -9125,10 +9127,17 @@ const buildPersonalKpiSnapshot = (
     isDateWithinPeriod(task.date, period),
   );
   const completedTasks = monthlyTasks.filter((task) => task._done);
-  const completionPercent =
-    monthlyTasks.length > 0
-      ? Math.round((completedTasks.length / monthlyTasks.length) * 100)
-      : 0;
+  const weightedTotal = monthlyTasks.reduce(
+    (sum, task) => sum + getKpiTaskWeight(task),
+    0,
+  );
+  const weightedCompleted = completedTasks.reduce(
+    (sum, task) => sum + getKpiTaskWeight(task),
+    0,
+  );
+  const completionPercent = weightedTotal
+    ? Math.round((weightedCompleted / weightedTotal) * 100)
+    : 0;
   const measuredCompletedTasks = completedTasks
     .map((task) => ({
       task,
@@ -9137,26 +9146,35 @@ const buildPersonalKpiSnapshot = (
     .filter(({ task, completionIso }) =>
       Boolean(normalizeDateOnlyString(task.date) && completionIso),
     );
-  const onTimePercent =
-    measuredCompletedTasks.length > 0
-      ? Math.round(
-          (measuredCompletedTasks.filter(({ task, completionIso }) =>
-            isCompletionOnTime(task, completionIso),
-          ).length /
-            measuredCompletedTasks.length) *
-            100,
-        )
-      : null;
+  const measuredWeight = measuredCompletedTasks.reduce(
+    (sum, { task }) => sum + getKpiTaskWeight(task),
+    0,
+  );
+  const onTimeWeight = measuredCompletedTasks.reduce(
+    (sum, { task, completionIso }) =>
+      isCompletionOnTime(task, completionIso)
+        ? sum + getKpiTaskWeight(task)
+        : sum,
+    0,
+  );
+  const onTimePercent = measuredWeight
+    ? Math.round((onTimeWeight / measuredWeight) * 100)
+    : null;
 
   return {
     monthlyTasks,
     completedTasks,
+    weightedTotal,
+    weightedCompleted,
     completionPercent,
     onTimePercent,
-    score:
-      onTimePercent === null
-        ? completionPercent
-        : Math.round(completionPercent * 0.7 + onTimePercent * 0.3),
+    measuredCompletionCount: measuredCompletedTasks.length,
+    qualified: monthlyTasks.length >= KPI_MIN_TASKS,
+    score: calculateKpiScore({
+      completionPercent,
+      onTimePercent,
+      measuredCompletionCount: measuredCompletedTasks.length,
+    }),
   };
 };
 
@@ -9396,12 +9414,15 @@ const DashboardView = ({
         completed: snapshot.completedTasks.length,
         assigned: snapshot.monthlyTasks.length,
         onTimePercent: snapshot.onTimePercent,
+        measuredCompletionCount: snapshot.measuredCompletionCount,
+        qualified: snapshot.qualified,
         isCurrent,
       };
     })
     .filter((item) => item.assigned > 0)
     .sort(
       (left, right) =>
+        Number(right.qualified) - Number(left.qualified) ||
         right.score - left.score ||
         right.completed - left.completed ||
         left.name.localeCompare(right.name),
@@ -9753,7 +9774,9 @@ const DashboardView = ({
                   className={`pd-user-kpi-row ${item.isCurrent ? "is-current" : ""}`}
                   aria-label={`${item.name}: KPI ${item.score}%`}
                 >
-                  <span className="pd-user-kpi-rank">#{item.rank}</span>
+                  <span className="pd-user-kpi-rank">
+                    {item.qualified ? `#${item.rank}` : "—"}
+                  </span>
                   <span className="pd-user-kpi-avatar">{item.initials}</span>
                   <span className="pd-user-kpi-identity">
                     <strong>
@@ -9767,9 +9790,11 @@ const DashboardView = ({
                   <span className="pd-user-kpi-score">
                     <strong>{item.score}%</strong>
                     <small>
-                      {item.onTimePercent === null
-                        ? "Puntualidad N/D"
-                        : `${item.onTimePercent}% puntualidad`}
+                      {!item.qualified
+                        ? `Provisional · ${item.assigned}/${KPI_MIN_TASKS} tareas`
+                        : item.measuredCompletionCount < KPI_MIN_TASKS
+                          ? "Puntualidad N/D"
+                          : `${item.onTimePercent}% puntualidad`}
                     </small>
                   </span>
                   <span className="pd-user-kpi-track" aria-hidden="true">
@@ -22985,14 +23010,6 @@ const ReportsView = ({
   const [pdfError, setPdfError] = useState("");
   const hasAutoExpandedRangeRef = useRef(false);
 
-  const inRange = (dateStr) => {
-    if (!dateStr) return false;
-    return (
-      compareDateOnlyStrings(dateStr, fromDate) >= 0 &&
-      compareDateOnlyStrings(dateStr, toDate) <= 0
-    );
-  };
-
   const filteredAccountTasks = accountTasks.filter((t) => inRange(t.date));
   const filteredEditingTasks = editingTasks.filter((t) => inRange(t.date));
   const filteredManagementTasks = managementTasks.filter((t) =>
@@ -23946,41 +23963,31 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
     );
   };
 
-  const filteredEditingTasks = useMemo(
-    () => editingTasks.filter((task) => inRange(task.date)),
-    [editingTasks, fromDate, toDate],
+  const kpiPeriod = useMemo(
+    () => ({ start: fromDate, end: toDate }),
+    [fromDate, toDate],
   );
-  const filteredAccountTasks = useMemo(
-    () => accountTasks.filter((task) => inRange(task.date)),
-    [accountTasks, fromDate, toDate],
+  const userById = useMemo(
+    () => new Map(users.map((item) => [item.id, item])),
+    [users],
   );
-  const editingTasksByPerson = useMemo(() => {
-    const grouped = new Map();
-    filteredEditingTasks.forEach((task) => {
-      if (!grouped.has(task.contextId)) grouped.set(task.contextId, []);
-      grouped.get(task.contextId).push(task);
-    });
-    return grouped;
-  }, [filteredEditingTasks]);
-  const accountTasksByPerson = useMemo(() => {
-    const grouped = new Map();
-    filteredAccountTasks.forEach((task) => {
-      if (!grouped.has(task.contextId)) grouped.set(task.contextId, []);
-      grouped.get(task.contextId).push(task);
-    });
-    return grouped;
-  }, [filteredAccountTasks]);
-
-  const userById = new Map(users.map((item) => [item.id, item]));
-  const userByEditorId = new Map(
-    users
-      .filter((item) => item.linkedEditorId)
-      .map((item) => [item.linkedEditorId, item]),
+  const userByEditorId = useMemo(
+    () =>
+      new Map(
+        users
+          .filter((item) => item.linkedEditorId)
+          .map((item) => [item.linkedEditorId, item]),
+      ),
+    [users],
   );
-  const userByManagerId = new Map(
-    users
-      .filter((item) => item.linkedManagerId)
-      .map((item) => [item.linkedManagerId, item]),
+  const userByManagerId = useMemo(
+    () =>
+      new Map(
+        users
+          .filter((item) => item.linkedManagerId)
+          .map((item) => [item.linkedManagerId, item]),
+      ),
+    [users],
   );
 
   const getPersonAccessRecency = (personType, personId, personUserId = "") => {
@@ -23991,14 +23998,7 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
         : userByManagerId.get(personId) ||
           (personUserId ? userById.get(personUserId) : null);
     const lastDisconnectedAt = personUser?.lastDisconnectedAt || "";
-    const lastActivityAt = personUser?.lastLoginAt || lastDisconnectedAt;
-    const daysSinceActivity = lastActivityAt
-      ? Math.max(0, getDateOnlyDiffDays(todayStr, lastActivityAt))
-      : null;
-    return {
-      lastDisconnectedAt,
-      daysSinceActivity,
-    };
+    return { lastDisconnectedAt };
   };
 
   const formatLastDisconnect = (value) => {
@@ -24010,118 +24010,49 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
     }).format(parsed);
   };
 
-  const isEditingDeliveredTask = (task) => isEditingDelivered(task);
-  const isAccountDelivered = (task) =>
-    ["aprobado_internamente", "publicado"].includes(task.status);
-
-  const editorStats = editors
-    .map((editor) => {
-      const editorTasks = editingTasksByPerson.get(editor.id) || [];
-      const delivered = editorTasks.filter(isEditingDeliveredTask).length;
-      const approved = editorTasks.filter(
-        (task) => normalizeEditingWorkflowStatus(task.status) === "aprobado",
-      ).length;
-      const published = editorTasks.filter(
-        (task) => task.status === "publicado",
-      ).length;
-      const inRevision = editorTasks.filter(
-        (task) => normalizeEditingWorkflowStatus(task.status) === "revision_interna",
-      ).length;
-      const inProgress = editorTasks.filter(isEditingActionable).length;
-      const total = editorTasks.length;
-      const deliveryPerformance = total
-        ? Math.round((delivered / total) * 100)
-        : 0;
-      const approvalPerformance = total
-        ? Math.round((approved / total) * 100)
-        : 0;
-      const publicationPerformance = total
-        ? Math.round((published / total) * 100)
-        : 0;
-      const accessRecency = getPersonAccessRecency("editor", editor.id, editor.userId);
-      const accessScore = accessRecency.daysSinceActivity === null
-        ? 0
-        : Math.max(0, 100 - Math.min(accessRecency.daysSinceActivity, 30) * 2);
-      const overallPerformance = total
-        ? Math.round(
-            publicationPerformance * 0.6 +
-              approvalPerformance * 0.2 +
-              deliveryPerformance * 0.15 +
-              accessScore * 0.05,
-          )
-        : 0;
-      return {
-        ...editor,
+  const editorStats = useMemo(
+    () =>
+      buildTeamKpiStats({
+        people: editors,
+        tasks: editingTasks,
         kind: "editor",
-        kindLabel: "Editor",
-        total,
-        delivered,
-        approved,
-        published,
-        inRevision,
-        inProgress,
-        pending: Math.max(total - delivered, 0),
-        deliveryPerformance,
-        approvalPerformance,
-        publicationPerformance,
-        overallPerformance,
-        lastDisconnectedAt: accessRecency.lastDisconnectedAt,
-        daysSinceActivity: accessRecency.daysSinceActivity,
-      };
-    })
-    .filter((editor) => editor.total > 0);
+        period: kpiPeriod,
+        today: todayStr,
+      })
+        .filter((editor) => editor.total > 0)
+        .map((editor) => ({
+          ...editor,
+          overallPerformance: editor.score,
+          lastDisconnectedAt: getPersonAccessRecency(
+            "editor",
+            editor.id,
+            editor.userId,
+          ).lastDisconnectedAt,
+        })),
+    [editors, editingTasks, kpiPeriod, todayStr, userByEditorId, userById],
+  );
 
-  const managerStats = managers
-    .map((manager) => {
-      const managerTasks = accountTasksByPerson.get(manager.id) || [];
-      const delivered = managerTasks.filter(isAccountDelivered).length;
-      const approved = managerTasks.filter((task) => task.status === "aprobado_internamente")
-        .length;
-      const published = managerTasks.filter((task) => task.status === "publicado")
-        .length;
-      const inProgress = managerTasks.filter(
-        (task) => !["aprobado_internamente", "publicado"].includes(task.status),
-      ).length;
-      const total = managerTasks.length;
-      const deliveryPerformance = total
-        ? Math.round((delivered / total) * 100)
-        : 0;
-      const approvalPerformance = total
-        ? Math.round((approved / total) * 100)
-        : 0;
-      const publicationPerformance = total
-        ? Math.round((published / total) * 100)
-        : 0;
-      const accessRecency = getPersonAccessRecency("manager", manager.id, manager.userId);
-      const accessScore = accessRecency.daysSinceActivity === null
-        ? 0
-        : Math.max(0, 100 - Math.min(accessRecency.daysSinceActivity, 30) * 2);
-      const overallPerformance = total
-        ? Math.round(
-            publicationPerformance * 0.6 +
-              approvalPerformance * 0.2 +
-              deliveryPerformance * 0.15 +
-              accessScore * 0.05,
-          )
-        : 0;
-      return {
-        ...manager,
+  const managerStats = useMemo(
+    () =>
+      buildTeamKpiStats({
+        people: managers,
+        tasks: accountTasks,
         kind: "manager",
-        kindLabel: "Account Manager",
-        total,
-        delivered,
-        published,
-        inProgress,
-        pending: Math.max(total - delivered, 0),
-        deliveryPerformance,
-        approvalPerformance,
-        publicationPerformance,
-        overallPerformance,
-        lastDisconnectedAt: accessRecency.lastDisconnectedAt,
-        daysSinceActivity: accessRecency.daysSinceActivity,
-      };
-    })
-    .filter((manager) => manager.total > 0);
+        period: kpiPeriod,
+        today: todayStr,
+      })
+        .filter((manager) => manager.total > 0)
+        .map((manager) => ({
+          ...manager,
+          overallPerformance: manager.score,
+          lastDisconnectedAt: getPersonAccessRecency(
+            "manager",
+            manager.id,
+            manager.userId,
+          ).lastDisconnectedAt,
+        })),
+    [managers, accountTasks, kpiPeriod, todayStr, userByManagerId, userById],
+  );
 
   const developerStats = users
     .filter(
@@ -24139,6 +24070,13 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
         delivered: 0,
         published: 0,
         pending: 0,
+        overdueTasks: 0,
+        weightedTotal: 0,
+        weightedCompleted: 0,
+        measuredWeight: 0,
+        onTimeWeight: 0,
+        onTimePercent: null,
+        qualified: false,
         deliveryPerformance: 0,
         overallPerformance: 0,
         lastDisconnectedAt,
@@ -24147,8 +24085,9 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
 
   const personStats = [...editorStats, ...managerStats, ...developerStats].sort(
     (left, right) =>
+      Number(right.qualified) - Number(left.qualified) ||
       right.overallPerformance - left.overallPerformance ||
-      right.total - left.total ||
+      right.weightedCompleted - left.weightedCompleted ||
       String(left.name || "").localeCompare(String(right.name || "")),
   );
 
@@ -24168,29 +24107,63 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
     );
   }, [normalizedSearch, personGroupFilter, personStats]);
 
-  const totalTasks = filteredEditingTasks.length + filteredAccountTasks.length;
-  const deliveredTasks =
-    filteredEditingTasks.filter(isEditingDeliveredTask).length +
-    filteredAccountTasks.filter(isAccountDelivered).length;
-  const publishedTasks =
-    filteredEditingTasks.filter((task) => task.status === "publicado").length +
-    filteredAccountTasks.filter((task) => task.status === "publicado").length;
   const visiblePerformanceStats = visiblePersonStats.filter(
     (person) => person.kind !== "developer",
   );
-  const averagePerformance = visiblePerformanceStats.length
+  const qualifiedPerformanceStats = visiblePerformanceStats.filter(
+    (person) => person.qualified,
+  );
+  const averageSource = qualifiedPerformanceStats.length
+    ? qualifiedPerformanceStats
+    : visiblePerformanceStats;
+  const averageWeight = averageSource.reduce(
+    (sum, person) => sum + person.weightedTotal,
+    0,
+  );
+  const averagePerformance = averageWeight
     ? Math.round(
-        visiblePerformanceStats.reduce((sum, person) => sum + person.overallPerformance, 0) /
-          visiblePerformanceStats.length,
+        averageSource.reduce(
+          (sum, person) => sum + person.overallPerformance * person.weightedTotal,
+          0,
+        ) / averageWeight,
       )
     : 0;
+  const totalTasks = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.total,
+    0,
+  );
+  const deliveredTasks = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.delivered,
+    0,
+  );
+  const measuredWeight = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.measuredWeight,
+    0,
+  );
+  const teamMeasuredCompletionCount = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.measuredCompletionCount,
+    0,
+  );
+  const onTimeWeight = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.onTimeWeight,
+    0,
+  );
+  const teamOnTimePercent =
+    measuredWeight && teamMeasuredCompletionCount >= KPI_MIN_TASKS
+    ? Math.round((onTimeWeight / measuredWeight) * 100)
+    : null;
+  const overdueTasks = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.overdueTasks,
+    0,
+  );
   const deliveryRate = totalTasks
     ? Math.round((deliveredTasks / totalTasks) * 100)
     : 0;
   const peopleNeedingAttention = visiblePersonStats.filter(
     (person) =>
       person.kind !== "developer" &&
-      (person.overallPerformance < 60 || person.pending > 0),
+      (person.overdueTasks > 0 ||
+        (person.qualified && person.overallPerformance < 60)),
   ).length;
   const groupLabel =
     personGroupFilter === "editors"
@@ -24297,7 +24270,7 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
             {groupLabel} · {visiblePersonStats.length} personas
           </span>
           <small>
-            Publicación 60% · aprobación 20% · entrega 15% · actividad 5%
+            Cumplimiento ponderado 70% · puntualidad comprobada 30%
           </small>
         </div>
 
@@ -24311,14 +24284,14 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
             <small>{deliveryRate}% del trabajo</small>
           </div>
           <div>
-            <dt>Publicadas</dt>
-            <dd>{publishedTasks}</dd>
-            <small>finalizadas en el rango</small>
+            <dt>Puntualidad</dt>
+            <dd>{teamOnTimePercent === null ? "N/D" : `${teamOnTimePercent}%`}</dd>
+            <small>solo entregas con fecha comprobable</small>
           </div>
           <div className={peopleNeedingAttention > 0 ? "has-attention" : ""}>
             <dt>Necesitan atención</dt>
             <dd>{peopleNeedingAttention}</dd>
-            <small>KPI bajo o tareas abiertas</small>
+            <small>{overdueTasks} tareas vencidas</small>
           </div>
         </dl>
       </section>
@@ -24389,7 +24362,7 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
         <header className="performance-ranking-header">
           <div>
             <h3 id="performance-ranking-title">Equipo</h3>
-            <p>Ordenado por KPI. Lo pendiente queda visible sin abrir otra vista.</p>
+            <p>Las mediciones consolidadas aparecen primero; se requieren {KPI_MIN_TASKS} tareas.</p>
           </div>
           <span>{visiblePersonStats.length} resultados</span>
         </header>
@@ -24410,7 +24383,7 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
               <span />
               <span>Persona</span>
               <span>KPI</span>
-              <span>Publicadas</span>
+              <span>A tiempo</span>
               <span>Pendientes</span>
               <span>Actividad</span>
             </div>
@@ -24443,7 +24416,11 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
                       : `${person.name}: KPI ${person.overallPerformance}%`
                   }
                 >
-                  <span className="performance-rank">#{index + 1}</span>
+                  <span className="performance-rank">
+                    {person.kind === "developer" || !person.qualified
+                      ? "—"
+                      : `#${index + 1}`}
+                  </span>
 
                   <div className="performance-person">
                     <span className="performance-avatar" aria-hidden="true">
@@ -24465,7 +24442,11 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
                       <>
                         <span>
                           <strong>{person.overallPerformance}%</strong>
-                          <small>{person.deliveryPerformance}% entregado</small>
+                          <small>
+                            {person.qualified
+                              ? `${person.deliveryPerformance}% cumplimiento`
+                              : `Provisional · ${person.total}/${KPI_MIN_TASKS} tareas`}
+                          </small>
                         </span>
                         <span className="performance-kpi-track" aria-hidden="true">
                           <span
@@ -24480,7 +24461,17 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
                     {person.kind === "developer" ? (
                       <><strong>—</strong><small>sin tareas editoriales</small></>
                     ) : (
-                      <><strong>{person.published}<span>/{person.total}</span></strong><small>publicadas</small></>
+                      <>
+                        <strong>
+                          {person.measuredCompletionCount >= KPI_MIN_TASKS &&
+                          person.onTimePercent !== null
+                            ? `${person.onTimePercent}%`
+                            : "N/D"}
+                        </strong>
+                        <small>
+                          {person.measuredCompletionCount}/{KPI_MIN_TASKS} medidas
+                        </small>
+                      </>
                     )}
                   </div>
 
@@ -24490,7 +24481,10 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
                     {person.kind === "developer" ? (
                       <><strong>—</strong><small>no aplica</small></>
                     ) : (
-                      <><strong>{person.pending}</strong><small>sin entregar</small></>
+                      <>
+                        <strong>{person.pending}</strong>
+                        <small>{person.overdueTasks} vencidas</small>
+                      </>
                     )}
                   </div>
 
