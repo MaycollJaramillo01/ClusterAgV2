@@ -4,6 +4,7 @@ import {
     summarizeRolePerformance,
     shouldSendDailyRoleReport,
     getDailyReportWindow,
+    getTaskCompletionIso,
     mergeGeneralPerformance
 } from './daily-reports.js';
 
@@ -190,6 +191,23 @@ test('summarizeRolePerformance keeps people without tasks with zero values', () 
     assert.equal(andres.created, 0);
     assert.equal(andres.approved, 0);
     assert.equal(andres.inProgress, 0);
+});
+
+test('getTaskCompletionIso matches statusTimestamps when status casing differs', () => {
+    assert.equal(
+        getTaskCompletionIso({
+            status: 'Aprobado',
+            statusTimestamps: { aprobado: '2026-08-06T16:00:00-06:00' }
+        }),
+        '2026-08-06T16:00:00-06:00'
+    );
+    assert.equal(
+        getTaskCompletionIso({
+            status: 'publicado',
+            statusTimestamps: { Publicado: '2026-08-06T18:00:00-06:00' }
+        }),
+        '2026-08-06T18:00:00-06:00'
+    );
 });
 
 test('summarizeRolePerformance only counts same-day completions', () => {

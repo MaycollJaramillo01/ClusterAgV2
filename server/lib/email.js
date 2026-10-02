@@ -53,14 +53,14 @@ export const sendEmail = async ({
         if (mustDeliver) {
             throw createHttpError(503, 'SMTP no configurado.', 'email/not-configured');
         }
-        console.info(`[${logLabel}:${to}] ${subject}`);
+        console.info(`[${logLabel}:${Array.isArray(to) ? to.join(', ') : to}] ${subject}`);
         return { mode: 'console' };
     }
 
     try {
         await mailer.sendMail({
             from: env.smtp.from,
-            to,
+            to: Array.isArray(to) ? to.filter(Boolean).join(', ') : to,
             subject,
             html,
             ...(attachments.length > 0 ? { attachments } : {})

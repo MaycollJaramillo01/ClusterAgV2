@@ -1,5 +1,6 @@
 import { listRecords } from './records.js';
 import { sendDailyReportEmail } from './email.js';
+import { collectReportRecipientEmails } from './permissions.js';
 import { nowIso } from './time.js';
 import { createPdfDocument } from './pdf.js';
 
@@ -106,15 +107,26 @@ const isTimestampInWindow = (value, window) => {
     return ms >= window.startMs && ms < window.endMs;
 };
 
+const readStatusTimestamp = (timestamps, statusKey) => {
+    if (!timestamps || typeof timestamps !== 'object' || !statusKey) return '';
+    if (timestamps[statusKey]) return timestamps[statusKey];
+    const wanted = String(statusKey).toLowerCase();
+    for (const [key, value] of Object.entries(timestamps)) {
+        if (String(key).toLowerCase() === wanted) return value;
+    }
+    return '';
+};
+
 export const getTaskCompletionIso = (task = {}) => {
     const status = String(task.status || '').toLowerCase();
+    const timestamps = task.statusTimestamps || {};
     const candidates = [
         task.completedAt,
-        task.statusTimestamps?.[task.status],
-        task.statusTimestamps?.aprobado_internamente,
-        task.statusTimestamps?.aprobado,
-        task.statusTimestamps?.publicado,
-        task.statusTimestamps?.cerrado,
+        readStatusTimestamp(timestamps, status),
+        readStatusTimestamp(timestamps, 'aprobado_internamente'),
+        readStatusTimestamp(timestamps, 'aprobado'),
+        readStatusTimestamp(timestamps, 'publicado'),
+        readStatusTimestamp(timestamps, 'cerrado'),
         task.internallyApprovedAt,
         task.approvedAt,
         task.publishedAt,
@@ -496,9 +508,14 @@ export const sendDailyRoleReports = async ({ to = '' } = {}) => {
         };
     }
 
+    const users = await listRecords({ collectionName: 'users' });
+    const recipients = collectReportRecipientEmails({
+        users,
+        extraEmails: [recipient]
+    });
     const bundle = await buildDailyPerformanceReports({ now });
     const delivery = await sendDailyReportEmail({
-        to: recipient,
+        to: recipients,
         subject: `Rendimiento diario ${bundle.window.labelDayKey}`,
         generalPdf: bundle.pdfs.general,
         editorPdf: bundle.pdfs.editors,
@@ -509,7 +526,7 @@ export const sendDailyRoleReports = async ({ to = '' } = {}) => {
 
     return {
         ok: true,
-        to: recipient,
+        to: recipients.join(', '),
         generatedAt: bundle.generatedAt,
         periodLabel: bundle.periodLabel,
         delivery: delivery.mode,
