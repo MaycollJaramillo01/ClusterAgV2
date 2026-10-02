@@ -1,7 +1,7 @@
 import express from 'express';
 import { db } from '../db/knex.js';
 import { asyncHandler, createHttpError } from '../lib/http.js';
-import { getCollectionPermission, hasPermission } from '../lib/permissions.js';
+import { assertTaskPrivilegedFields, getCollectionPermission, hasPermission, normalizePermissionPacks } from '../lib/permissions.js';
 import {
     createRecord,
     deleteRecord,
@@ -652,6 +652,9 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
             email: targetEmail,
             role,
             isActive: nextPayload.isActive !== false,
+            ...(Object.hasOwn(nextPayload, 'permissionPacks')
+                ? { permissionPacks: normalizePermissionPacks(nextPayload.permissionPacks) }
+                : {}),
             createdAt: existing?.createdAt || nextPayload.createdAt || stamp,
             updatedAt: stamp
         };
@@ -730,13 +733,21 @@ router.post('/_batch', asyncHandler(async (req, res) => {
                 throw createHttpError(404, 'El documento no existe.', 'document/not-found');
             }
 
+            const incoming = assertPayload(operation.data || {});
             const payload = prepareCollectionPayload({
                 collectionName,
-                payload: assertPayload(operation.data || {}),
+                payload: incoming,
                 existing,
                 actor,
                 isCreate: !existing,
                 recordId
+            });
+            assertTaskPrivilegedFields({
+                collectionName,
+                existing,
+                incoming,
+                actor,
+                isCreate: !existing
             });
             await validateReferences({ collectionName, existing, payload, trx });
 
@@ -963,6 +974,13 @@ router.put('/:collectionName/:recordId', asyncHandler(async (req, res) => {
         isCreate: !existing,
         recordId
     });
+    assertTaskPrivilegedFields({
+        collectionName,
+        existing,
+        incoming: rawPayload,
+        actor: userRecord,
+        isCreate: !existing
+    });
     if (collectionName === 'users' && !selfEdit) {
         await validateUserMutation({ existing, payload, recordId });
     }
@@ -1005,6 +1023,13 @@ router.patch('/:collectionName/:recordId', asyncHandler(async (req, res) => {
         actor: userRecord,
         isCreate: !existing,
         recordId
+    });
+    assertTaskPrivilegedFields({
+        collectionName,
+        existing,
+        incoming: rawPayload,
+        actor: userRecord,
+        isCreate: !existing
     });
     if (collectionName === 'users' && !selfEdit) {
         await validateUserMutation({ existing, payload, recordId });

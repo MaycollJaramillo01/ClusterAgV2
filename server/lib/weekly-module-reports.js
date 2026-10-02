@@ -1,5 +1,6 @@
 import { listRecords } from './records.js';
 import { sendWeeklyModuleReportEmail } from './email.js';
+import { collectReportRecipientEmails } from './permissions.js';
 import { nowIso } from './time.js';
 import { createPdfDocument } from './pdf.js';
 
@@ -348,20 +349,7 @@ export const buildWeeklyModuleReportPdf = async ({
     periodLabel = ''
 }) => buildPdfBuffer({ title, people, totals, generatedAt, periodLabel });
 
-export const sendWeeklyModuleReports = async ({ to = '' } = {}) => {
-    const recipient = String(to || '').trim();
-    if (!recipient) throw new Error('Falta el destinatario del reporte semanal.');
-    const now = Date.now();
-    if (!shouldSendWeeklyModuleReport(new Date(now))) {
-        return {
-            ok: true,
-            skipped: true,
-            reason: 'no-sabado',
-            generatedAt: nowIso(),
-            to: recipient
-        };
-    }
-
+export const buildWeeklyModuleReports = async ({ now = Date.now() } = {}) => {
     const generatedAt = nowIso();
     const editors = await listRecords({ collectionName: 'editors' });
     const managers = await listRecords({ collectionName: 'managers' });
@@ -392,40 +380,74 @@ export const sendWeeklyModuleReports = async ({ to = '' } = {}) => {
     });
 
     const periodLabel = podcastSummary.window?.periodLabel
-        || getWeeklyModuleReportWindow(now).periodLabel;
+        || window.periodLabel;
 
-    const podcastPdf = await buildWeeklyModuleReportPdf({
-        title: 'Resumen semanal de Podcast',
-        people: podcastSummary.people,
-        totals: podcastSummary.totals,
+    const [podcastPdf, productionPdf] = await Promise.all([
+        buildWeeklyModuleReportPdf({
+            title: 'Resumen semanal de Podcast',
+            people: podcastSummary.people,
+            totals: podcastSummary.totals,
+            generatedAt,
+            periodLabel
+        }),
+        buildWeeklyModuleReportPdf({
+            title: 'Resumen semanal de Producción',
+            people: productionSummary.people,
+            totals: productionSummary.totals,
+            generatedAt,
+            periodLabel
+        })
+    ]);
+
+    return {
         generatedAt,
-        periodLabel
-    });
+        periodLabel,
+        window,
+        podcast: podcastSummary,
+        production: productionSummary,
+        pdfs: {
+            podcast: podcastPdf,
+            production: productionPdf
+        }
+    };
+};
 
-    const productionPdf = await buildWeeklyModuleReportPdf({
-        title: 'Resumen semanal de Producción',
-        people: productionSummary.people,
-        totals: productionSummary.totals,
-        generatedAt,
-        periodLabel
-    });
+export const sendWeeklyModuleReports = async ({ to = '' } = {}) => {
+    const recipient = String(to || '').trim();
+    if (!recipient) throw new Error('Falta el destinatario del reporte semanal.');
+    const now = Date.now();
+    if (!shouldSendWeeklyModuleReport(new Date(now))) {
+        return {
+            ok: true,
+            skipped: true,
+            reason: 'no-sabado',
+            generatedAt: nowIso(),
+            to: recipient
+        };
+    }
 
+    const users = await listRecords({ collectionName: 'users' });
+    const recipients = collectReportRecipientEmails({
+        users,
+        extraEmails: [recipient]
+    });
+    const bundle = await buildWeeklyModuleReports({ now });
     const delivery = await sendWeeklyModuleReportEmail({
-        to: recipient,
+        to: recipients,
         subject: 'Resumen semanal de Podcast y Producción',
-        podcastPdf,
-        productionPdf,
-        generatedAt,
-        periodLabel
+        podcastPdf: bundle.pdfs.podcast,
+        productionPdf: bundle.pdfs.production,
+        generatedAt: bundle.generatedAt,
+        periodLabel: bundle.periodLabel
     });
 
     return {
         ok: true,
-        to: recipient,
-        generatedAt,
-        periodLabel,
+        to: recipients.join(', '),
+        generatedAt: bundle.generatedAt,
+        periodLabel: bundle.periodLabel,
         delivery: delivery.mode,
-        podcast: podcastSummary.totals,
-        production: productionSummary.totals
+        podcast: bundle.podcast.totals,
+        production: bundle.production.totals
     };
 };

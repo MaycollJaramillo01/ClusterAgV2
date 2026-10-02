@@ -86,7 +86,9 @@ export const ROLE_DEFINITIONS = {
             'view_audit_logs',
             'view_client_chat',
             'send_client_chat',
-            'moderate_client_chat'
+            'moderate_client_chat',
+            'assign_tasks',
+            'edit_due_date'
         ]
     },
     management: {
@@ -178,4 +180,45 @@ export const EDITING_HIERARCHY_OPTIONS = [
     { id: 'p2', label: 'P2 Alto Impacto', color: 'amber' },
     { id: 'p3', label: 'P3 Operativo', color: 'emerald' },
     { id: 'p4', label: 'P4 Backlog', color: 'slate' }
+];
+
+export const PERMISSION_PACKS = [
+    {
+        id: 'create_tasks',
+        label: 'Crear tareas',
+        description: 'Puede crear tareas en Account, Edicion y Gestion.',
+        grants: [
+            'view_account_room',
+            'create_account_tasks',
+            'manage_account_tasks',
+            'view_editions_room',
+            'create_editing_tasks',
+            'manage_editing_tasks',
+            'view_management_room',
+            'create_management_tasks',
+            'manage_management_tasks',
+            'view_calendar',
+            'view_general_calendar',
+            'create_calendar_events',
+            'manage_calendar'
+        ]
+    },
+    {
+        id: 'assign_tasks',
+        label: 'Asignar responsables',
+        description: 'Puede cambiar quien esta asignado despues de crear la tarea.',
+        grants: ['assign_tasks']
+    },
+    {
+        id: 'edit_due_date',
+        label: 'Editar fecha de entrega',
+        description: 'Puede cambiar fecha y hora limite de una tarea ya creada.',
+        grants: ['edit_due_date']
+    },
+    {
+        id: 'receive_reports',
+        label: 'Recibir informes',
+        description: 'Recibe los PDF diarios y semanales de rendimiento.',
+        grants: ['receive_reports']
+    }
 ];

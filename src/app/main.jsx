@@ -63,6 +63,7 @@ import {
   CheckSquare,
   Clock,
   FileText,
+  DownloadSimple as Download,
   ChatText as MessageSquare,
   Pencil,
   Play,
@@ -131,6 +132,7 @@ import {
   DEFAULT_MANAGEMENT_TEAM,
   DEFAULT_EDITORS_TEAM,
   EDITING_HIERARCHY_OPTIONS,
+  PERMISSION_PACKS,
 } from "./constants/app.constants.js";
 import {
   compareDateOnlyStrings,
@@ -143,13 +145,14 @@ import {
 import {
   KPI_MIN_TASKS,
   buildManagerKpiStats,
+  getMeasuredCompletionIso,
   isEditingDelivered,
   isEditingActionable,
   isWorkflowCompleted,
   normalizeEditingWorkflowStatus,
   rankPendingEditingTasks,
 } from "./utils/kpi.js";
-import { apiFetch } from "./lib/backend-api.js";
+import { apiFetch, buildApiUrl } from "./lib/backend-api.js";
 import {
   MAX_TASK_ATTACHMENTS,
   TASK_UPLOAD_COLLECTIONS,
@@ -263,6 +266,7 @@ const IconsMap = {
   CheckSquare,
   Clock,
   FileText,
+  Download,
   MessageSquare,
   Pencil,
   Play,
@@ -885,7 +889,14 @@ const userHasPermission = (profile, permission) => {
   if (!permission) return true;
   if (!profile || profile.isActive === false) return false;
   const permissions = getRoleMeta(profile.role).permissions || [];
-  return permissions.includes("*") || permissions.includes(permission);
+  if (permissions.includes("*") || permissions.includes(permission)) return true;
+  const packs = Array.isArray(profile.permissionPacks)
+    ? profile.permissionPacks
+    : [];
+  return packs.some((packId) => {
+    const pack = PERMISSION_PACKS.find((item) => item.id === packId);
+    return pack?.grants?.includes(permission);
+  });
 };
 const canAccessView = (profile, view) =>
   userHasPermission(profile, VIEW_PERMISSIONS[view]);
@@ -5194,15 +5205,17 @@ function App() {
         const tasksToMove = accountTasks.filter(
           (task) => task.clientId === client.id && !isAccountTaskDone(task),
         );
-        await Promise.all(
-          tasksToMove.map((task) =>
-            updateDoc(dataDoc("account_tasks", task.id), {
-              contextId: newManager.id,
-              assigneeUserId: newManager.userId || "",
-              updatedAt: nowIso(),
-            }),
-          ),
-        );
+        if (userHasPermission(currentUserProfile, "assign_tasks")) {
+          await Promise.all(
+            tasksToMove.map((task) =>
+              updateDoc(dataDoc("account_tasks", task.id), {
+                contextId: newManager.id,
+                assigneeUserId: newManager.userId || "",
+                updatedAt: nowIso(),
+              }),
+            ),
+          );
+        }
       },
       errorMessage: "Error al reasignar",
     });
@@ -5395,7 +5408,10 @@ function App() {
       execute: () =>
         updateDoc(dataDoc("account_tasks", id), {
           ...taskData,
-          assigneeUserId: assignee?.assigneeUserId || "",
+          ...(Object.hasOwn(taskData, "contextId") ||
+          Object.hasOwn(taskData, "assignees")
+            ? { assigneeUserId: assignee?.assigneeUserId || assignee?.id || "" }
+            : {}),
           ...historicalOwnerPatch,
           updatedAt: nowIso(),
         }),
@@ -5500,7 +5516,10 @@ function App() {
         updateDoc(dataDoc("editing", id), {
           ...taskData,
           hierarchy: taskData.hierarchy || getEditingHierarchyId(taskData),
-          assigneeUserId: assignee?.assigneeUserId || "",
+          ...(Object.hasOwn(taskData, "contextId") ||
+          Object.hasOwn(taskData, "assignees")
+            ? { assigneeUserId: assignee?.assigneeUserId || assignee?.id || "" }
+            : {}),
           ...statusPatch,
           updatedAt: stamp,
         }),
@@ -5579,9 +5598,17 @@ function App() {
   };
   const updateManagementTask = async (id, data) => {
     const { pendingFiles, onUploadProgress, ...taskData } = data || {};
-    const member = managementUsers.find((item) => item.id === taskData.contextId);
-    const normalizedDate = normalizeDateOnlyString(taskData.date);
-    const normalizedTime = normalizeTimeValue(taskData.time);
+    const existingTask = managementTasks.find((item) => item.id === id);
+    const nextContextId = Object.hasOwn(taskData, "contextId")
+      ? taskData.contextId
+      : existingTask?.contextId;
+    const member = managementUsers.find((item) => item.id === nextContextId);
+    const normalizedDate = normalizeDateOnlyString(
+      Object.hasOwn(taskData, "date") ? taskData.date : existingTask?.date,
+    );
+    const normalizedTime = normalizeTimeValue(
+      Object.hasOwn(taskData, "time") ? taskData.time : existingTask?.time,
+    );
     if (!normalizedDate || !normalizedTime) {
       showToast("La tarea de gestion requiere fecha y hora limite.", "error");
       return null;
@@ -5610,9 +5637,12 @@ function App() {
       execute: () =>
         updateDoc(dataDoc("management_tasks", id), {
           ...taskData,
-          date: normalizedDate,
-          time: normalizedTime,
-          assigneeUserId: member?.id || "",
+          ...(Object.hasOwn(taskData, "date") ? { date: normalizedDate } : {}),
+          ...(Object.hasOwn(taskData, "time") ? { time: normalizedTime } : {}),
+          ...(Object.hasOwn(taskData, "contextId") ||
+          Object.hasOwn(taskData, "assignees")
+            ? { assigneeUserId: member?.id || "" }
+            : {}),
           updatedAt: nowIso(),
         }),
       afterSuccess: pendingFiles?.length ? undefined : closeModal,
@@ -5677,6 +5707,10 @@ function App() {
   };
 
   const changeTaskAssignee = async (task, type, contextId) => {
+    if (!userHasPermission(currentUserProfile, "assign_tasks")) {
+      showToast("No tienes permiso para cambiar las asignaciones", "error");
+      return;
+    }
     const colMap = {
       accountTask: "account_tasks",
       editingTask: "editing",
@@ -5712,6 +5746,10 @@ function App() {
   };
 
   const changeTaskAssignees = async (task, type, assigneeIds) => {
+    if (!userHasPermission(currentUserProfile, "assign_tasks")) {
+      showToast("No tienes permiso para cambiar las asignaciones", "error");
+      return;
+    }
     const colMap = {
       accountTask: "account_tasks",
       editingTask: "editing",
@@ -6698,6 +6736,9 @@ function App() {
           isActive: nextActive,
           profession: data.profession || "",
           photo: data.photo || "",
+          permissionPacks: Array.isArray(data.permissionPacks)
+            ? data.permissionPacks
+            : [],
           createdAt: requestedAt,
           updatedAt: requestedAt,
           lastSeenAt: "",
@@ -6812,6 +6853,9 @@ function App() {
           isActive: nextActive,
           profession: data.profession || "",
           photo: data.photo || "",
+          permissionPacks: Array.isArray(data.permissionPacks)
+            ? data.permissionPacks
+            : [],
           emailVerified: nextEmailVerified,
           emailVerification: nextVerification,
           updatedAt: nowIso(),
@@ -7792,6 +7836,16 @@ function App() {
                   }
                   onMoveActivity={async (activity, newDate) => {
                     if (!canEditActivity(activity.collectionType)) return;
+                    if (
+                      activity.collectionType !== "event" &&
+                      !userHasPermission(currentUserProfile, "edit_due_date")
+                    ) {
+                      showToast(
+                        "No tienes permiso para cambiar la fecha de entrega",
+                        "error",
+                      );
+                      return;
+                    }
                     const colMap = {
                       accountTask: "account_tasks",
                       editingTask: "editing",
@@ -7937,6 +7991,7 @@ function App() {
           <CreateTaskModal
             config={modalConfig}
             onClose={closeModal}
+            currentUserProfile={currentUserProfile}
             clients={clients}
             managers={accountTaskAssignees}
             editors={editingTaskAssignees}
@@ -7969,6 +8024,7 @@ function App() {
           <Modal
             config={modalConfig}
             onClose={closeModal}
+            currentUserProfile={currentUserProfile}
             clients={clients}
             managers={managers}
             editors={editors}
@@ -13048,6 +13104,23 @@ const UsersAccessView = ({
                             Inactivo
                           </span>
                         )}
+                        {(Array.isArray(record.permissionPacks)
+                          ? record.permissionPacks
+                          : []
+                        ).map((packId) => {
+                          const pack = PERMISSION_PACKS.find(
+                            (item) => item.id === packId,
+                          );
+                          if (!pack) return null;
+                          return (
+                            <span
+                              key={packId}
+                              className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full bg-indigo-50 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"
+                            >
+                              {pack.label}
+                            </span>
+                          );
+                        })}
                       </div>
                       <p className="text-sm text-slate-500 dark:text-slate-400 truncate mt-2">
                         {record.email || "Correo pendiente"}
@@ -18147,6 +18220,8 @@ const TaskDetailModal = ({
   const currentStatus =
     statuses.find((s) => s.id === task.status) || statuses[0];
   const canAct = canEdit(type);
+  const canAssign =
+    canAct && userHasPermission(currentUserProfile, "assign_tasks");
   const isDevTask = type === "managementTask" && isDevelopmentTask(task);
   const canAddDevStatus =
     isDevTask &&
@@ -19398,7 +19473,7 @@ const TaskDetailModal = ({
                           <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 leading-none">
                             {person.name.split(" ")[0]}
                           </span>
-                          {canAct && (
+                          {canAssign && (
                             <button
                               onClick={() =>
                                 onChangeAssignees(
@@ -19420,7 +19495,7 @@ const TaskDetailModal = ({
                       Sin asignar
                     </span>
                   )}
-                  {canAct && (
+                  {canAssign && (
                     <button
                       onClick={() => setAssigneeOpen((o) => !o)}
                       aria-label="Cambiar responsable"
@@ -19430,7 +19505,7 @@ const TaskDetailModal = ({
                     </button>
                   )}
                 </div>
-                {assigneeOpen && canAct && (
+                {assigneeOpen && canAssign && (
                   <div
                     className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 py-1 w-52 max-h-60 overflow-y-auto"
                     data-dropdown
@@ -19931,6 +20006,7 @@ const DayDetailsModal = ({
 const CreateTaskModal = ({
   config,
   onClose,
+  currentUserProfile,
   clients,
   managers,
   editors,
@@ -19955,7 +20031,6 @@ const CreateTaskModal = ({
   const [hierarchy, setHierarchy] = useState("p2");
   const [time, setTime] = useState("");
   const [category, setCategory] = useState("seguimiento");
-  const [notifyEmail, setNotifyEmail] = useState(true);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [clientOpen, setClientOpen] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
@@ -20003,7 +20078,6 @@ const CreateTaskModal = ({
         setTime(data.time || "");
         setHierarchy(data.hierarchy || data.editingHierarchy || "p2");
         setCategory(data.category || "seguimiento");
-        setNotifyEmail(data.notificationsEnabled !== false);
         setStatus(
           type === "editingTask"
             ? normalizeEditingWorkflowStatus(data.status || "editar")
@@ -20021,7 +20095,6 @@ const CreateTaskModal = ({
         setTime("");
         setHierarchy("p2");
         setCategory("seguimiento");
-        setNotifyEmail(true);
         setStatus("editar");
       }
       setAssigneeOpen(false);
@@ -20076,6 +20149,10 @@ const CreateTaskModal = ({
     ).filter((person) => person.isActive !== false);
   const assignee = peoplePool.find((p) => p.id === (assigneeIds[0] || assigneeId));
   const selectedAssignees = peoplePool.filter((p) => assigneeIds.includes(p.id));
+  const canAssign =
+    !config.isEdit || userHasPermission(currentUserProfile, "assign_tasks");
+  const canEditDue =
+    !config.isEdit || userHasPermission(currentUserProfile, "edit_due_date");
   const client = clients.find((c) => c.id === clientId);
   const tagColor =
     type === "accountTask"
@@ -20140,15 +20217,18 @@ const CreateTaskModal = ({
     </svg>
   );
 
-  const Chip = ({ icon, label, active, color, onClick, children }) => (
+  const Chip = ({ icon, label, active, color, onClick, children, disabled }) => (
     <button
-      onClick={onClick}
+      type="button"
+      disabled={disabled}
+      title={disabled ? "No tienes permiso para cambiar esto" : undefined}
+      onClick={disabled ? undefined : onClick}
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors
                 ${
                   active
                     ? "border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300"
                     : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                } ${color || ""}`}
+                } ${disabled ? "opacity-50 cursor-not-allowed hover:bg-white dark:hover:bg-slate-900" : ""} ${color || ""}`}
     >
       {icon && <Icon name={icon} size={11} />}
       {children || label}
@@ -20216,44 +20296,50 @@ const CreateTaskModal = ({
     setUploadProgress(0);
     try {
       let result;
+      const assignmentPatch = canAssign
+        ? {
+            contextId: assigneeIds[0] || assigneeId || "",
+            assignees: assigneeIds,
+          }
+        : {};
+      const duePatch = canEditDue
+        ? type === "editingTask"
+          ? { date }
+          : { date, time }
+        : {};
       if (config.isEdit && data?.id) {
         if (type === "accountTask")
           result = await actions.updateAccountTask(data.id, {
-            date,
             title: title.trim(),
-            time,
-            contextId: assigneeIds[0] || assigneeId || "",
-            assignees: assigneeIds,
             clientId,
             notes,
             priority,
+            ...duePatch,
+            ...assignmentPatch,
             ...payload,
           });
         if (type === "editingTask")
           result = await actions.updateEditingTask(data.id, {
-            date,
             title: title.trim(),
             priority: priority || "normal",
             hierarchy,
             status,
             notes,
-            contextId: assigneeIds[0] || assigneeId || "",
-            assignees: assigneeIds,
             clientId,
+            ...duePatch,
+            ...assignmentPatch,
             ...payload,
           });
         if (type === "managementTask")
           result = await actions.updateManagementTask(data.id, {
-            date,
             title: title.trim(),
-            time,
-            contextId: assigneeIds[0] || assigneeId || "",
-            assignees: assigneeIds,
             clientId,
             category,
             notes,
             priority,
-            notificationsEnabled: notifyEmail,
+            notificationsEnabled: true,
+            ...duePatch,
+            ...assignmentPatch,
             ...payload,
           });
       } else {
@@ -20293,7 +20379,7 @@ const CreateTaskModal = ({
             category,
             notes,
             priority,
-            notificationsEnabled: notifyEmail,
+            notificationsEnabled: true,
             ...payload,
           });
       }
@@ -20549,6 +20635,7 @@ const CreateTaskModal = ({
             <Chip
               icon={selectedAssignees.length ? null : "UserCircle2"}
               active={selectedAssignees.length > 0}
+              disabled={!canAssign}
               onClick={() => setAssigneeOpen((o) => !o)}
             >
               {selectedAssignees.length === 1 ? (
@@ -20564,7 +20651,7 @@ const CreateTaskModal = ({
                 "Asignar personas"
               )}
             </Chip>
-            {assigneeOpen && (
+            {assigneeOpen && canAssign && (
               <div
                 className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 py-1 w-52 max-h-60 overflow-y-auto"
                 data-ctdrop
@@ -20613,11 +20700,12 @@ const CreateTaskModal = ({
             <Chip
               icon="CalendarDays"
               active={!!date}
+              disabled={!canEditDue}
               onClick={() => setDatePickerOpen((o) => !o)}
             >
               {date || "Fecha límite"}
             </Chip>
-            {datePickerOpen && (
+            {datePickerOpen && canEditDue && (
               <div className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 p-3">
                 <input
                   type="date"
@@ -20829,9 +20917,10 @@ const CreateTaskModal = ({
               <input
                 type="time"
                 value={time}
-                onChange={(e) => setTime(e.target.value)}
-                title="Hora"
-                className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 outline-none cursor-pointer w-[110px]"
+                disabled={!canEditDue}
+                onChange={(e) => canEditDue && setTime(e.target.value)}
+                title={canEditDue ? "Hora" : "No tienes permiso para cambiar la hora"}
+                className={`px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 outline-none w-[110px] ${canEditDue ? "cursor-pointer" : "opacity-50 cursor-not-allowed"}`}
               />
             </div>
           )}
@@ -20844,22 +20933,9 @@ const CreateTaskModal = ({
                 El equipo de desarrollo podrá ir agregando estados de avance en la tarea.
               </p>
             )}
-            <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950">
-              <input
-                type="checkbox"
-                checked={notifyEmail}
-                onChange={(event) => setNotifyEmail(event.target.checked)}
-                className="mt-0.5 h-4 w-4 accent-violet-600"
-              />
-              <span>
-                <span className="block text-sm font-bold text-slate-700 dark:text-slate-200">
-                  Recordar por correo
-                </span>
-                <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">
-                  Avisa al admin, a quien asignó y al asignado 24 h y 8 h antes, al vencer, y cada 24 h si sigue abierta.
-                </span>
-              </span>
-            </label>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Los recordatorios por correo se envían siempre al admin, a quien asignó y al asignado.
+            </p>
           </div>
         )}
 
@@ -21037,7 +21113,7 @@ const Modal = ({
           clientId: fd.clientId || "",
           category: fd.category || "seguimiento",
           notes: fd.notes || "",
-          notificationsEnabled: fd.notificationsEnabled === "on",
+          notificationsEnabled: true,
         });
       if (type === "user")
         actions.updateUserRecord(data.id, {
@@ -21047,6 +21123,9 @@ const Modal = ({
           isActive: fd.isActive === "true",
           profession: fd.profession || "",
           photo: fd.photo || "",
+          permissionPacks: PERMISSION_PACKS.map((pack) => pack.id).filter(
+            (id) => fd[`pack_${id}`] === "on",
+          ),
         });
     } else {
       if (type === "client")
@@ -21108,7 +21187,7 @@ const Modal = ({
           clientId: fd.clientId || "",
           category: fd.category || "seguimiento",
           notes: fd.notes || "",
-          notificationsEnabled: fd.notificationsEnabled === "on",
+          notificationsEnabled: true,
         });
       if (type === "user")
         actions.addUserRecord({
@@ -21118,6 +21197,9 @@ const Modal = ({
           isActive: fd.isActive === "true",
           profession: fd.profession || "",
           photo: fd.photo || "",
+          permissionPacks: PERMISSION_PACKS.map((pack) => pack.id).filter(
+            (id) => fd[`pack_${id}`] === "on",
+          ),
         });
     }
   };
@@ -21562,27 +21644,9 @@ const Modal = ({
                   defaultValue={data?.notes}
                   className={textareaClassName}
                 ></textarea>
-
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="notificationsEnabled"
-                    defaultChecked={data?.notificationsEnabled !== false}
-                    className="w-4 h-4 accent-violet-600"
-                  />
-                  <div className="flex-1">
-                    <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                      Recordar por correo
-                    </p>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Envia avisos al admin, a quien asigno y al asignado 24 h y
-                      8 h antes, al vencer y cada 24 horas si sigue abierta.
-                    </p>
-                  </div>
-                </label>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 -mt-2">
-                  El integrante asignado debe tener correo para que esta
-                  automatizacion funcione.
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Los recordatorios por correo se envian siempre al admin, a
+                  quien asigno y al asignado.
                 </p>
               </>
             )}
@@ -21632,6 +21696,36 @@ const Modal = ({
                   <option value="true">Activo</option>
                   <option value="false">Inactivo</option>
                 </select>
+
+                <div className="space-y-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                  <p className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                    Paquetes extra
+                  </p>
+                  {PERMISSION_PACKS.map((pack) => (
+                    <label
+                      key={pack.id}
+                      className="flex items-start gap-3 rounded-lg px-1 py-1"
+                    >
+                      <input
+                        type="checkbox"
+                        name={`pack_${pack.id}`}
+                        defaultChecked={
+                          Array.isArray(data?.permissionPacks) &&
+                          data.permissionPacks.includes(pack.id)
+                        }
+                        className="mt-0.5 h-4 w-4 accent-indigo-600"
+                      />
+                      <span>
+                        <span className="block text-sm font-bold text-slate-700 dark:text-slate-200">
+                          {pack.label}
+                        </span>
+                        <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                          {pack.description}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
               </>
             )}
 
@@ -22779,6 +22873,62 @@ const ProductionView = ({
   />
 );
 
+const PERFORMANCE_REPORT_PDFS = [
+  {
+    id: "general",
+    label: "General",
+    group: "Diario",
+    path: "/api/reports/rendimiento-diario.pdf?scope=general",
+    file: "rendimiento-general.pdf",
+  },
+  {
+    id: "editors",
+    label: "Editores",
+    group: "Diario",
+    path: "/api/reports/rendimiento-diario.pdf?scope=editors",
+    file: "rendimiento-editores.pdf",
+  },
+  {
+    id: "managers",
+    label: "Community",
+    group: "Diario",
+    path: "/api/reports/rendimiento-diario.pdf?scope=managers",
+    file: "rendimiento-managers.pdf",
+  },
+  {
+    id: "podcast",
+    label: "Podcast",
+    group: "Semanal",
+    path: "/api/reports/rendimiento-semanal.pdf?scope=podcast",
+    file: "resumen-podcast.pdf",
+  },
+  {
+    id: "production",
+    label: "Producción",
+    group: "Semanal",
+    path: "/api/reports/rendimiento-semanal.pdf?scope=production",
+    file: "resumen-produccion.pdf",
+  },
+];
+
+const downloadAuthenticatedPdf = async (path, fallbackName) => {
+  const response = await fetch(buildApiUrl(path), { credentials: "include" });
+  if (!response.ok) {
+    throw new Error("No se pudo generar el PDF");
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = match?.[1] || fallbackName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+};
+
 const ReportsView = ({
   accountTasks,
   editingTasks,
@@ -22794,6 +22944,8 @@ const ReportsView = ({
   const [fromDate, setFromDate] = useState(firstOfMonth);
   const [toDate, setToDate] = useState(todayStr);
   const [activeTab, setActiveTab] = useState("content");
+  const [downloadingPdf, setDownloadingPdf] = useState("");
+  const [pdfError, setPdfError] = useState("");
   const hasAutoExpandedRangeRef = useRef(false);
 
   const inRange = (dateStr) => {
@@ -23007,32 +23159,40 @@ const ReportsView = ({
     return [...keys].filter(Boolean);
   };
   const dailyPerformanceByKey = new Map();
+  const taskCreatedDay = (task) =>
+    getHondurasDateFromIso(task.createdAt) ||
+    normalizeDateOnlyString(task.date);
   const addDailyPerformanceTask = (task, type) => {
-    const date = normalizeDateOnlyString(
-      type === "editing" && isEditingDelivered(task)
-        ? task.editorDueDateAtCompletion || task.date
-        : task.date,
-    );
-    if (!date) return;
+    const createdDate = taskCreatedDay(task);
+    if (!createdDate || !inRange(createdDate)) return;
     const areaKey =
       type === "account"
         ? "account"
         : type === "editing"
           ? "editing"
           : "management";
-    const isDone =
+    const isDoneStatus =
       type === "account"
-        ? task.status === "publicado"
+        ? ["publicado", "aprobado_internamente"].includes(task.status)
         : type === "editing"
           ? isEditingDelivered(task)
           : task.status === "cerrado";
+    const completionIso =
+      getMeasuredCompletionIso(task) ||
+      (isDoneStatus ? task.updatedAt || task.createdAt || "" : "");
+    const completedDate = isDoneStatus
+      ? getHondurasDateFromIso(completionIso) || createdDate
+      : "";
+    const sameDayDone = Boolean(
+      isDoneStatus && completedDate && completedDate === createdDate,
+    );
     getTaskAssigneeKeys(task, type).forEach((personKey) => {
       const person =
         performancePeopleByKey.get(personKey) ||
         addPerformancePerson(personKey, {});
-      const rowKey = `${date}:${person.id}`;
+      const rowKey = `${createdDate}:${person.id}`;
       const current = dailyPerformanceByKey.get(rowKey) || {
-        date,
+        date: createdDate,
         userId: person.id,
         name: person.name,
         email: person.email,
@@ -23046,21 +23206,15 @@ const ReportsView = ({
       current.email = person.email || current.email;
       current.roles = person.roles;
       current.total += 1;
-      current.done += isDone ? 1 : 0;
-      current.pending += isDone ? 0 : 1;
+      current.done += sameDayDone ? 1 : 0;
+      current.pending += sameDayDone ? 0 : 1;
       current.areas[areaKey] += 1;
       dailyPerformanceByKey.set(rowKey, current);
     });
   };
-  filteredAccountTasks.forEach((task) =>
-    addDailyPerformanceTask(task, "account"),
-  );
-  filteredEditingTasks.forEach((task) =>
-    addDailyPerformanceTask(task, "editing"),
-  );
-  filteredManagementTasks.forEach((task) =>
-    addDailyPerformanceTask(task, "management"),
-  );
+  accountTasks.forEach((task) => addDailyPerformanceTask(task, "account"));
+  editingTasks.forEach((task) => addDailyPerformanceTask(task, "editing"));
+  managementTasks.forEach((task) => addDailyPerformanceTask(task, "management"));
   const dailyPerformanceStats = [...dailyPerformanceByKey.values()].sort(
     (left, right) =>
       compareDateOnlyStrings(right.date, left.date) ||
@@ -23079,6 +23233,20 @@ const ReportsView = ({
     .size;
   const dailyDateCount = new Set(dailyPerformanceStats.map((row) => row.date))
     .size;
+
+  const downloadDailyPdf = async (scope) => {
+    const report = PERFORMANCE_REPORT_PDFS.find((item) => item.id === scope);
+    if (!report || downloadingPdf) return;
+    setPdfError("");
+    setDownloadingPdf(scope);
+    try {
+      await downloadAuthenticatedPdf(report.path, report.file);
+    } catch (error) {
+      setPdfError(error.message || "No se pudo generar el PDF");
+    } finally {
+      setDownloadingPdf("");
+    }
+  };
 
   const accountPublished = filteredAccountTasks.filter(
     (t) => t.status === "publicado",
@@ -23163,8 +23331,40 @@ const ReportsView = ({
               className="text-sm font-bold text-slate-700 dark:text-slate-200 bg-transparent outline-none"
             />
           </div>
+          <button
+            type="button"
+            onClick={() => downloadDailyPdf("general")}
+            disabled={Boolean(downloadingPdf)}
+            className="flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"
+          >
+            <Icon
+              name={downloadingPdf === "general" ? "Loader2" : "FileText"}
+              size={14}
+              className={downloadingPdf === "general" ? "animate-spin" : ""}
+            />
+            PDF general
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadDailyPdf("editors")}
+            disabled={Boolean(downloadingPdf)}
+            className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
+          >
+            PDF editores
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadDailyPdf("managers")}
+            disabled={Boolean(downloadingPdf)}
+            className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
+          >
+            PDF community
+          </button>
         </div>
       </div>
+      {pdfError ? (
+        <p className="text-sm font-semibold text-red-600">{pdfError}</p>
+      ) : null}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <ReportStatCard
@@ -23343,18 +23543,18 @@ const ReportsView = ({
               sub={`${dailyDateCount} dias con actividad`}
             />
             <ReportStatCard
-              label="Tareas del Rango"
+              label="Creadas"
               value={dailyPerformanceTotals.total}
               color="indigo"
               icon="LayoutList"
-              sub="accounts + edicion + gestion"
+              sub="creadas en el rango"
             />
             <ReportStatCard
-              label="Finalizadas"
+              label="Completadas mismo dia"
               value={dailyPerformanceTotals.done}
               color="emerald"
               icon="CheckCircle2"
-              sub={`${Math.round(dailyPerformanceTotals.total > 0 ? (dailyPerformanceTotals.done / dailyPerformanceTotals.total) * 100 : 0)}% completado`}
+              sub={`${Math.round(dailyPerformanceTotals.total > 0 ? (dailyPerformanceTotals.done / dailyPerformanceTotals.total) * 100 : 0)}% de cierre`}
             />
             <ReportStatCard
               label="Pendientes"
@@ -23366,9 +23566,9 @@ const ReportsView = ({
           </div>
 
           <p className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-semibold text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300">
-            En Edicion, la tarea cuenta como finalizada para el editor al pasar
-            a Revision Interna. La espera de aprobacion del cliente no reduce
-            su desempeno.
+            Criterio: tareas creadas ese dia y completadas el mismo dia. En
+            Edicion cuenta al pasar a Revision Interna. El PDF automatico usa la
+            ventana 6:00 AM a 6:00 AM Honduras.
           </p>
 
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
@@ -23698,6 +23898,8 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
   const [toDate, setToDate] = useState(todayStr);
   const [searchTerm, setSearchTerm] = useState("");
   const [personGroupFilter, setPersonGroupFilter] = useState("all");
+  const [downloadingPdf, setDownloadingPdf] = useState("");
+  const [pdfError, setPdfError] = useState("");
 
   const inRange = (dateStr) => {
     if (!dateStr) return false;
@@ -23905,6 +24107,19 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
         ? "Community Managers"
         : "Todo el equipo";
 
+  const downloadReportPdf = async (report) => {
+    if (!report || downloadingPdf) return;
+    setPdfError("");
+    setDownloadingPdf(report.id);
+    try {
+      await downloadAuthenticatedPdf(report.path, report.file);
+    } catch (error) {
+      setPdfError(error.message || "No se pudo generar el PDF");
+    } finally {
+      setDownloadingPdf("");
+    }
+  };
+
   return (
     <section className="performance-dashboard fade-in">
       <header className="performance-header">
@@ -23916,24 +24131,64 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
           </p>
         </div>
 
-        <div className="performance-period" aria-label="Rango del reporte">
-          <label>
-            <span>Desde</span>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(event) => setFromDate(event.target.value)}
-            />
-          </label>
-          <span aria-hidden="true">→</span>
-          <label>
-            <span>Hasta</span>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(event) => setToDate(event.target.value)}
-            />
-          </label>
+        <div className="performance-header-tools">
+          <div className="performance-period" aria-label="Rango del reporte">
+            <label>
+              <span>Desde</span>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(event) => setFromDate(event.target.value)}
+              />
+            </label>
+            <span aria-hidden="true">→</span>
+            <label>
+              <span>Hasta</span>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(event) => setToDate(event.target.value)}
+              />
+            </label>
+          </div>
+          <div
+            className="performance-downloads"
+            aria-label="Descargar informes"
+          >
+            <p>
+              <Icon name="Download" size={14} />
+              Descargar informes
+            </p>
+            <div>
+              {["Diario", "Semanal"].map((group) => (
+                <span key={group} className="performance-download-group">
+                  <span>{group}</span>
+                  {PERFORMANCE_REPORT_PDFS.filter((item) => item.group === group).map(
+                    (report) => (
+                      <button
+                        key={report.id}
+                        type="button"
+                        onClick={() => downloadReportPdf(report)}
+                        disabled={Boolean(downloadingPdf)}
+                      >
+                        {downloadingPdf === report.id ? (
+                          <Icon
+                            name="Loader2"
+                            size={13}
+                            className="animate-spin"
+                          />
+                        ) : null}
+                        {report.label}
+                      </button>
+                    ),
+                  )}
+                </span>
+              ))}
+            </div>
+          </div>
+          {pdfError ? (
+            <p className="performance-download-error">{pdfError}</p>
+          ) : null}
         </div>
       </header>
 

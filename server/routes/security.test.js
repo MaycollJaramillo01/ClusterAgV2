@@ -605,6 +605,8 @@ test('notifications require a session and a known active recipient', async () =>
 
 test('editor performance report is protected and database portable', async () => {
     assert.equal((await request('/api/reports/rendimiento-editores')).status, 401);
+    assert.equal((await request('/api/reports/rendimiento-diario.pdf')).status, 401);
+    assert.equal((await request('/api/reports/rendimiento-semanal.pdf')).status, 401);
     assert.equal((await request('/api/reports/rendimiento-editores', { token: viewerToken })).status, 403);
 
     const response = await request('/api/reports/rendimiento-editores', { token: operationsToken });
