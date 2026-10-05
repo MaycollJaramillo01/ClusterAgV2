@@ -177,7 +177,13 @@ const validateReferences = async ({ collectionName, existing = null, payload, tr
         await requireReference('clientId', ['clients']);
         await requireReference('contextId', PEOPLE_COLLECTIONS);
         await requireReference('assigneeUserId', PEOPLE_COLLECTIONS);
+        const existingAssigneeIds = new Set([
+            ...(Array.isArray(existing?.assignees) ? existing.assignees : []),
+            existing?.contextId,
+            existing?.assigneeUserId
+        ].map((value) => String(value || '')).filter(Boolean));
         for (const assigneeId of (Array.isArray(record.assignees) ? record.assignees : [])) {
+            if (existing && existingAssigneeIds.has(String(assigneeId))) continue;
             await requireReferenceValue(assigneeId, PEOPLE_COLLECTIONS);
         }
     }
@@ -247,6 +253,28 @@ const assertRecordIsNotReferenced = async ({ collectionName, recordId, trx }) =>
             );
         }
     }
+};
+
+const isInactiveUserRecord = (record = {}) => record?.isActive === false;
+const isInactiveClientRecord = (record = {}) => String(record?.status || 'Activo') === 'Inactivo';
+
+const assertRecordCanBeDeleted = async ({ collectionName, record, recordId, actor, trx }) => {
+    if (collectionName === 'users') {
+        if (String(recordId) === String(actor?.id || '')) {
+            throw createHttpError(409, 'No puedes eliminar tu propio usuario.', 'document/cannot-delete-self');
+        }
+        if (!isInactiveUserRecord(record)) {
+            throw createHttpError(409, 'Desactiva el usuario antes de eliminarlo.', 'document/must-deactivate');
+        }
+        return;
+    }
+    if (collectionName === 'clients') {
+        if (!isInactiveClientRecord(record)) {
+            throw createHttpError(409, 'Marca el cliente como inactivo antes de eliminarlo.', 'document/must-deactivate');
+        }
+        return;
+    }
+    await assertRecordIsNotReferenced({ collectionName, recordId, trx });
 };
 
 const ensureCollectionPermission = (req, action) => {
@@ -376,13 +404,14 @@ const loadChatGroupAccess = async (
     if (canAccessAll && !includeContext) {
         return { canAccessAll: true, clientIds: new Set(), context: null };
     }
-    const [clients, allMessages, membershipRecords, users, managers, editors] = await Promise.all([
+    const [clients, allMessages, membershipRecords, users, managers, editors, teamGroups] = await Promise.all([
         listRecords({ collectionName: 'clients' }),
         messages ? Promise.resolve(messages) : listRecords({ collectionName: 'client_chats' }),
         listRecords({ collectionName: 'chat_group_memberships' }),
         listRecords({ collectionName: 'users' }),
         listRecords({ collectionName: 'managers' }),
-        listRecords({ collectionName: 'editors' })
+        listRecords({ collectionName: 'editors' }),
+        listRecords({ collectionName: 'team_groups' })
     ]);
     const context = buildChatGroups({
         clients,
@@ -390,7 +419,8 @@ const loadChatGroupAccess = async (
         membershipRecords,
         users,
         managers,
-        editors
+        editors,
+        teamGroups
     });
     const actorId = context.resolvePersonId({
         id: userRecord?.id,
@@ -719,7 +749,13 @@ router.post('/_batch', asyncHandler(async (req, res) => {
                 if (!existing) {
                     throw createHttpError(404, 'El documento no existe.', 'document/not-found');
                 }
-                await assertRecordIsNotReferenced({ collectionName, recordId, trx });
+                await assertRecordCanBeDeleted({
+                    collectionName,
+                    record: existing,
+                    recordId,
+                    actor,
+                    trx
+                });
                 await deleteRecord({
                     collectionName,
                     recordId,
@@ -937,13 +973,16 @@ router.post('/:collectionName', asyncHandler(async (req, res) => {
         return created;
     });
     if (collectionName === 'client_chats') {
-        const client = await getRecord({
+        const conversation = await getRecord({
             collectionName: 'clients',
+            recordId: record.clientId
+        }) || await getRecord({
+            collectionName: 'team_groups',
             recordId: record.clientId
         });
         await sendClientChatPush({
             message: record,
-            clientName: client?.name || 'Cliente'
+            clientName: conversation?.name || 'Chat'
         }).catch((error) => console.warn('[push]', error?.message || error));
     }
     res.status(201).json({ record });
@@ -1092,7 +1131,13 @@ router.delete('/:collectionName/:recordId', asyncHandler(async (req, res) => {
         });
     }
     await db.transaction(async (trx) => {
-        await assertRecordIsNotReferenced({ collectionName, recordId, trx });
+        await assertRecordCanBeDeleted({
+            collectionName,
+            record: existing,
+            recordId,
+            actor: userRecord,
+            trx
+        });
         const deleted = await deleteRecord({
             collectionName,
             recordId,

@@ -68,3 +68,20 @@ export const resolveStoredTaskRoomDate = (currentDate = '', savedAt = '', today 
     const isStaleState = !normalizedSavedAt || compareDateOnlyStrings(normalizedSavedAt, normalizedToday) < 0;
     return isPastDate && isStaleState ? normalizedToday : normalizedCurrentDate;
 };
+
+const WEEKEND_UTC_DAYS = new Set([0, 6]);
+
+export const addBusinessDays = (value = '', amount = 0) => {
+    const normalized = normalizeDateOnlyString(value);
+    const steps = Number(amount);
+    if (!normalized || !Number.isFinite(steps) || steps === 0) return normalized;
+    const [year, month, day] = normalized.split('-').map(Number);
+    const cursor = new Date(Date.UTC(year, month - 1, day));
+    const direction = steps > 0 ? 1 : -1;
+    let remaining = Math.abs(Math.trunc(steps));
+    while (remaining > 0) {
+        cursor.setUTCDate(cursor.getUTCDate() + direction);
+        if (!WEEKEND_UTC_DAYS.has(cursor.getUTCDay())) remaining -= 1;
+    }
+    return cursor.toISOString().slice(0, 10);
+};

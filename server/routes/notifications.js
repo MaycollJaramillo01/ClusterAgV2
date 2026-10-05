@@ -10,12 +10,13 @@ import { normalizeEmail } from '../lib/text.js';
 
 const router = Router();
 
-const NOTIFICATION_TYPES = new Set(['assigned', 'mention', 'chat_mention', 'call_invite', 'client_priority']);
+const NOTIFICATION_TYPES = new Set(['assigned', 'mention', 'chat_mention', 'call_invite', 'client_priority', 'task_updated']);
 const RECIPIENT_COLLECTIONS = ['users', 'managers', 'editors'];
 const TASK_COLLECTION_BY_TYPE = {
     accountTask: 'account_tasks',
     editingTask: 'editing',
-    managementTask: 'management_tasks'
+    managementTask: 'management_tasks',
+    event: 'events'
 };
 
 const findRecipient = async (email) => {
@@ -75,6 +76,10 @@ export const buildEmail = ({ type, senderName, taskTitle, taskType, comment, app
         subject = `📋 Te asignaron a: ${taskTitle}`;
         heading = 'Te asignaron a una tarea';
         body = `<strong>${escapeHtml(senderName)}</strong> te asignó a la tarea <strong>"${escapeHtml(taskTitle)}"</strong> en el módulo de <strong>${typeLabel}</strong>.`;
+    } else if (type === 'task_updated') {
+        subject = `✏️ Actualizaron: ${taskTitle}`;
+        heading = 'Se modificó una tarea';
+        body = `<strong>${escapeHtml(senderName)}</strong> editó la tarea <strong>"${escapeHtml(taskTitle)}"</strong> en el módulo de <strong>${typeLabel}</strong>.`;
     } else if (type === 'mention') {
         subject = `💬 ${senderName} te mencionó en: ${taskTitle}`;
         heading = 'Te mencionaron en un comentario';
@@ -170,7 +175,7 @@ router.post('/send', asyncHandler(async (req, res) => {
         if (!task || !readPermission || !hasPermission(actor, readPermission)) {
             throw createHttpError(403, 'La notificacion no corresponde a una tarea accesible.', 'notifications/resource-mismatch');
         }
-        if (type === 'assigned') {
+        if (type === 'assigned' || type === 'task_updated') {
             const assigneeIds = [
                 ...(Array.isArray(task.assignees) ? task.assignees : []),
                 task.contextId,

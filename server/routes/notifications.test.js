@@ -27,6 +27,19 @@ test('buildCallJoinUrl rejects incomplete and non-web destinations', () => {
     }), '');
 });
 
+test('task update email tells assignees a current task changed', () => {
+    const { subject, html } = buildEmail({
+        type: 'task_updated',
+        senderName: 'Ana',
+        taskTitle: 'Reel viernes',
+        taskType: 'editingTask',
+        appUrl: 'https://clusterag.vercel.app'
+    });
+    assert.match(subject, /Actualizaron: Reel viernes/);
+    assert.match(html, /editó la tarea/);
+    assert.doesNotMatch(html, /te asignó/);
+});
+
 test('call invitation email uses the ClusterAG deep link', () => {
     const callUrl = buildCallJoinUrl('https://clusterag.vercel.app', {
         roomId: 'room-1',

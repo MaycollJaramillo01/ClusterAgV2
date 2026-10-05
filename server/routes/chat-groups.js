@@ -13,13 +13,14 @@ import { nowIso } from '../lib/time.js';
 const router = Router();
 
 const loadChatGroupContext = async () => {
-    const [clients, messages, membershipRecords, users, managers, editors] = await Promise.all([
+    const [clients, messages, membershipRecords, users, managers, editors, teamGroups] = await Promise.all([
         listRecords({ collectionName: 'clients' }),
         listRecords({ collectionName: 'client_chats' }),
         listRecords({ collectionName: 'chat_group_memberships' }),
         listRecords({ collectionName: 'users' }),
         listRecords({ collectionName: 'managers' }),
-        listRecords({ collectionName: 'editors' })
+        listRecords({ collectionName: 'editors' }),
+        listRecords({ collectionName: 'team_groups' })
     ]);
     return {
         clients,
@@ -28,7 +29,8 @@ const loadChatGroupContext = async () => {
         users,
         managers,
         editors,
-        ...buildChatGroups({ clients, messages, membershipRecords, users, managers, editors })
+        teamGroups,
+        ...buildChatGroups({ clients, messages, membershipRecords, users, managers, editors, teamGroups })
     };
 };
 

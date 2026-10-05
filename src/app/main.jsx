@@ -136,6 +136,7 @@ import {
 } from "./constants/app.constants.js";
 import {
   compareDateOnlyStrings,
+  addBusinessDays,
   getDateOnlyDiffDays,
   getHondurasTodayStr,
   isDateBeforeDateString,
@@ -152,6 +153,12 @@ import {
   normalizeEditingWorkflowStatus,
   rankPendingEditingTasks,
 } from "./utils/kpi.js";
+import {
+  buildKanbanReorderIds,
+  canReorderKanban,
+  sortKanbanColumnTasks,
+  toBoardOrderValue,
+} from "./utils/kanban-order.js";
 import { apiFetch, buildApiUrl } from "./lib/backend-api.js";
 import {
   MAX_TASK_ATTACHMENTS,
@@ -2472,10 +2479,10 @@ function App() {
     if (!incomingCall?.id) return;
     const ringtone = createIncomingCallRingtone();
     ringtone.start();
-    const client = clients.find(
-      (item) => String(item.id) === String(incomingCall.clientId),
-    );
-    const title = `Llamada entrante · ${client?.name || "Cliente"}`;
+    const conversation =
+      clients.find((item) => String(item.id) === String(incomingCall.clientId)) ||
+      teamGroups.find((item) => String(item.id) === String(incomingCall.clientId));
+    const title = `Llamada entrante · ${conversation?.name || "Chat"}`;
     const body = `${incomingCall.authorName || "Alguien"} te está llamando`;
     if (isNativeApp()) {
       if (!nativePushReady) {
@@ -5167,19 +5174,6 @@ function App() {
           taskTitle: trimmed,
         },
       });
-      ids.forEach((uid) => {
-        const person = chatMentionables.find((item) => item.id === uid);
-        const email = person?.email;
-        if (email) {
-          sendNotification({
-            to: email,
-            type: "assigned",
-            senderName: currentUserProfile?.name || "Alguien",
-            taskTitle: trimmed,
-            taskType,
-            taskId: result.id,
-          });
-        }
       });
     }
     return result;
@@ -5415,7 +5409,10 @@ function App() {
           ...historicalOwnerPatch,
           updatedAt: nowIso(),
         }),
-      afterSuccess: pendingFiles?.length ? undefined : closeModal,
+      afterSuccess: () => {
+        if (!pendingFiles?.length) closeModal();
+        notifyExistingTaskEdited({ ...existingTask, ...taskData }, "accountTask");
+      },
     });
   };
   const changeAccountTaskStatus = async (task, newStatus) => {
@@ -5523,7 +5520,10 @@ function App() {
           ...statusPatch,
           updatedAt: stamp,
         }),
-      afterSuccess: pendingFiles?.length ? undefined : closeModal,
+      afterSuccess: () => {
+        if (!pendingFiles?.length) closeModal();
+        notifyExistingTaskEdited({ ...existingTask, ...taskData }, "editingTask");
+      },
     });
   };
   const changeEditingTaskStatus = async (task, newStatus) => {
@@ -5553,6 +5553,31 @@ function App() {
             triggerConfetti();
         },
       });
+    }
+  };
+  const reorderEditingTasks = async (orderedIds = []) => {
+    const ids = (orderedIds || []).map(String).filter(Boolean);
+    if (!ids.length || !canReorderKanban(currentUserProfile)) return;
+    if (
+      !(await ensurePermission(
+        "manage_editing_tasks",
+        "Reordena prioridad de edicion",
+      ))
+    )
+      return;
+    const stamp = nowIso();
+    try {
+      await Promise.all(
+        ids.map((id, index) =>
+          updateDoc(dataDoc("editing", id), {
+            boardOrder: toBoardOrderValue(index),
+            updatedAt: stamp,
+          }),
+        ),
+      );
+    } catch (error) {
+      console.error(error);
+      showToast("No se pudo guardar el orden del tablero", "error");
     }
   };
 
@@ -5645,7 +5670,10 @@ function App() {
             : {}),
           updatedAt: nowIso(),
         }),
-      afterSuccess: pendingFiles?.length ? undefined : closeModal,
+      afterSuccess: () => {
+        if (!pendingFiles?.length) closeModal();
+        notifyExistingTaskEdited({ ...existingTask, ...taskData }, "managementTask");
+      },
     });
   };
   const changeManagementTaskStatus = async (task, newStatus) => {
@@ -5784,6 +5812,45 @@ function App() {
       console.warn("[notify]", e.message);
     }
   };
+  const notifyExistingTaskEdited = (task, taskType) => {
+    if (!task?.id || !taskType) return;
+    const poolMap = {
+      accountTask: accountTaskAssignees,
+      editingTask: editingTaskAssignees,
+      managementTask: managementUsers,
+      event: [...managers, ...editors, ...appUsers],
+    };
+    const ids = [
+      ...(Array.isArray(task.assignees) ? task.assignees : []),
+      task.contextId,
+      task.assigneeUserId,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    const actorId = String(currentUserProfile?.id || "");
+    const actorEmail = normalizeEmail(currentUserProfile?.email);
+    const pool = poolMap[taskType] || [];
+    const seen = new Set();
+    ids.forEach((id) => {
+      if (id === actorId) return;
+      const person =
+        pool.find((item) => String(item.id) === id) ||
+        appUsers.find((item) => String(item.id) === id);
+      const email = person?.email || person?.authEmail;
+      const normalized = normalizeEmail(email);
+      if (!normalized || seen.has(normalized) || normalized === actorEmail)
+        return;
+      seen.add(normalized);
+      sendNotification({
+        to: email,
+        type: "task_updated",
+        senderName: currentUserProfile?.name || "Alguien",
+        taskTitle: task.title || "(sin titulo)",
+        taskType,
+        taskId: task.id,
+      });
+    });
+  };
 
   const addTaskComment = async (
     task,
@@ -5870,7 +5937,9 @@ function App() {
     const senderName =
       currentUserProfile?.name ||
       (authEmail ? authEmail.split("@")[0] : "Usuario");
-    const createdMessage = await addDoc(dataCollection("client_chats"), {
+    let createdMessage;
+    try {
+      createdMessage = await addDoc(dataCollection("client_chats"), {
       clientId,
       kind: kind === "team_group" ? "team_group" : "client",
       text: trimmed,
@@ -5901,6 +5970,10 @@ function App() {
       sticker: safeSticker,
       createdAt: nowIso(),
     });
+    } catch (error) {
+      showToast(error?.message || "No se pudo enviar el mensaje", "error");
+      throw error;
+    }
     const client = clients.find((item) => item.id === clientId);
     const teamGroup = teamGroups.find((item) => item.id === clientId);
     const clientName = client?.name || teamGroup?.name || "Chat";
@@ -6004,6 +6077,16 @@ function App() {
     }
   };
 
+  const resolveChatConversation = (conversationId) => {
+    const id = String(conversationId || "");
+    if (!id) return null;
+    const client = clients.find((item) => String(item.id) === id);
+    if (client) return client;
+    const group = teamGroups.find((item) => String(item.id) === id);
+    if (group) return { ...group, isTeamGroup: true };
+    return null;
+  };
+
   // Abre el chat de un cliente y lo marca como leído.
   const openClientChat = (client) => {
     setSelectedChatClient(client || null);
@@ -6017,29 +6100,36 @@ function App() {
     setIncomingCall(null);
     if (!shouldAnswer) return;
 
-    const client =
-      clients.find((item) => String(item.id) === String(call.clientId)) || {
+    const conversation =
+      resolveChatConversation(call.clientId) || {
         id: call.clientId,
-        name: "Cliente",
+        name: "Chat",
+        isTeamGroup: Boolean(
+          clientChats.find((item) => String(item.clientId) === String(call.clientId))
+            ?.kind === "team_group",
+        ),
       };
     setIncomingCallToJoin({
       roomId: call.call.roomId,
       messageId: call.id,
       clientId: call.clientId,
     });
-    openClientChat(client);
+    openClientChat(conversation);
     handleNavigate("chat");
   };
 
   useEffect(() => {
     if (!nativeNotificationAction?.clientId) return;
-    const client =
-      clients.find(
-        (item) =>
-          String(item.id) === String(nativeNotificationAction.clientId),
-      ) || {
+    const conversation =
+      resolveChatConversation(nativeNotificationAction.clientId) || {
         id: nativeNotificationAction.clientId,
-        name: "Cliente",
+        name: "Chat",
+        isTeamGroup: Boolean(
+          clientChats.find(
+            (item) =>
+              String(item.clientId) === String(nativeNotificationAction.clientId),
+          )?.kind === "team_group",
+        ),
       };
     if (
       nativeNotificationAction.type === "call" &&
@@ -6051,7 +6141,7 @@ function App() {
         clientId: nativeNotificationAction.clientId,
       });
     }
-    openClientChat(client);
+    openClientChat(conversation);
     handleNavigate("chat");
     setNativeNotificationAction(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6061,7 +6151,7 @@ function App() {
   // el cliente y la sala JaaS correcta. Los parámetros se conservan durante el
   // acceso por correo y se eliminan después de consumir la invitación.
   useEffect(() => {
-    if (!authEmail || profileBlocked || clients.length === 0) return;
+    if (!authEmail || profileBlocked) return;
 
     const callTarget = resolveCallLink(window.location.href, clientChats);
     if (!callTarget) return;
@@ -6070,14 +6160,12 @@ function App() {
     const signature = `${roomId}:${clientId}:${messageId}`;
     if (handledCallDeepLinkRef.current === signature) return;
 
-    const client = clients.find(
-      (item) => String(item.id) === String(clientId),
-    );
-    if (!client) return;
+    const conversation = resolveChatConversation(clientId);
+    if (!conversation) return;
 
     handledCallDeepLinkRef.current = signature;
     setIncomingCallToJoin({ roomId, messageId: messageId || null, clientId });
-    openClientChat(client);
+    openClientChat(conversation);
     handleNavigate("chat");
 
     window.history.replaceState(
@@ -6086,7 +6174,7 @@ function App() {
       getConsumedCallLinkUrl(window.location.href, fromPath),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authEmail, profileBlocked, clients, clientChats]);
+  }, [authEmail, profileBlocked, clients, teamGroups, clientChats]);
 
   // "Eliminar para todos": borrado suave (deja registro de quién y cuándo lo
   // borró). Solo el autor puede hacerlo (validado también en el backend).
@@ -6621,6 +6709,17 @@ function App() {
       execute: () =>
         addDoc(dataCollection("events"), {
           ...data,
+          time: data.time || (data.type === "production" ? "18:00" : ""),
+          status:
+            data.status ||
+            (data.type === "production" ? "en_produccion" : "programado"),
+          notificationsEnabled:
+            data.type === "production"
+              ? data.notificationsEnabled !== false
+              : Boolean(data.notificationsEnabled),
+          assignedByUserId: currentUserProfile?.id || "",
+          assignedByName: currentUserProfile?.name || "",
+          assignedByEmail: currentUserProfile?.email || "",
           createdAt: nowIso(),
           updatedAt: nowIso(),
         }),
@@ -6638,7 +6737,11 @@ function App() {
       successMessage: "Guardado",
       execute: () =>
         updateDoc(dataDoc("events", id), { ...data, updatedAt: nowIso() }),
-      afterSuccess: closeModal,
+      afterSuccess: () => {
+        closeModal();
+        const existingEvent = events.find((item) => item.id === id) || {};
+        notifyExistingTaskEdited({ ...existingEvent, ...data, id }, "event");
+      },
     });
   };
   const changeModuleEventStatus = async (eventItem, newStatus) => {
@@ -6660,11 +6763,17 @@ function App() {
     [defaultEditingAssigneeId],
   );
   const handleAddProductionTask = useCallback((dateStr) => {
-    const nextDate = normalizeDateOnlyString(dateStr) || getHondurasTodayStr();
+    const dueDate = addBusinessDays(getHondurasTodayStr(), 2);
     setModalConfig({
       isOpen: true,
       type: "event",
-      data: { date: nextDate, type: "production" },
+      data: {
+        date: dueDate,
+        type: "production",
+        time: "18:00",
+        status: "en_produccion",
+        notificationsEnabled: true,
+      },
     });
   }, []);
   const canCreatePodcastTasks = userHasPermission(
@@ -6931,6 +7040,11 @@ function App() {
 
   const handleDelete = async () => {
     const { type, id } = deleteConfirm;
+    if (type === "user" && id === currentUserProfile?.id) {
+      showToast("No puedes eliminar tu propio usuario", "error");
+      closeDelete();
+      return;
+    }
     const map = {
       client: {
         collection: "clients",
@@ -6978,6 +7092,11 @@ function App() {
         collection: "management_tasks",
         permission: "manage_management_tasks",
         entityType: "managementTask",
+      },
+      user: {
+        collection: "users",
+        permission: "manage_users",
+        entityType: "user",
       },
     };
     const current = map[type];
@@ -7424,6 +7543,14 @@ function App() {
               onReassignManager={reassignClientManager}
               onChangePriority={updateClientPriority}
               onAdd={() => setModalConfig({ isOpen: true, type: "client" })}
+              onDelete={(client) =>
+                setDeleteConfirm({
+                  isOpen: true,
+                  type: "client",
+                  id: client.id,
+                  title: client.name,
+                })
+              }
               onSelect={(c) => {
                 setSelectedClient(c);
                 handleNavigate("client-detail");
@@ -7710,6 +7837,7 @@ function App() {
                 })
               }
               onChangeStatus={changeEditingTaskStatus}
+              onReorder={reorderEditingTasks}
               onDelete={(id) =>
                 setDeleteConfirm({
                   isOpen: true,
@@ -7779,6 +7907,14 @@ function App() {
                   type: "user",
                   data: userRecord,
                   isEdit: true,
+                })
+              }
+              onDelete={(userRecord) =>
+                setDeleteConfirm({
+                  isOpen: true,
+                  type: "user",
+                  id: userRecord.id,
+                  title: userRecord.name,
                 })
               }
               onResendVerification={requestUserVerification}
@@ -8164,10 +8300,8 @@ function App() {
                 {incomingCall.authorName || "Alguien"} te está llamando
               </h2>
               <p className="mt-2 text-sm text-slate-400">
-                {clients.find(
-                  (item) =>
-                    String(item.id) === String(incomingCall.clientId),
-                )?.name || "Conversación de cliente"}
+                {resolveChatConversation(incomingCall.clientId)?.name ||
+                  "Conversación"}
               </p>
               <div className="mt-6 grid grid-cols-2 gap-3">
                 <button
@@ -10535,6 +10669,9 @@ const KanbanCard = ({
   onDragStart,
   onDragEnd,
   onDropFiles,
+  onCardDragOver,
+  onCardDrop,
+  reorderable = false,
   accentTone,
   isOverdue,
   client,
@@ -10575,28 +10712,49 @@ const KanbanCard = ({
         onDragEnd?.(event);
       }}
       onDragEnter={(event) => {
-        if (!onDropFiles || !hasFileDrag(event)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        setFileOver(true);
+        if (onDropFiles && hasFileDrag(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+          setFileOver(true);
+          return;
+        }
+        if (onCardDragOver && !hasFileDrag(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
       }}
       onDragOver={(event) => {
-        if (!onDropFiles || !hasFileDrag(event)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        event.dataTransfer.dropEffect = "copy";
-        setFileOver(true);
+        if (onDropFiles && hasFileDrag(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = "copy";
+          setFileOver(true);
+          return;
+        }
+        if (onCardDragOver && !hasFileDrag(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = "move";
+          onCardDragOver(event);
+        }
       }}
       onDragLeave={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setFileOver(false);
       }}
       onDrop={(event) => {
-        if (!onDropFiles || !hasFileDrag(event)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        setFileOver(false);
-        const files = filesFromDrop(event);
-        if (files.length) onDropFiles(files);
+        if (onDropFiles && hasFileDrag(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+          setFileOver(false);
+          const files = filesFromDrop(event);
+          if (files.length) onDropFiles(files);
+          return;
+        }
+        if (onCardDrop && !hasFileDrag(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+          onCardDrop(event);
+        }
       }}
       className={`task-card group relative cursor-pointer rounded-xl border border-[var(--border)] border-l-[3px] bg-white p-4 transition-[border-color,background-color,transform] duration-200 hover:-translate-y-px hover:border-[var(--border-strong)] focus-visible:outline-none dark:border-white/10 dark:bg-[var(--surface-raised)] dark:hover:border-white/20 ${selected || fileOver ? "ring-2 ring-[var(--status-yellow-text)] dark:ring-[var(--status-yellow-text)]" : ""} ${accent}`}
     >
@@ -10611,6 +10769,15 @@ const KanbanCard = ({
           )}
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
+          {reorderable && (
+            <span
+              className="text-slate-300 dark:text-slate-600"
+              title="Arrastra para priorizar"
+              aria-hidden="true"
+            >
+              <Icon name="GripVertical" size={14} />
+            </span>
+          )}
           {rank != null && (
             <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 rounded px-1.5 py-0.5">
               #{rank}
@@ -11825,6 +11992,7 @@ const EditionsRoomView = ({
   onEdit,
   onChangeStatus,
   onDelete,
+  onReorder,
   onTaskClick,
   onAttachFiles,
   onLoadHistory,
@@ -11922,6 +12090,19 @@ const EditionsRoomView = ({
     (acc, task, index) => ({ ...acc, [task.id]: index + 1 }),
     {},
   );
+  const canReorder = canReorderKanban(currentUserProfile);
+  const tasksForStatus = (statusId) =>
+    sortKanbanColumnTasks(
+      displayTasks.filter(
+        (task) => normalizeEditingWorkflowStatus(task.status) === statusId,
+      ),
+    );
+  const columnRankMap = columns.reduce((acc, column) => {
+    tasksForStatus(column.id).forEach((task, index) => {
+      acc[task.id] = index + 1;
+    });
+    return acc;
+  }, {});
 
   const handleDragStart = (e, taskId) => {
     setDraggedTaskId(taskId);
@@ -11972,11 +12153,38 @@ const EditionsRoomView = ({
   const handleDrop = (e, targetStatus) => {
     e.preventDefault();
     e.currentTarget.classList.remove("drag-over");
-    if (draggedTaskId) {
-      const task = tasks.find((t) => t.id === draggedTaskId);
-      if (task && task.status !== targetStatus)
-        onChangeStatus(task, targetStatus);
+    if (!draggedTaskId) return;
+    const task = tasks.find((t) => t.id === draggedTaskId);
+    if (!task) return;
+    const currentStatus = normalizeEditingWorkflowStatus(task.status);
+    if (currentStatus !== targetStatus) onChangeStatus(task, targetStatus);
+    if (canReorder && onReorder) {
+      const columnTasks = tasksForStatus(targetStatus);
+      const orderedIds = buildKanbanReorderIds({
+        columnTasks: columnTasks.some((item) => item.id === task.id)
+          ? columnTasks
+          : [...columnTasks, task],
+        draggedId: draggedTaskId,
+      });
+      onReorder(orderedIds);
     }
+  };
+  const handleCardDrop = (targetTask, targetStatus) => {
+    if (!draggedTaskId || !targetTask?.id || draggedTaskId === targetTask.id) return;
+    const task = tasks.find((t) => t.id === draggedTaskId);
+    if (!task) return;
+    const currentStatus = normalizeEditingWorkflowStatus(task.status);
+    if (currentStatus !== targetStatus) onChangeStatus(task, targetStatus);
+    if (!canReorder || !onReorder) return;
+    const columnTasks = tasksForStatus(targetStatus);
+    const orderedIds = buildKanbanReorderIds({
+      columnTasks: columnTasks.some((item) => item.id === task.id)
+        ? columnTasks
+        : [...columnTasks, task],
+      draggedId: draggedTaskId,
+      beforeId: targetTask.id,
+    });
+    onReorder(orderedIds);
   };
 
   const defaultAddDate = filterMode === "date" ? currentDate : todayStr;
@@ -11988,9 +12196,7 @@ const EditionsRoomView = ({
       color: "slate",
       stages: [{
         ...columns[0],
-        tasks: displayTasks.filter(
-          (task) => normalizeEditingWorkflowStatus(task.status) === columns[0].id,
-        ),
+        tasks: tasksForStatus(columns[0].id),
       }],
     },
     {
@@ -12000,9 +12206,7 @@ const EditionsRoomView = ({
       color: "amber",
       stages: columns.slice(1, 3).map((column) => ({
         ...column,
-        tasks: displayTasks.filter(
-          (task) => normalizeEditingWorkflowStatus(task.status) === column.id,
-        ),
+        tasks: tasksForStatus(column.id),
       })),
     },
     {
@@ -12012,8 +12216,7 @@ const EditionsRoomView = ({
       color: "emerald",
       stages: columns.slice(3).map((column) => ({
         ...column,
-        tasks: displayTasks.filter(
-          (task) => normalizeEditingWorkflowStatus(task.status) === column.id,
+        tasks: tasksForStatus(column.id),
         ),
         collapsible: column.id === "publicado",
         collapsedLimit: 3,
@@ -12075,13 +12278,20 @@ const EditionsRoomView = ({
             ? (files) => onAttachFiles(task, files)
             : undefined
         }
+        onCardDragOver={canReorder ? () => {} : undefined}
+        onCardDrop={
+          canReorder
+            ? () => handleCardDrop(task, normalizeEditingWorkflowStatus(task.status))
+            : undefined
+        }
+        reorderable={canReorder}
         draggable
         onDragStart={(event) => handleDragStart(event, task.id)}
         onDragEnd={(event) => handleDragEnd(event, task.id)}
         accentTone={hierarchyTone}
         isOverdue={isOverdue}
         client={client?.name}
-        rank={rankingMap[task.id]}
+        rank={columnRankMap[task.id] || rankingMap[task.id]}
         title={task.title}
         notes={task.notes}
         badges={[
@@ -12969,6 +13179,7 @@ const UsersAccessView = ({
   currentUserProfile,
   onAdd,
   onEdit,
+  onDelete,
   onResendVerification,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -13172,6 +13383,17 @@ const UsersAccessView = ({
                       >
                         <Icon name="Edit" size={18} />
                       </button>
+                      {record.isActive === false &&
+                        record.id !== currentUserProfile?.id &&
+                        onDelete && (
+                          <button
+                            onClick={() => onDelete(record)}
+                            className="p-2 text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                            title="Eliminar usuario inactivo"
+                          >
+                            <Icon name="Trash2" size={18} />
+                          </button>
+                        )}
                       </div>
                     </div>
                 );
@@ -13439,6 +13661,7 @@ const ClientsView = ({
   legacyColorMap = {},
   onAdd,
   onSelect,
+  onDelete,
   onReassignManager,
   onChangePriority,
 }) => {
@@ -13537,7 +13760,7 @@ const ClientsView = ({
                       {c.name ? c.name.charAt(0).toUpperCase() : "C"}
                     </div>
                   )}
-                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <div className="flex shrink-0 flex-col items-end gap-2">
                     {onChangePriority && (
                       <ClientPriorityFlag client={c} onChange={onChangePriority} />
                     )}
@@ -13547,6 +13770,20 @@ const ClientsView = ({
                       <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
                       {status.label}
                     </span>
+                    {inactive && onDelete && (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDelete(c);
+                        }}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-500 hover:text-red-600"
+                        title="Eliminar cliente inactivo"
+                      >
+                        <Icon name="Trash2" size={12} />
+                        Borrar
+                      </button>
+                    )}
                   </div>
                 </div>
                 <h3 className="text-base font-bold text-slate-800 dark:text-white truncate">
@@ -13729,12 +13966,14 @@ const ClientDetail = ({
               </a>
             </div>
           </div>
+          {getClientStatus(client).id === "Inactivo" && (
           <button
             onClick={onDelete}
             className="text-red-400 hover:text-red-600 dark:text-red-500 dark:hover:text-red-400 text-xs font-bold flex items-center gap-2 p-2 -ml-2"
           >
-            <Icon name="Trash2" size={14} /> ELIMINAR CLIENTE
+            <Icon name="Trash2" size={14} /> ELIMINAR CLIENTE INACTIVO
           </button>
+          )}
         </div>
       </div>
     </div>
@@ -14947,6 +15186,8 @@ const ClientChatView = ({
       setPending([]);
       setReplyingTo(null);
       setMentionOpen(false);
+    } catch {
+      // El envío ya mostró el error al usuario.
     } finally {
       setSubmitting(false);
     }
@@ -14971,6 +15212,8 @@ const ClientChatView = ({
           : null,
       });
       setReplyingTo(null);
+    } catch {
+      // El envío ya mostró el error al usuario.
     } finally {
       setSubmitting(false);
     }
@@ -15188,7 +15431,8 @@ const ClientChatView = ({
               </p>
             </div>
           )}
-          {sortedClients.length === 0 && (
+          {sortedClients.length === 0 &&
+            (showArchived || visibleTeamGroups.length === 0) && (
             <div className="chat-empty-state">
               <span className="chat-empty-icon">
                 <Icon name={showArchived ? "Inbox" : "Search"} size={21} />
@@ -21085,6 +21329,7 @@ const Modal = ({
         actions.updateEvent(data.id, {
           title: buildEventTitle(fd.title, fd.time),
           date: fd.date || data.date || "",
+          time: fd.time || data.time || "",
         });
       if (type === "accountTask")
         actions.updateAccountTask(data.id, {
@@ -21154,9 +21399,14 @@ const Modal = ({
         });
       if (type === "event")
         actions.addEvent({
-          date: data.date,
+          date: fd.date || data.date,
           title: buildEventTitle(fd.title, fd.time),
           type: data.type,
+          time: fd.time || data.time || (data.type === "production" ? "18:00" : ""),
+          status:
+            data.status ||
+            (data.type === "production" ? "en_produccion" : "programado"),
+          notificationsEnabled: data.type === "production",
         });
       if (type === "accountTask")
         actions.addAccountTask({
@@ -21389,11 +21639,15 @@ const Modal = ({
                 />
                 {/* Al crear, el dia lo fija el calendario; al editar es la unica
                     forma de reprogramar la produccion a otra fecha. */}
-                {isEdit && (
+                {(isEdit || data?.type === "production") && (
                   <Input
                     name="date"
                     type="date"
-                    label="Fecha"
+                    label={
+                      data?.type === "production"
+                        ? "Entrega (48 horas hábiles)"
+                        : "Fecha"
+                    }
                     defaultValue={data?.date || ""}
                     required
                   />
@@ -21402,7 +21656,7 @@ const Modal = ({
                   name="time"
                   type="time"
                   label="Hora (Opcional)"
-                  defaultValue={eventDefaultTime}
+                  defaultValue={eventDefaultTime || data?.time || (data?.type === "production" ? "18:00" : "")}
                 />
               </>
             )}
@@ -21968,9 +22222,15 @@ const getModuleDropStatus = (taskType, laneId, currentStatus = "") => {
   return nextStatus;
 };
 
-const getModuleStatusOptions = (taskType) => {
+const getModuleStatusOptions = (taskType, moduleKey = "") => {
   if (taskType === "accountTask") return MODULE_ACCOUNT_STATUS_OPTIONS;
   if (taskType === "editingTask") return EDITING_STATUS_OPTIONS;
+  if (moduleKey === "production") {
+    return [
+      { id: "en_produccion", label: "En producción" },
+      { id: "publicado", label: "Listo" },
+    ];
+  }
   return MODULE_EVENT_STATUS_OPTIONS;
 };
 
@@ -22340,12 +22600,47 @@ const UnifiedModuleKanbanView = ({
     await handleStatusChange(draggedItem, nextStatus);
   };
 
-  const moduleGroups = [
+  const workLaneTasks =
+    moduleKey === "production"
+      ? [...filteredByLane.start, ...filteredByLane.production]
+      : filteredByLane.production;
+  const moduleGroups =
+    moduleKey === "production"
+      ? [
+          {
+            id: "production",
+            title: "En producción",
+            subtitle: "Plazo de 48 horas hábiles",
+            color: "cyan",
+            stages: [
+              {
+                id: "production",
+                title: "En curso",
+                color: "cyan",
+                tasks: workLaneTasks,
+              },
+            ],
+          },
+          {
+            id: "ready",
+            title: "Listo",
+            subtitle: "Entregado o publicado",
+            color: "emerald",
+            stages: [
+              {
+                id: "ready",
+                title: "Finalizadas",
+                color: "emerald",
+                tasks: filteredByLane.ready,
+              },
+            ],
+          },
+        ]
+      : [
     {
       id: "start",
-      title: moduleKey === "production" ? "Cola de entrada" : "Por iniciar",
-      subtitle:
-        moduleKey === "production" ? "Priorizar y preparar" : "Pendientes de comenzar",
+      title: "Por iniciar",
+      subtitle: "Pendientes de comenzar",
       color: "slate",
       stages: [
         {
@@ -22358,9 +22653,8 @@ const UnifiedModuleKanbanView = ({
     },
     {
       id: "production",
-      title: moduleKey === "production" ? "En piso" : "En producción",
-      subtitle:
-        moduleKey === "production" ? "Trabajo activo" : "En curso, edición o revisión",
+      title: "En producción",
+      subtitle: "En curso, edición o revisión",
       color: moduleKey === "podcast" ? "rose" : "cyan",
       stages: [
         {
@@ -22373,11 +22667,8 @@ const UnifiedModuleKanbanView = ({
     },
     {
       id: "ready",
-      title: moduleKey === "production" ? "Controlado" : "Listas",
-      subtitle:
-        moduleKey === "production"
-          ? "Listo para entregar"
-          : "Aprobadas y publicadas/cerradas",
+      title: "Listas",
+      subtitle: "Aprobadas y publicadas/cerradas",
       color: "emerald",
       stages: [
         {
@@ -22662,7 +22953,13 @@ const UnifiedModuleKanbanView = ({
         }
         renderTask={(task, stage) => {
           const statusMeta = getModuleStatusMeta(task._status, moduleKey);
-          const statusOptions = getModuleStatusOptions(task._taskType);
+          const statusOptions = getModuleStatusOptions(task._taskType, moduleKey);
+          const statusValue =
+            moduleKey === "production" && task._taskType === "event"
+              ? ["publicado", "cerrado", "aprobado"].includes(task._status)
+                ? "publicado"
+                : "en_produccion"
+              : task._status;
           const laneStatus = stage?.id || task._lane;
           const isOverdue =
             isDateBeforeDateString(task._date, todayStr) &&
@@ -22741,12 +23038,13 @@ const UnifiedModuleKanbanView = ({
                   : null
               }
               statusControl={{
-                value: task._status,
+                value: statusValue,
                 options: statusOptions,
                 onChange: (status) => handleStatusChange(task, status),
               }}
               menuItems={[
-                laneStatus !== "start" && {
+                moduleKey !== "production" &&
+                  laneStatus !== "start" && {
                   key: "move-start",
                   label: "Mover a Por iniciar",
                   icon: "ChevronLeft",
@@ -22768,7 +23066,7 @@ const UnifiedModuleKanbanView = ({
                 },
                 laneStatus !== "ready" && {
                   key: "move-ready",
-                  label: "Mover a Listas",
+                  label: moduleKey === "production" ? "Marcar listo" : "Mover a Listas",
                   icon: "Check",
                   onClick: () =>
                     handleStatusChange(
