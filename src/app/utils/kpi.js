@@ -7,6 +7,8 @@ import {
 
 export const KPI_MIN_TASKS = 5;
 export const KPI_MIN_TIMED_TASKS = 5;
+export const KPI_COMPLETION_WEIGHT = 70;
+export const KPI_ON_TIME_WEIGHT = 30;
 
 const ACCOUNT_HIERARCHY_WEIGHTS = { p1: 4, p2: 3, p3: 2, p4: 1 };
 const getAccountTaskWeight = (task = {}) => {
@@ -18,6 +20,24 @@ const getAccountTaskWeight = (task = {}) => {
         ? "p3"
         : "p2");
   return ACCOUNT_HIERARCHY_WEIGHTS[hierarchy] || ACCOUNT_HIERARCHY_WEIGHTS.p2;
+};
+export const getKpiTaskWeight = (task = {}) => getAccountTaskWeight(task);
+
+export const calculateKpiScore = ({
+  completionPercent = 0,
+  onTimePercent = null,
+  measuredCompletionCount = 0,
+} = {}) => {
+  const completion = Math.max(0, Math.min(100, Number(completionPercent) || 0));
+  const hasReliableTiming =
+    Number.isFinite(onTimePercent) &&
+    measuredCompletionCount >= KPI_MIN_TIMED_TASKS;
+  if (!hasReliableTiming) return Math.round(completion);
+  return Math.round(
+    completion * (KPI_COMPLETION_WEIGHT / 100) +
+      Math.max(0, Math.min(100, Number(onTimePercent))) *
+        (KPI_ON_TIME_WEIGHT / 100),
+  );
 };
 
 export const isWorkflowCompleted = (status = "") =>
@@ -68,6 +88,131 @@ export const getMeasuredCompletionIso = (task = {}) => {
   ].filter((value) => Number.isFinite(Date.parse(value)));
 
   return candidates.sort((left, right) => Date.parse(left) - Date.parse(right))[0] || "";
+};
+
+const isEditorKpiCompleted = (task = {}) =>
+  ["revision_interna", "aprobado", "publicado"].includes(
+    normalizeEditingWorkflowStatus(task.status),
+  );
+
+const getPerformanceTaskMeta = (task = {}, kind = "manager") => {
+  const completed =
+    kind === "editor"
+      ? isEditorKpiCompleted(task)
+      : ["aprobado_internamente", "publicado"].includes(task.status);
+  const ownerId = completed
+    ? kind === "editor"
+      ? task.editorOwnerAtCompletionId || task.contextId
+      : task.ownerAtCompletionId || task.contextId
+    : task.contextId;
+  const dueDate = normalizeDateOnlyString(
+    completed
+      ? kind === "editor"
+        ? task.editorDueDateAtCompletion || task.date
+        : task.dueDateAtCompletion || task.date
+      : task.date,
+  );
+  const completionIso = completed
+    ? kind === "editor"
+      ? task.editorCompletedAt || getMeasuredCompletionIso(task)
+      : getMeasuredCompletionIso(task)
+    : "";
+  return { completed, ownerId, dueDate, completionIso };
+};
+
+export const buildTeamKpiStats = ({
+  people = [],
+  tasks = [],
+  kind = "manager",
+  period,
+  today = getHondurasTodayStr(),
+} = {}) => {
+  const tasksByOwner = new Map();
+  tasks.forEach((task) => {
+    const meta = getPerformanceTaskMeta(task, kind);
+    if (
+      !meta.ownerId ||
+      !meta.dueDate ||
+      !period?.start ||
+      !period?.end ||
+      compareDateOnlyStrings(meta.dueDate, period.start) < 0 ||
+      compareDateOnlyStrings(meta.dueDate, period.end) > 0
+    ) return;
+    if (!tasksByOwner.has(meta.ownerId)) tasksByOwner.set(meta.ownerId, []);
+    tasksByOwner.get(meta.ownerId).push({ task, meta });
+  });
+
+  return people.map((person) => {
+    const entries = tasksByOwner.get(person.id) || [];
+    const completedEntries = entries.filter(({ meta }) => meta.completed);
+    const weightedTotal = entries.reduce(
+      (sum, { task }) => sum + getAccountTaskWeight(task),
+      0,
+    );
+    const weightedCompleted = completedEntries.reduce(
+      (sum, { task }) => sum + getAccountTaskWeight(task),
+      0,
+    );
+    const completionPercent = weightedTotal
+      ? Math.round((weightedCompleted / weightedTotal) * 100)
+      : 0;
+    const measuredEntries = completedEntries.filter(
+      ({ meta }) => meta.dueDate && meta.completionIso,
+    );
+    const measuredWeight = measuredEntries.reduce(
+      (sum, { task }) => sum + getAccountTaskWeight(task),
+      0,
+    );
+    const onTimeWeight = measuredEntries.reduce((sum, { task, meta }) => {
+      const completedDate = getHondurasDateFromIso(meta.completionIso);
+      return completedDate &&
+        compareDateOnlyStrings(completedDate, meta.dueDate) <= 0
+        ? sum + getAccountTaskWeight(task)
+        : sum;
+    }, 0);
+    const onTimePercent = measuredWeight
+      ? Math.round((onTimeWeight / measuredWeight) * 100)
+      : null;
+    const overdueTasks = entries.filter(
+      ({ task, meta }) =>
+        !meta.completed && isDateBeforeDateString(task.date, today),
+    ).length;
+    const total = entries.length;
+    const completed = completedEntries.length;
+
+    return {
+      ...person,
+      kind,
+      kindLabel: kind === "editor" ? "Editor" : "Account Manager",
+      total,
+      completed,
+      delivered: completed,
+      pending: total - completed,
+      overdueTasks,
+      published: entries.filter(({ task }) => task.status === "publicado").length,
+      approved: entries.filter(({ task }) =>
+        kind === "editor"
+          ? ["aprobado", "publicado"].includes(
+              normalizeEditingWorkflowStatus(task.status),
+            )
+          : ["aprobado_internamente", "publicado"].includes(task.status),
+      ).length,
+      weightedTotal,
+      weightedCompleted,
+      completionPercent,
+      deliveryPerformance: completionPercent,
+      measuredCompletionCount: measuredEntries.length,
+      measuredWeight,
+      onTimeWeight,
+      onTimePercent,
+      qualified: total >= KPI_MIN_TASKS,
+      score: calculateKpiScore({
+        completionPercent,
+        onTimePercent,
+        measuredCompletionCount: measuredEntries.length,
+      }),
+    };
+  });
 };
 
 export const buildManagerKpiStats = ({
@@ -172,28 +317,11 @@ export const buildManagerKpiStats = ({
         100,
         Math.round((item.weightedCompleted / loadReference) * 100),
       );
-      const components = [
-        { value: item.weightedCompletionPercent, weight: 50 },
-        { value: loadPercent, weight: 20 },
-      ];
-      if (
-        item.onTimePercent !== null &&
-        item.measuredCompletionCount >= KPI_MIN_TIMED_TASKS
-      ) {
-        components.push({ value: item.onTimePercent, weight: 30 });
-      }
-      const activeWeight = components.reduce(
-        (sum, component) => sum + component.weight,
-        0,
-      );
-      const score = activeWeight
-        ? Math.round(
-            components.reduce(
-              (sum, component) => sum + component.value * component.weight,
-              0,
-            ) / activeWeight,
-          )
-        : 0;
+      const score = calculateKpiScore({
+        completionPercent: item.weightedCompletionPercent,
+        onTimePercent: item.onTimePercent,
+        measuredCompletionCount: item.measuredCompletionCount,
+      });
 
       return { ...item, loadPercent, score };
     })

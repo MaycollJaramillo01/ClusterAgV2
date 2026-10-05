@@ -35,6 +35,22 @@ export const apiFetch = async (path, options = {}) => {
     return payload;
 };
 
+export const sendApiBeacon = (path) => {
+    const url = buildApiUrl(path);
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        return navigator.sendBeacon(url);
+    }
+    if (typeof fetch === 'function') {
+        fetch(url, {
+            method: 'POST',
+            credentials: 'include',
+            keepalive: true
+        }).catch(() => {});
+        return true;
+    }
+    return false;
+};
+
 export const getApiOrigin = () => {
     const base = resolveApiBaseUrl();
     if (!base) return window.location.origin;

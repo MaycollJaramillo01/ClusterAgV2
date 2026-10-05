@@ -145,7 +145,9 @@ import {
 } from "./utils/date.js";
 import {
   KPI_MIN_TASKS,
-  buildManagerKpiStats,
+  buildTeamKpiStats,
+  calculateKpiScore,
+  getKpiTaskWeight,
   getMeasuredCompletionIso,
   isEditingDelivered,
   isEditingActionable,
@@ -159,7 +161,11 @@ import {
   sortKanbanColumnTasks,
   toBoardOrderValue,
 } from "./utils/kanban-order.js";
-import { apiFetch, buildApiUrl } from "./lib/backend-api.js";
+import {
+  apiFetch,
+  buildApiUrl,
+  sendApiBeacon,
+} from "./lib/backend-api.js";
 import {
   MAX_TASK_ATTACHMENTS,
   TASK_UPLOAD_COLLECTIONS,
@@ -454,6 +460,10 @@ const normalizeNameKey = (value = "") =>
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
+const TRACKED_DEVELOPER_NAMES = new Set([
+  "maycoll jaramillo",
+  "leandro matias",
+]);
 const normalizeTimeValue = (value = "") => {
   const match = String(value || "")
     .trim()
@@ -2992,6 +3002,34 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!user?.email) return undefined;
+    let disconnectReported = false;
+    const reportDisconnect = () => {
+      if (disconnectReported) return;
+      disconnectReported = true;
+      sendApiBeacon("/api/auth/presence/disconnect");
+    };
+    const restorePresence = () => {
+      disconnectReported = false;
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") reportDisconnect();
+      else restorePresence();
+    };
+
+    window.addEventListener("pagehide", reportDisconnect);
+    window.addEventListener("pageshow", restorePresence);
+    if (isNativeApp()) {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+    return () => {
+      window.removeEventListener("pagehide", reportDisconnect);
+      window.removeEventListener("pageshow", restorePresence);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [user?.email]);
+
+  useEffect(() => {
     if (!auth) return;
 
     const completeNativeGoogleRedirect = async () => {
@@ -3690,7 +3728,6 @@ function App() {
         ...basePayload,
         role: nextRole,
         updatedAt: stamp,
-        lastSeenAt: stamp,
       }).catch(() => {});
       return;
     }
@@ -3701,7 +3738,8 @@ function App() {
         role: nextRole,
         createdAt: stamp,
         updatedAt: stamp,
-        lastSeenAt: stamp,
+        lastSeenAt: "",
+        lastDisconnectedAt: "",
       },
       { merge: true },
     ).catch(() => {});
@@ -3997,7 +4035,7 @@ function App() {
 
   useEffect(() => {
     if (!user || !db) return;
-    if (["reports", "general-calendar", "calendar"].includes(view)) {
+    if (["reports", "performance", "general-calendar", "calendar"].includes(view)) {
       handleLoadTaskHistory();
     }
   }, [view, user, db]);
@@ -9223,10 +9261,17 @@ const buildPersonalKpiSnapshot = (
     isDateWithinPeriod(task.date, period),
   );
   const completedTasks = monthlyTasks.filter((task) => task._done);
-  const completionPercent =
-    monthlyTasks.length > 0
-      ? Math.round((completedTasks.length / monthlyTasks.length) * 100)
-      : 0;
+  const weightedTotal = monthlyTasks.reduce(
+    (sum, task) => sum + getKpiTaskWeight(task),
+    0,
+  );
+  const weightedCompleted = completedTasks.reduce(
+    (sum, task) => sum + getKpiTaskWeight(task),
+    0,
+  );
+  const completionPercent = weightedTotal
+    ? Math.round((weightedCompleted / weightedTotal) * 100)
+    : 0;
   const measuredCompletedTasks = completedTasks
     .map((task) => ({
       task,
@@ -9235,26 +9280,35 @@ const buildPersonalKpiSnapshot = (
     .filter(({ task, completionIso }) =>
       Boolean(normalizeDateOnlyString(task.date) && completionIso),
     );
-  const onTimePercent =
-    measuredCompletedTasks.length > 0
-      ? Math.round(
-          (measuredCompletedTasks.filter(({ task, completionIso }) =>
-            isCompletionOnTime(task, completionIso),
-          ).length /
-            measuredCompletedTasks.length) *
-            100,
-        )
-      : null;
+  const measuredWeight = measuredCompletedTasks.reduce(
+    (sum, { task }) => sum + getKpiTaskWeight(task),
+    0,
+  );
+  const onTimeWeight = measuredCompletedTasks.reduce(
+    (sum, { task, completionIso }) =>
+      isCompletionOnTime(task, completionIso)
+        ? sum + getKpiTaskWeight(task)
+        : sum,
+    0,
+  );
+  const onTimePercent = measuredWeight
+    ? Math.round((onTimeWeight / measuredWeight) * 100)
+    : null;
 
   return {
     monthlyTasks,
     completedTasks,
+    weightedTotal,
+    weightedCompleted,
     completionPercent,
     onTimePercent,
-    score:
-      onTimePercent === null
-        ? completionPercent
-        : Math.round(completionPercent * 0.7 + onTimePercent * 0.3),
+    measuredCompletionCount: measuredCompletedTasks.length,
+    qualified: monthlyTasks.length >= KPI_MIN_TASKS,
+    score: calculateKpiScore({
+      completionPercent,
+      onTimePercent,
+      measuredCompletionCount: measuredCompletedTasks.length,
+    }),
   };
 };
 
@@ -9494,12 +9548,15 @@ const DashboardView = ({
         completed: snapshot.completedTasks.length,
         assigned: snapshot.monthlyTasks.length,
         onTimePercent: snapshot.onTimePercent,
+        measuredCompletionCount: snapshot.measuredCompletionCount,
+        qualified: snapshot.qualified,
         isCurrent,
       };
     })
     .filter((item) => item.assigned > 0)
     .sort(
       (left, right) =>
+        Number(right.qualified) - Number(left.qualified) ||
         right.score - left.score ||
         right.completed - left.completed ||
         left.name.localeCompare(right.name),
@@ -9851,7 +9908,9 @@ const DashboardView = ({
                   className={`pd-user-kpi-row ${item.isCurrent ? "is-current" : ""}`}
                   aria-label={`${item.name}: KPI ${item.score}%`}
                 >
-                  <span className="pd-user-kpi-rank">#{item.rank}</span>
+                  <span className="pd-user-kpi-rank">
+                    {item.qualified ? `#${item.rank}` : "—"}
+                  </span>
                   <span className="pd-user-kpi-avatar">{item.initials}</span>
                   <span className="pd-user-kpi-identity">
                     <strong>
@@ -9865,9 +9924,11 @@ const DashboardView = ({
                   <span className="pd-user-kpi-score">
                     <strong>{item.score}%</strong>
                     <small>
-                      {item.onTimePercent === null
-                        ? "Puntualidad N/D"
-                        : `${item.onTimePercent}% puntualidad`}
+                      {!item.qualified
+                        ? `Provisional · ${item.assigned}/${KPI_MIN_TASKS} tareas`
+                        : item.measuredCompletionCount < KPI_MIN_TASKS
+                          ? "Puntualidad N/D"
+                          : `${item.onTimePercent}% puntualidad`}
                     </small>
                   </span>
                   <span className="pd-user-kpi-track" aria-hidden="true">
@@ -13342,7 +13403,8 @@ const UsersAccessView = ({
                         </p>
                       )}
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        Ultimo acceso: {record.lastSeenAt || "Sin registro"}
+                        Última desconexión:{" "}
+                        {record.lastDisconnectedAt || "Sin registro"}
                       </p>
                       <div className="flex flex-wrap gap-2 mt-3">
                         {linkedLabels.map((label) => (
@@ -23246,14 +23308,6 @@ const ReportsView = ({
   const [pdfError, setPdfError] = useState("");
   const hasAutoExpandedRangeRef = useRef(false);
 
-  const inRange = (dateStr) => {
-    if (!dateStr) return false;
-    return (
-      compareDateOnlyStrings(dateStr, fromDate) >= 0 &&
-      compareDateOnlyStrings(dateStr, toDate) <= 0
-    );
-  };
-
   const filteredAccountTasks = accountTasks.filter((t) => inRange(t.date));
   const filteredEditingTasks = editingTasks.filter((t) => inRange(t.date));
   const filteredManagementTasks = managementTasks.filter((t) =>
@@ -24207,159 +24261,131 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
     );
   };
 
-  const filteredEditingTasks = editingTasks.filter((task) => inRange(task.date));
-  const filteredAccountTasks = accountTasks.filter((task) => inRange(task.date));
-
-  const userById = new Map(users.map((item) => [item.id, item]));
-  const userByEditorId = new Map(
-    users
-      .filter((item) => item.linkedEditorId)
-      .map((item) => [item.linkedEditorId, item]),
+  const kpiPeriod = useMemo(
+    () => ({ start: fromDate, end: toDate }),
+    [fromDate, toDate],
   );
-  const userByManagerId = new Map(
-    users
-      .filter((item) => item.linkedManagerId)
-      .map((item) => [item.linkedManagerId, item]),
+  const userById = useMemo(
+    () => new Map(users.map((item) => [item.id, item])),
+    [users],
+  );
+  const userByEditorId = useMemo(
+    () =>
+      new Map(
+        users
+          .filter((item) => item.linkedEditorId)
+          .map((item) => [item.linkedEditorId, item]),
+      ),
+    [users],
+  );
+  const userByManagerId = useMemo(
+    () =>
+      new Map(
+        users
+          .filter((item) => item.linkedManagerId)
+          .map((item) => [item.linkedManagerId, item]),
+      ),
+    [users],
   );
 
-  const getPersonLoginRecency = (personType, personId, personUserId = "") => {
+  const getPersonAccessRecency = (personType, personId, personUserId = "") => {
     const personUser =
       personType === "editor"
         ? userByEditorId.get(personId) ||
           (personUserId ? userById.get(personUserId) : null)
         : userByManagerId.get(personId) ||
           (personUserId ? userById.get(personUserId) : null);
-    const lastSeenAt = personUser?.lastSeenAt || "";
-    const daysSinceLogin = lastSeenAt
-      ? Math.max(0, getDateOnlyDiffDays(todayStr, lastSeenAt))
-      : null;
-    return {
-      lastSeenAt,
-      daysSinceLogin,
-    };
+    const lastDisconnectedAt = personUser?.lastDisconnectedAt || "";
+    return { lastDisconnectedAt };
   };
 
-  const isEditingDeliveredTask = (task) => isEditingDelivered(task);
-  const isAccountDelivered = (task) =>
-    ["aprobado_internamente", "publicado"].includes(task.status);
+  const formatLastDisconnect = (value) => {
+    const parsed = new Date(value || "");
+    if (Number.isNaN(parsed.getTime())) return "Sin registro";
+    return new Intl.DateTimeFormat("es-HN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(parsed);
+  };
 
-  const editorStats = editors
-    .map((editor) => {
-      const editorTasks = filteredEditingTasks.filter(
-        (task) => task.contextId === editor.id,
-      );
-      const delivered = editorTasks.filter(isEditingDeliveredTask).length;
-      const approved = editorTasks.filter(
-        (task) => normalizeEditingWorkflowStatus(task.status) === "aprobado",
-      ).length;
-      const published = editorTasks.filter(
-        (task) => task.status === "publicado",
-      ).length;
-      const inRevision = editorTasks.filter(
-        (task) => normalizeEditingWorkflowStatus(task.status) === "revision_interna",
-      ).length;
-      const inProgress = editorTasks.filter(isEditingActionable).length;
-      const total = editorTasks.length;
-      const deliveryPerformance = total
-        ? Math.round((delivered / total) * 100)
-        : 0;
-      const approvalPerformance = total
-        ? Math.round((approved / total) * 100)
-        : 0;
-      const publicationPerformance = total
-        ? Math.round((published / total) * 100)
-        : 0;
-      const loginRecency = getPersonLoginRecency("editor", editor.id, editor.userId);
-      const loginScore = loginRecency.daysSinceLogin === null
-        ? 0
-        : Math.max(0, 100 - Math.min(loginRecency.daysSinceLogin, 30) * 2);
-      const overallPerformance = total
-        ? Math.round(
-            publicationPerformance * 0.6 +
-              approvalPerformance * 0.2 +
-              deliveryPerformance * 0.15 +
-              loginScore * 0.05,
-          )
-        : 0;
-      return {
-        ...editor,
+  const editorStats = useMemo(
+    () =>
+      buildTeamKpiStats({
+        people: editors,
+        tasks: editingTasks,
         kind: "editor",
-        kindLabel: "Editor",
-        total,
-        delivered,
-        approved,
-        published,
-        inRevision,
-        inProgress,
-        pending: Math.max(total - delivered, 0),
-        deliveryPerformance,
-        approvalPerformance,
-        publicationPerformance,
-        overallPerformance,
-        lastSeenAt: loginRecency.lastSeenAt,
-        daysSinceLogin: loginRecency.daysSinceLogin,
-      };
-    })
-    .filter((editor) => editor.total > 0);
+        period: kpiPeriod,
+        today: todayStr,
+      })
+        .filter((editor) => editor.total > 0)
+        .map((editor) => ({
+          ...editor,
+          overallPerformance: editor.score,
+          lastDisconnectedAt: getPersonAccessRecency(
+            "editor",
+            editor.id,
+            editor.userId,
+          ).lastDisconnectedAt,
+        })),
+    [editors, editingTasks, kpiPeriod, todayStr, userByEditorId, userById],
+  );
 
-  const managerStats = managers
-    .map((manager) => {
-      const managerTasks = filteredAccountTasks.filter(
-        (task) => task.contextId === manager.id,
-      );
-      const delivered = managerTasks.filter(isAccountDelivered).length;
-      const approved = managerTasks.filter((task) => task.status === "aprobado_internamente")
-        .length;
-      const published = managerTasks.filter((task) => task.status === "publicado")
-        .length;
-      const inProgress = managerTasks.filter(
-        (task) => !["aprobado_internamente", "publicado"].includes(task.status),
-      ).length;
-      const total = managerTasks.length;
-      const deliveryPerformance = total
-        ? Math.round((delivered / total) * 100)
-        : 0;
-      const approvalPerformance = total
-        ? Math.round((approved / total) * 100)
-        : 0;
-      const publicationPerformance = total
-        ? Math.round((published / total) * 100)
-        : 0;
-      const loginRecency = getPersonLoginRecency("manager", manager.id, manager.userId);
-      const loginScore = loginRecency.daysSinceLogin === null
-        ? 0
-        : Math.max(0, 100 - Math.min(loginRecency.daysSinceLogin, 30) * 2);
-      const overallPerformance = total
-        ? Math.round(
-            publicationPerformance * 0.6 +
-              approvalPerformance * 0.2 +
-              deliveryPerformance * 0.15 +
-              loginScore * 0.05,
-          )
-        : 0;
-      return {
-        ...manager,
+  const managerStats = useMemo(
+    () =>
+      buildTeamKpiStats({
+        people: managers,
+        tasks: accountTasks,
         kind: "manager",
-        kindLabel: "Account Manager",
-        total,
-        delivered,
-        published,
-        inProgress,
-        pending: Math.max(total - delivered, 0),
-        deliveryPerformance,
-        approvalPerformance,
-        publicationPerformance,
-        overallPerformance,
-        lastSeenAt: loginRecency.lastSeenAt,
-        daysSinceLogin: loginRecency.daysSinceLogin,
-      };
-    })
-    .filter((manager) => manager.total > 0);
+        period: kpiPeriod,
+        today: todayStr,
+      })
+        .filter((manager) => manager.total > 0)
+        .map((manager) => ({
+          ...manager,
+          overallPerformance: manager.score,
+          lastDisconnectedAt: getPersonAccessRecency(
+            "manager",
+            manager.id,
+            manager.userId,
+          ).lastDisconnectedAt,
+        })),
+    [managers, accountTasks, kpiPeriod, todayStr, userByManagerId, userById],
+  );
 
-  const personStats = [...editorStats, ...managerStats].sort(
+  const developerStats = users
+    .filter(
+      (person) =>
+        person.isActive !== false &&
+        TRACKED_DEVELOPER_NAMES.has(normalizeNameKey(person.name)),
+    )
+    .map((person) => {
+      const lastDisconnectedAt = person.lastDisconnectedAt || "";
+      return {
+        ...person,
+        kind: "developer",
+        kindLabel: "Desarrollador",
+        total: 0,
+        delivered: 0,
+        published: 0,
+        pending: 0,
+        overdueTasks: 0,
+        weightedTotal: 0,
+        weightedCompleted: 0,
+        measuredWeight: 0,
+        onTimeWeight: 0,
+        onTimePercent: null,
+        qualified: false,
+        deliveryPerformance: 0,
+        overallPerformance: 0,
+        lastDisconnectedAt,
+      };
+    });
+
+  const personStats = [...editorStats, ...managerStats, ...developerStats].sort(
     (left, right) =>
+      Number(right.qualified) - Number(left.qualified) ||
       right.overallPerformance - left.overallPerformance ||
-      right.total - left.total ||
+      right.weightedCompleted - left.weightedCompleted ||
       String(left.name || "").localeCompare(String(right.name || "")),
   );
 
@@ -24367,11 +24393,11 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
   const visiblePersonStats = useMemo(() => {
     let filtered = [...personStats];
     if (personGroupFilter !== "all") {
-      filtered = filtered.filter((person) =>
-        personGroupFilter === "editors"
-          ? person.kind === "editor"
-          : person.kind === "manager",
-      );
+      filtered = filtered.filter((person) => {
+        if (personGroupFilter === "editors") return person.kind === "editor";
+        if (personGroupFilter === "managers") return person.kind === "manager";
+        return person.kind === "developer";
+      });
     }
     if (!normalizedSearch) return filtered;
     return filtered.filter((person) =>
@@ -24379,30 +24405,71 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
     );
   }, [normalizedSearch, personGroupFilter, personStats]);
 
-  const totalTasks = filteredEditingTasks.length + filteredAccountTasks.length;
-  const deliveredTasks =
-    filteredEditingTasks.filter(isEditingDeliveredTask).length +
-    filteredAccountTasks.filter(isAccountDelivered).length;
-  const publishedTasks =
-    filteredEditingTasks.filter((task) => task.status === "publicado").length +
-    filteredAccountTasks.filter((task) => task.status === "publicado").length;
-  const averagePerformance = visiblePersonStats.length
+  const visiblePerformanceStats = visiblePersonStats.filter(
+    (person) => person.kind !== "developer",
+  );
+  const qualifiedPerformanceStats = visiblePerformanceStats.filter(
+    (person) => person.qualified,
+  );
+  const averageSource = qualifiedPerformanceStats.length
+    ? qualifiedPerformanceStats
+    : visiblePerformanceStats;
+  const averageWeight = averageSource.reduce(
+    (sum, person) => sum + person.weightedTotal,
+    0,
+  );
+  const averagePerformance = averageWeight
     ? Math.round(
-        visiblePersonStats.reduce((sum, person) => sum + person.overallPerformance, 0) /
-          visiblePersonStats.length,
+        averageSource.reduce(
+          (sum, person) => sum + person.overallPerformance * person.weightedTotal,
+          0,
+        ) / averageWeight,
       )
     : 0;
+  const totalTasks = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.total,
+    0,
+  );
+  const deliveredTasks = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.delivered,
+    0,
+  );
+  const measuredWeight = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.measuredWeight,
+    0,
+  );
+  const teamMeasuredCompletionCount = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.measuredCompletionCount,
+    0,
+  );
+  const onTimeWeight = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.onTimeWeight,
+    0,
+  );
+  const teamOnTimePercent =
+    measuredWeight && teamMeasuredCompletionCount >= KPI_MIN_TASKS
+    ? Math.round((onTimeWeight / measuredWeight) * 100)
+    : null;
+  const overdueTasks = visiblePerformanceStats.reduce(
+    (sum, person) => sum + person.overdueTasks,
+    0,
+  );
   const deliveryRate = totalTasks
     ? Math.round((deliveredTasks / totalTasks) * 100)
     : 0;
   const peopleNeedingAttention = visiblePersonStats.filter(
-    (person) => person.overallPerformance < 60 || person.pending > 0,
+    (person) =>
+      person.kind !== "developer" &&
+      (person.overdueTasks > 0 ||
+        (person.qualified && person.overallPerformance < 60)),
   ).length;
   const groupLabel =
     personGroupFilter === "editors"
       ? "Editores"
       : personGroupFilter === "managers"
         ? "Community Managers"
+        : personGroupFilter === "developers"
+          ? "Desarrolladores"
         : "Todo el equipo";
 
   const downloadReportPdf = async (report) => {
@@ -24422,7 +24489,7 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
     <section className="performance-dashboard fade-in">
       <header className="performance-header">
         <div className="performance-heading">
-          <p className="eyebrow">Editores y Community Managers</p>
+          <p className="eyebrow">Editores, Community Managers y desarrolladores</p>
           <h2>Rendimiento del equipo</h2>
           <p>
             Entregas, publicaciones y carga pendiente en una sola lectura.
@@ -24501,7 +24568,7 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
             {groupLabel} · {visiblePersonStats.length} personas
           </span>
           <small>
-            Publicación 60% · aprobación 20% · entrega 15% · actividad 5%
+            Cumplimiento ponderado 70% · puntualidad comprobada 30%
           </small>
         </div>
 
@@ -24515,14 +24582,14 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
             <small>{deliveryRate}% del trabajo</small>
           </div>
           <div>
-            <dt>Publicadas</dt>
-            <dd>{publishedTasks}</dd>
-            <small>finalizadas en el rango</small>
+            <dt>Puntualidad</dt>
+            <dd>{teamOnTimePercent === null ? "N/D" : `${teamOnTimePercent}%`}</dd>
+            <small>solo entregas con fecha comprobable</small>
           </div>
           <div className={peopleNeedingAttention > 0 ? "has-attention" : ""}>
             <dt>Necesitan atención</dt>
             <dd>{peopleNeedingAttention}</dd>
-            <small>KPI bajo o tareas abiertas</small>
+            <small>{overdueTasks} tareas vencidas</small>
           </div>
         </dl>
       </section>
@@ -24537,6 +24604,7 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
             { id: "all", label: "Todos" },
             { id: "editors", label: "Editores" },
             { id: "managers", label: "Community Managers" },
+            { id: "developers", label: "Desarrolladores" },
           ].map((option) => (
             <button
               key={option.id}
@@ -24592,7 +24660,7 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
         <header className="performance-ranking-header">
           <div>
             <h3 id="performance-ranking-title">Equipo</h3>
-            <p>Ordenado por KPI. Lo pendiente queda visible sin abrir otra vista.</p>
+            <p>Las mediciones consolidadas aparecen primero; se requieren {KPI_MIN_TASKS} tareas.</p>
           </div>
           <span>{visiblePersonStats.length} resultados</span>
         </header>
@@ -24613,7 +24681,7 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
               <span />
               <span>Persona</span>
               <span>KPI</span>
-              <span>Publicadas</span>
+              <span>A tiempo</span>
               <span>Pendientes</span>
               <span>Actividad</span>
             </div>
@@ -24626,14 +24694,9 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
                 .map((part) => part[0])
                 .join("")
                 .toUpperCase();
-              const activityLabel =
-                person.daysSinceLogin === null
-                  ? "Sin registro"
-                  : person.daysSinceLogin === 0
-                    ? "Hoy"
-                    : person.daysSinceLogin === 1
-                      ? "Ayer"
-                      : `${person.daysSinceLogin} días`;
+              const activityLabel = formatLastDisconnect(
+                person.lastDisconnectedAt,
+              );
               const scoreTone =
                 person.overallPerformance >= 80
                   ? "is-strong"
@@ -24645,9 +24708,17 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
                 <article
                   key={`${person.kind}-${person.id}`}
                   className={`performance-person-row ${index === 0 ? "is-leading" : ""}`}
-                  aria-label={`${person.name}: KPI ${person.overallPerformance}%`}
+                  aria-label={
+                    person.kind === "developer"
+                      ? `${person.name}: última desconexión ${activityLabel}`
+                      : `${person.name}: KPI ${person.overallPerformance}%`
+                  }
                 >
-                  <span className="performance-rank">#{index + 1}</span>
+                  <span className="performance-rank">
+                    {person.kind === "developer" || !person.qualified
+                      ? "—"
+                      : `#${index + 1}`}
+                  </span>
 
                   <div className="performance-person">
                     <span className="performance-avatar" aria-hidden="true">
@@ -24660,35 +24731,64 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
                   </div>
 
                   <div className={`performance-person-kpi ${scoreTone}`}>
-                    <span>
-                      <strong>{person.overallPerformance}%</strong>
-                      <small>{person.deliveryPerformance}% entregado</small>
-                    </span>
-                    <span className="performance-kpi-track" aria-hidden="true">
-                      <span
-                        style={{ width: `${person.overallPerformance}%` }}
-                      />
-                    </span>
+                    {person.kind === "developer" ? (
+                      <span>
+                        <strong>—</strong>
+                        <small>seguimiento de acceso</small>
+                      </span>
+                    ) : (
+                      <>
+                        <span>
+                          <strong>{person.overallPerformance}%</strong>
+                          <small>
+                            {person.qualified
+                              ? `${person.deliveryPerformance}% cumplimiento`
+                              : `Provisional · ${person.total}/${KPI_MIN_TASKS} tareas`}
+                          </small>
+                        </span>
+                        <span className="performance-kpi-track" aria-hidden="true">
+                          <span
+                            style={{ width: `${person.overallPerformance}%` }}
+                          />
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   <div className="performance-person-output">
-                    <strong>
-                      {person.published}
-                      <span>/{person.total}</span>
-                    </strong>
-                    <small>publicadas</small>
+                    {person.kind === "developer" ? (
+                      <><strong>—</strong><small>sin tareas editoriales</small></>
+                    ) : (
+                      <>
+                        <strong>
+                          {person.measuredCompletionCount >= KPI_MIN_TASKS &&
+                          person.onTimePercent !== null
+                            ? `${person.onTimePercent}%`
+                            : "N/D"}
+                        </strong>
+                        <small>
+                          {person.measuredCompletionCount}/{KPI_MIN_TASKS} medidas
+                        </small>
+                      </>
+                    )}
                   </div>
 
                   <div
                     className={`performance-person-pending ${person.pending > 0 ? "has-pending" : ""}`}
                   >
-                    <strong>{person.pending}</strong>
-                    <small>sin entregar</small>
+                    {person.kind === "developer" ? (
+                      <><strong>—</strong><small>no aplica</small></>
+                    ) : (
+                      <>
+                        <strong>{person.pending}</strong>
+                        <small>{person.overdueTasks} vencidas</small>
+                      </>
+                    )}
                   </div>
 
                   <div className="performance-person-activity">
                     <strong>{activityLabel}</strong>
-                    <small>último acceso</small>
+                    <small>última desconexión</small>
                   </div>
                 </article>
               );
