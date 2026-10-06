@@ -5212,7 +5212,6 @@ function App() {
           taskTitle: trimmed,
         },
       });
-      });
     }
     return result;
   };
@@ -12278,7 +12277,6 @@ const EditionsRoomView = ({
       stages: columns.slice(3).map((column) => ({
         ...column,
         tasks: tasksForStatus(column.id),
-        ),
         collapsible: column.id === "publicado",
         collapsedLimit: 3,
       })),
