@@ -383,7 +383,7 @@ test('referenced records cannot be deleted directly or through a batch', async (
         method: 'DELETE'
     });
     assert.equal(direct.status, 409);
-    assert.equal(direct.payload?.error?.code, 'document/in-use');
+    assert.equal(direct.payload?.error?.code, 'document/must-deactivate');
 
     const batched = await request('/api/collections/_batch', {
         token: operationsToken,
@@ -397,8 +397,53 @@ test('referenced records cannot be deleted directly or through a batch', async (
         }
     });
     assert.equal(batched.status, 409);
-    assert.equal(batched.payload?.error?.code, 'document/in-use');
+    assert.equal(batched.payload?.error?.code, 'document/must-deactivate');
     assert.ok(await getRecord({ collectionName: 'clients', recordId: 'client-1' }));
+});
+
+test('inactive clients can be deleted even with chat history', async () => {
+    await upsertRecord({
+        collectionName: 'clients',
+        recordId: 'client-1',
+        payload: { name: 'Cliente de prueba', status: 'Inactivo' }
+    });
+    const deleted = await request('/api/collections/clients/client-1', {
+        token: operationsToken,
+        method: 'DELETE'
+    });
+    assert.equal(deleted.status, 200);
+    assert.equal(await getRecord({ collectionName: 'clients', recordId: 'client-1' }), null);
+    await createRecord({
+        collectionName: 'clients',
+        recordId: 'client-1',
+        payload: { name: 'Cliente de prueba' }
+    });
+});
+
+test('inactive users can be deleted after deactivation', async () => {
+    await createRecord({
+        collectionName: 'users',
+        recordId: 'inactive-user',
+        payload: {
+            name: 'Ex integrante',
+            email: 'ex@example.test',
+            role: 'viewer',
+            isActive: false
+        }
+    });
+    const activeBlocked = await request('/api/collections/users/viewer', {
+        token: operationsToken,
+        method: 'DELETE'
+    });
+    assert.equal(activeBlocked.status, 409);
+    assert.equal(activeBlocked.payload?.error?.code, 'document/must-deactivate');
+
+    const deleted = await request('/api/collections/users/inactive-user', {
+        token: operationsToken,
+        method: 'DELETE'
+    });
+    assert.equal(deleted.status, 200);
+    assert.equal(await getRecord({ collectionName: 'users', recordId: 'inactive-user' }), null);
 });
 
 test('quien puede crear eventos tambien puede moverlos en Produccion', async () => {

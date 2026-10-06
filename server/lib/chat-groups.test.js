@@ -128,3 +128,26 @@ test('el directorio expone el rol de quien solo existe como usuario', () => {
     assert.equal(result.people.find((person) => person.id === 'solo-user')?.role, 'editor');
     assert.equal(result.people.find((person) => person.id === 'editor-record')?.role, '');
 });
+
+test('los grupos de equipo entran en la membresia del chat', () => {
+    const result = buildChatGroups({
+        clients: [{ id: 'client-1', name: 'Cliente' }],
+        users: people,
+        teamGroups: [{
+            id: 'team-ops',
+            name: 'Operaciones',
+            memberIds: ['author-user', 'manager-record']
+        }],
+        managers: [{
+            id: 'manager-record',
+            name: 'Manager Uno',
+            email: 'manager@example.com',
+            userId: 'manager-user'
+        }]
+    });
+
+    const teamGroup = result.groups.find((group) => group.clientId === 'team-ops');
+    assert.equal(teamGroup?.source, 'team_group');
+    assert.deepEqual(new Set(teamGroup.memberIds), new Set(['author-user', 'manager-user']));
+    assert.equal(result.groups.some((group) => group.clientId === 'client-1'), true);
+});

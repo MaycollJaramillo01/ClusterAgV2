@@ -37,6 +37,17 @@ const TASK_CONFIGS = [
         contextCollection: 'editors',
         defaultTime: '18:00',
         isClosed: (task) => task.status === 'aprobado' || task.status === 'publicado'
+    },
+    {
+        collectionName: 'events',
+        reportKey: 'production',
+        taskTypeLabel: 'tarea de produccion',
+        roomLabel: 'Cluster OS - Sala de Produccion',
+        doneLabel: 'Publicado',
+        contextCollection: 'users',
+        defaultTime: '18:00',
+        include: (task) => String(task.type || '').toLowerCase() === 'production',
+        isClosed: (task) => ['publicado', 'cerrado', 'aprobado'].includes(String(task.status || '').toLowerCase())
     }
 ];
 
@@ -202,6 +213,10 @@ export const processManagementTaskReminders = async () => {
         for (const task of tasks) {
             report.checked += 1;
 
+            if (typeof config.include === 'function' && !config.include(task)) {
+                report.skippedClosed += 1;
+                continue;
+            }
             if (config.isClosed(task)) {
                 report.skippedClosed += 1;
                 continue;

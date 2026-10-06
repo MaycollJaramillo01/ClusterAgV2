@@ -78,7 +78,7 @@ export const buildClientChatPush = ({
 export const sendClientChatPush = async ({ message, clientName = 'Cliente' }) => {
     if (!message?.id || !message?.clientId) return { sent: 0, skipped: true };
 
-    const [tokens, chatMutes, clients, messages, membershipRecords, users, managers, editors] = await Promise.all([
+    const [tokens, chatMutes, clients, messages, membershipRecords, users, managers, editors, teamGroups] = await Promise.all([
         listRecords({
             collectionName: PUSH_TOKEN_COLLECTION,
             sortBy: 'updatedAt',
@@ -94,7 +94,8 @@ export const sendClientChatPush = async ({ message, clientName = 'Cliente' }) =>
         listRecords({ collectionName: 'chat_group_memberships' }),
         listRecords({ collectionName: 'users' }),
         listRecords({ collectionName: 'managers' }),
-        listRecords({ collectionName: 'editors' })
+        listRecords({ collectionName: 'editors' }),
+        listRecords({ collectionName: 'team_groups' })
     ]);
     const chatGroups = buildChatGroups({
         clients,
@@ -102,7 +103,8 @@ export const sendClientChatPush = async ({ message, clientName = 'Cliente' }) =>
         membershipRecords,
         users,
         managers,
-        editors
+        editors,
+        teamGroups
     });
     const group = chatGroups.groups.find((item) => String(item.clientId) === String(message.clientId));
     const memberIds = new Set((group?.memberIds || []).map(String));
