@@ -169,13 +169,18 @@ export const getChatGroupChangeError = ({
     currentMemberIds = [],
     nextMemberIds = []
 } = {}) => {
-    if (!['manager', 'super_admin'].includes(String(actorRole || ''))) {
-        return 'forbidden';
-    }
     const normalizedActorId = String(actorId || '');
+    const currentIds = uniqueStrings(currentMemberIds);
+    const nextIds = uniqueStrings(nextMemberIds);
+    if (!['manager', 'super_admin'].includes(String(actorRole || ''))) {
+        if (!normalizedActorId || !currentIds.includes(normalizedActorId)) {
+            return 'membership-required';
+        }
+        return currentIds.some((id) => !nextIds.includes(id)) ? 'remove-forbidden' : '';
+    }
     const removesSelf = normalizedActorId
-        && uniqueStrings(currentMemberIds).includes(normalizedActorId)
-        && !uniqueStrings(nextMemberIds).includes(normalizedActorId);
+        && currentIds.includes(normalizedActorId)
+        && !nextIds.includes(normalizedActorId);
     if (removesSelf && actorRole !== 'super_admin') return 'manager-cannot-leave';
     return '';
 };

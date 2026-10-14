@@ -2186,6 +2186,7 @@ function App() {
   const canManageChatMembers = ["manager", "super_admin"].includes(
     currentUserProfile?.role,
   );
+  const canAddChatMembers = userHasPermission(currentUserProfile, "view_client_chat");
   const canLeaveChatGroup = currentUserProfile?.role === "super_admin";
   const profileBlocked = Boolean(
     currentUserProfile && currentUserProfile.isActive === false,
@@ -6469,7 +6470,7 @@ function App() {
   ]);
 
   const updateChatGroupMembers = async (clientId, memberIds) => {
-    if (!clientId || !canManageChatMembers) return null;
+    if (!clientId || !canAddChatMembers) return null;
     try {
       const payload = await apiFetch(
         `/api/chat-groups/${encodeURIComponent(clientId)}/members`,
@@ -7668,6 +7669,7 @@ function App() {
                 chatGroupIdentityId || currentUserProfile?.id || ""
               }
               canManageMembers={canManageChatMembers}
+              canAddMembers={canAddChatMembers}
               canLeaveGroup={canLeaveChatGroup}
               onUpdateMembers={updateChatGroupMembers}
               accountTasks={accountTasks}
@@ -14470,6 +14472,7 @@ const ClientChatView = ({
   groupsLoaded = false,
   currentGroupMemberId = "",
   canManageMembers = false,
+  canAddMembers = false,
   canLeaveGroup = false,
   onUpdateMembers,
   accountTasks = [],
@@ -14748,6 +14751,8 @@ const ClientChatView = ({
     || activeGroupMemberSet.has(String(currentUserProfile?.id || ""));
   const canInteractWithActiveGroup =
     !groupsLoaded || isActiveGroupMember;
+  const canEditMembers = canManageMembers
+    || (canAddMembers && groupsLoaded && isActiveGroupMember);
   const activeGroupMembers = mentionables.filter((person) =>
     activeGroupMemberSet.has(String(person.id)),
   );
@@ -14781,7 +14786,7 @@ const ClientChatView = ({
 
   const saveMembers = async () => {
     const updater = activeClient?.isTeamGroup ? onUpdateTeamGroup : onUpdateMembers;
-    if (!activeClient?.id || !updater || savingMembers) return;
+    if (!activeClient?.id || !updater || !canEditMembers || savingMembers) return;
     setSavingMembers(true);
     try {
       await updater(activeClient.id, memberDraftIds);
@@ -16918,7 +16923,7 @@ const ClientChatView = ({
         </div>
       )}
 
-      {/* Integrantes reales del grupo y administración por rol. */}
+      {/* Todos los integrantes pueden agregar personas al grupo. */}
       {membersOpen &&
         createPortal(
           <div
@@ -16964,7 +16969,8 @@ const ClientChatView = ({
                       const isSelf =
                         String(person.id) === String(currentGroupMemberId);
                       const canRemove =
-                        canManageMembers && (!isSelf || canLeaveGroup);
+                        (canManageMembers && (!isSelf || canLeaveGroup))
+                        || (canEditMembers && !activeGroupMemberSet.has(String(person.id)));
                       return (
                         <div
                           key={person.id}
@@ -16991,7 +16997,7 @@ const ClientChatView = ({
                               </p>
                             )}
                           </div>
-                          {canManageMembers && (
+                          {(canManageMembers || canRemove) && (
                             <button
                               type="button"
                               onClick={() =>
@@ -17025,7 +17031,7 @@ const ClientChatView = ({
                   )}
                 </div>
 
-                {canManageMembers && (
+                {canEditMembers && (
                   <div className="chat-member-add-section mt-5 pt-4">
                     <p className="mb-2 px-1 text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">
                       Agregar personas
@@ -17063,6 +17069,7 @@ const ClientChatView = ({
                           <button
                             key={person.id}
                             type="button"
+                            disabled={savingMembers}
                             onClick={() =>
                               setMemberDraftIds((current) => [
                                 ...current,
@@ -17096,9 +17103,9 @@ const ClientChatView = ({
                   disabled={savingMembers}
                   className="chat-member-secondary-action px-4 py-2 text-sm font-bold disabled:opacity-40"
                 >
-                  {canManageMembers ? "Cancelar" : "Cerrar"}
+                  {canEditMembers ? "Cancelar" : "Cerrar"}
                 </button>
-                {canManageMembers && (
+                {canEditMembers && (
                   <button
                     type="button"
                     onClick={saveMembers}

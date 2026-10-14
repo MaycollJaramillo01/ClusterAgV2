@@ -540,6 +540,82 @@ test('management tasks reject an empty title', async () => {
     assert.equal(response.payload?.error?.code, 'management_tasks/title-required');
 });
 
+test('chat members of every chat role can add participants without removing others', async () => {
+    await createRecord({
+        collectionName: 'users',
+        recordId: 'management-member',
+        payload: { name: 'Gestion', email: 'gestion@example.test', role: 'management', isActive: true }
+    });
+    const managementToken = await createToken('management-member');
+    await createRecord({
+        collectionName: 'clients',
+        recordId: 'client-members',
+        payload: { name: 'Grupo con todos los roles' }
+    });
+    const memberIds = ['editor', 'operations', 'management-member'];
+    await createRecord({
+        collectionName: 'chat_group_memberships',
+        recordId: 'client-members',
+        payload: { clientId: 'client-members', memberIds, managed: true }
+    });
+
+    assert.equal((await request('/api/chat-groups/client-members/members', {
+        method: 'PUT', body: { memberIds }
+    })).status, 401);
+    // No se permite que una persona se una agregandose a la lista.
+    const outside = await request('/api/chat-groups/client-1/members', {
+        token: editorToken, method: 'PUT', body: { memberIds: ['viewer', 'editor'] }
+    });
+    assert.equal(outside.status, 403);
+    assert.equal(outside.payload?.error?.code, 'chat-groups/membership-required');
+
+    for (const [token, newMemberId] of [
+        [editorToken, 'manager'],
+        [operationsToken, 'super-admin'],
+        [managementToken, 'viewer']
+    ]) {
+        memberIds.push(newMemberId);
+        const added = await request('/api/chat-groups/client-members/members', {
+            token, method: 'PUT', body: { memberIds }
+        });
+        assert.equal(added.status, 200);
+        assert.deepEqual(added.payload?.group?.memberIds, memberIds);
+        const removed = await request('/api/chat-groups/client-members/members', {
+            token, method: 'PUT', body: { memberIds: memberIds.filter((id) => id !== 'editor') }
+        });
+        assert.equal(removed.status, 403);
+        assert.equal(removed.payload?.error?.code, 'chat-groups/remove-forbidden');
+    }
+    assert.equal((await request('/api/chat-groups/client-members/members', {
+        token: editorToken, method: 'PUT', body: { memberIds: [...memberIds, 'unknown-user'] }
+    })).status, 400);
+    assert.equal((await request('/api/chat-groups/client-members/members', {
+        token: editorToken, method: 'PUT', body: {}
+    })).status, 400);
+    assert.deepEqual((await getRecord({
+        collectionName: 'chat_group_memberships', recordId: 'client-members'
+    })).memberIds, memberIds);
+
+    // Los grupos internos comparten el selector y ya admiten cambios por estos roles.
+    await createRecord({
+        collectionName: 'team_groups',
+        recordId: 'team-members',
+        payload: { name: 'Equipo', memberIds: ['editor', 'operations', 'management-member'] }
+    });
+    const teamIds = ['editor', 'operations', 'management-member'];
+    for (const [token, newMemberId] of [
+        [editorToken, 'manager'], [operationsToken, 'super-admin'], [managementToken, 'viewer']
+    ]) {
+        teamIds.push(newMemberId);
+        assert.equal((await request('/api/collections/team_groups/team-members', {
+            token, method: 'PATCH', body: { data: { memberIds: teamIds } }
+        })).status, 200);
+    }
+    assert.deepEqual((await getRecord({
+        collectionName: 'team_groups', recordId: 'team-members'
+    })).memberIds, teamIds);
+});
+
 test('chat groups derive members and enforce manager and superadmin rules', async () => {
     const initial = await request('/api/chat-groups', { token: managerToken });
     assert.equal(initial.status, 200);
