@@ -1,4 +1,4 @@
-import { apiFetch, buildApiUrl, getApiOrigin } from './backend-api.js?v=20260525-local-api';
+import { apiFetch, buildApiUrl, getApiOrigin, setApiSessionHandlers } from './backend-api.js?v=20260525-local-api';
 import {
     getApp as getFirebaseClientApp,
     getApps as getFirebaseClientApps,
@@ -72,6 +72,18 @@ class BackendAuth {
         this.app = app;
         this.currentUser = null;
         this.languageCode = 'es';
+        setApiSessionHandlers({
+            recover: async () => {
+                const email = this.currentUser?.email;
+                if (!email) return false;
+                const user = await this.refreshSession();
+                // Una peticion de una cuenta nunca se repite con otra cuenta.
+                return user?.email === email;
+            },
+            expire: () => {
+                if (this.currentUser?.email) this.setCurrentUser(null, 'session-expired');
+            }
+        });
         this.readyPromise = this.refreshSession().catch(() => {
             this.currentUser = null;
             this.notify();
@@ -82,13 +94,13 @@ class BackendAuth {
         return this.readyPromise;
     }
 
-    notify() {
-        listeners.forEach((listener) => listener(this.currentUser));
+    notify(reason = '') {
+        listeners.forEach((listener) => listener(this.currentUser, reason));
     }
 
-    setCurrentUser(user) {
+    setCurrentUser(user, reason = '') {
         this.currentUser = normalizeUser(user);
-        this.notify();
+        this.notify(reason);
     }
 
     async refreshSession() {
@@ -102,6 +114,7 @@ class BackendAuth {
         if (!payload?.user) {
             try {
                 const firebaseAuth = getFirebaseEmailAuth();
+                await firebaseAuth.authStateReady();
                 if (firebaseAuth.currentUser) {
                     const idToken = await firebaseAuth.currentUser.getIdToken();
                     payload = await exchangeFirebaseSession({
@@ -110,12 +123,19 @@ class BackendAuth {
                     });
                 }
             } catch (error) {
-                void error;
+                const needsSignIn = error.status === 401 || error.status === 403 || [
+                    'auth/missing-client-config',
+                    'auth/invalid-user-token',
+                    'auth/user-token-expired',
+                    'auth/user-disabled',
+                    'auth/user-not-found'
+                ].includes(error.code);
+                if (!needsSignIn) throw error;
             }
         }
 
-        this.currentUser = normalizeUser(payload?.user || null);
-        this.notify();
+        const reason = this.currentUser?.email && !payload?.user ? 'session-expired' : '';
+        this.setCurrentUser(payload?.user || null, reason);
         return this.currentUser;
     }
 }

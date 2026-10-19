@@ -12,7 +12,7 @@
     "check:design": "node scripts/check-design.mjs",
     "check:kpi": "node scripts/check-kpi.mjs",
     "check:polling": "node scripts/check-polling.mjs",
-    "test": "node --test \"server/**/*.test.js\" \"src/app/utils/*.test.js\"",
+    "test": "node --test \"server/**/*.test.js\" \"src/app/utils/*.test.js\" \"src/app/lib/*.test.js\"",
     "db:cleanup:dry-run": "node scripts/cleanup-record-changes.mjs",
     "r2:cors": "node scripts/apply-r2-cors.mjs",
     "r2:cors:dry-run": "node scripts/apply-r2-cors.mjs --dry-run",

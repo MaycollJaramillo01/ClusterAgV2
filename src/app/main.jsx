@@ -2898,10 +2898,20 @@ function App() {
       return;
     }
     let isMounted = true;
-    const syncAuthState = (nextUser) => {
+    const syncAuthState = (nextUser, reason = '') => {
       if (!isMounted) return;
       setUser(nextUser);
       setLoading(false);
+      if (reason === 'session-expired') {
+        showToast('Tu sesión venció. Inicia sesión de nuevo para continuar.', 'error');
+      }
+      if (nextUser?.email) {
+        setModalConfig((current) =>
+          current.draftOwnerEmail && current.draftOwnerEmail !== normalizeEmail(nextUser.email)
+            ? { isOpen: false, type: null, data: null, isEdit: false }
+            : current,
+        );
+      }
     };
     const waitForAuthState = async () => {
       if (typeof auth.authStateReady === "function") {
@@ -5047,7 +5057,18 @@ function App() {
   ];
 
   // Acciones Base de Datos
+  const saveClientDraft = (fd) => {
+    // El formulario se desmonta al pedir acceso de nuevo. El borrador
+    // permanece en App y solo se restaura para la misma cuenta.
+    setModalConfig((current) => ({
+      ...current,
+      data: { ...current.data, ...fd },
+      draftOwnerEmail: authEmail,
+    }));
+  };
+
   const addClient = async (fd) => {
+    saveClientDraft(fd);
     const manager = managers.find((m) => m.id === fd.managerId);
     await runMutation({
       permission: "manage_clients",
@@ -8199,6 +8220,7 @@ function App() {
           <Modal
             config={modalConfig}
             onClose={closeModal}
+            onClientDraftChange={saveClientDraft}
             currentUserProfile={currentUserProfile}
             clients={clients}
             managers={managers}
@@ -21334,6 +21356,7 @@ const CreateTaskModal = ({
 const Modal = ({
   config,
   onClose,
+  onClientDraftChange,
   clients,
   managers,
   editors,
@@ -21586,7 +21609,15 @@ const Modal = ({
           </button>
         </div>
         <div className="p-6 overflow-y-auto custom-scroll">
-          <form onSubmit={onSubmit} className="space-y-4">
+          <form
+            onSubmit={onSubmit}
+            onChange={(event) => {
+              if (type === 'client') {
+                onClientDraftChange?.(Object.fromEntries(new FormData(event.currentTarget)));
+              }
+            }}
+            className="space-y-4"
+          >
             {["event", "accountTask", "editingTask", "managementTask"].includes(
               type,
             ) &&

@@ -12,7 +12,23 @@ const resolveApiBaseUrl = () => {
 
 export const buildApiUrl = (path) => `${resolveApiBaseUrl()}${path}`;
 
-export const apiFetch = async (path, options = {}) => {
+let sessionHandlers = {};
+let sessionRecoveryPromise = null;
+
+export const setApiSessionHandlers = (handlers = {}) => {
+    sessionHandlers = handlers;
+};
+
+const recoverSession = () => {
+    if (!sessionRecoveryPromise) {
+        sessionRecoveryPromise = Promise.resolve()
+            .then(() => sessionHandlers.recover?.() || false)
+            .finally(() => { sessionRecoveryPromise = null; });
+    }
+    return sessionRecoveryPromise;
+};
+
+export const apiFetch = async (path, options = {}, retrySession = true) => {
     const response = await fetch(buildApiUrl(path), {
         credentials: 'include',
         headers: {
@@ -26,7 +42,23 @@ export const apiFetch = async (path, options = {}) => {
     const payload = hasJson ? await response.json() : null;
 
     if (!response.ok) {
-        const error = new Error(payload?.error?.message || `Request failed with status ${response.status}`);
+        const sessionRequired = response.status === 401
+            && payload?.error?.code === 'auth/session-required'
+            && !path.startsWith('/api/auth/');
+
+        // Este 401 se emite antes de ejecutar la mutacion. Solo se repite una
+        // vez, tras recuperar la identidad; los errores de red no se repiten.
+        if (sessionRequired) {
+            if (retrySession && await recoverSession()) {
+                return apiFetch(path, options, false);
+            }
+            sessionHandlers.expire?.();
+        }
+
+        const message = sessionRequired
+            ? 'Tu sesión venció. Inicia sesión de nuevo para continuar.'
+            : payload?.error?.message || `Request failed with status ${response.status}`;
+        const error = new Error(message);
         error.status = response.status;
         error.code = payload?.error?.code || '';
         throw error;
