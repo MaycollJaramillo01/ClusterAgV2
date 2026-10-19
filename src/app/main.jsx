@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useId, useMemo, useCallback } from "react";
 import { createRoot } from "react-dom/client";
+import AppErrorBoundary from "./components/AppErrorBoundary.jsx";
 import confetti from "canvas-confetti";
 import { Capacitor } from "@capacitor/core";
 import { App as CapacitorApp } from "@capacitor/app";
@@ -23344,6 +23345,14 @@ const ReportsView = ({
   const [pdfError, setPdfError] = useState("");
   const hasAutoExpandedRangeRef = useRef(false);
 
+  const inRange = (dateStr) => {
+    if (!dateStr) return false;
+    return (
+      compareDateOnlyStrings(dateStr, fromDate) >= 0 &&
+      compareDateOnlyStrings(dateStr, toDate) <= 0
+    );
+  };
+
   const filteredAccountTasks = accountTasks.filter((t) => inRange(t.date));
   const filteredEditingTasks = editingTasks.filter((t) => inRange(t.date));
   const filteredManagementTasks = managementTasks.filter((t) =>
@@ -24289,14 +24298,6 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
   const [downloadingPdf, setDownloadingPdf] = useState("");
   const [pdfError, setPdfError] = useState("");
 
-  const inRange = (dateStr) => {
-    if (!dateStr) return false;
-    return (
-      compareDateOnlyStrings(dateStr, fromDate) >= 0 &&
-      compareDateOnlyStrings(dateStr, toDate) <= 0
-    );
-  };
-
   const kpiPeriod = useMemo(
     () => ({ start: fromDate, end: toDate }),
     [fromDate, toDate],
@@ -24837,4 +24838,8 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
 };
 
 const root = createRoot(document.getElementById("root"));
-root.render(<App />);
+root.render(
+  <AppErrorBoundary>
+    <App />
+  </AppErrorBoundary>,
+);

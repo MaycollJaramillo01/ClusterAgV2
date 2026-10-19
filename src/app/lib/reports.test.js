@@ -1,0 +1,71 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
+import test from 'node:test';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { build } from 'esbuild';
+
+// Renderiza la vista real del archivo principal sin montar App ni iniciar
+// autenticacion. Asi se detectan referencias ausentes que el build acepta.
+const source = readFileSync(new URL('../main.jsx', import.meta.url), 'utf8');
+const mountIndex = source.indexOf('const root = createRoot(');
+assert.ok(mountIndex > 0, 'Se debe excluir el montaje de App de esta prueba');
+const { outputFiles } = await build({
+    stdin: {
+        contents: `${source.slice(0, mountIndex)}\nexport { ReportsView };`,
+        resolveDir: fileURLToPath(new URL('..', import.meta.url)),
+        loader: 'jsx'
+    },
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    external: ['react', 'react-dom', 'react-dom/*'],
+    write: false,
+    plugins: [{
+        name: 'no-auth-startup',
+        setup(builder) {
+            builder.onResolve({ filter: /^firebase\// }, (args) => ({ path: args.path, external: true, sideEffects: false }));
+            builder.onResolve({ filter: /^\.\/config\/firebase\.js$/ }, () => ({ path: 'config', namespace: 'test' }));
+            builder.onLoad({ filter: /.*/, namespace: 'test' }, () => ({ contents: 'export const auth = null, db = null, appId = "test";' }));
+        }
+    }]
+});
+class FixedDate extends Date {
+    constructor(...args) { super(...(args.length ? args : ['2026-10-19T18:00:00.000Z'])); }
+    static now() { return new FixedDate().getTime(); }
+}
+const module = { exports: {} };
+vm.runInNewContext(outputFiles[0].text, {
+    module, exports: module.exports, require: createRequire(import.meta.url),
+    console, Date: FixedDate
+});
+const { ReportsView } = module.exports;
+const renderReports = (props = {}) => renderToStaticMarkup(React.createElement(ReportsView, {
+    accountTasks: [], editingTasks: [], managementTasks: [],
+    clients: [], managers: [], editors: [], users: [], ...props
+})).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+
+test('Reportes abre con tareas en las tres salas sin referencias indefinidas', () => {
+    const task = { date: '2026-10-19', contextId: 'person', status: 'publicado' };
+    const text = renderReports({
+        accountTasks: [{ ...task, id: 'account' }],
+        editingTasks: [{ ...task, id: 'editing' }],
+        managementTasks: [{ ...task, id: 'management', status: 'cerrado' }]
+    });
+    assert.match(text, /Total Piezas 2 accounts \+ edición/);
+    assert.match(text, /Sala Accounts 1 1 publicadas/);
+    assert.match(text, /Sala Edición 1 1 publicadas/);
+});
+
+test('Reportes incluye los limites del rango y excluye fechas externas o ausentes', () => {
+    const tasks = ['2026-09-30', '2026-10-01', '2026-10-19', '2026-10-20', ''].map((date, id) => ({
+        id: String(id), date, status: 'publicado'
+    }));
+    const text = renderReports({ accountTasks: tasks, editingTasks: tasks, managementTasks: tasks });
+    assert.match(text, /Total Piezas 4 accounts \+ edición/);
+    assert.match(text, /Sala Accounts 2 2 publicadas/);
+    assert.match(text, /Sala Edición 2 2 publicadas/);
+});
