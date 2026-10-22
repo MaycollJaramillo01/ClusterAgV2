@@ -91,6 +91,7 @@ import {
   Eye,
   Bell,
   BellSlash,
+  ArrowsClockwise as RefreshCw,
 } from "@phosphor-icons/react";
 import {
   signInAnonymously,
@@ -118,6 +119,7 @@ import {
   getDocs,
   getDoc,
   loadAllTaskHistory,
+  refreshReportData,
 } from "./lib/firebase-firestore-compat.js";
 import { auth, db, appId } from "./config/firebase.js";
 import {
@@ -307,6 +309,7 @@ const IconsMap = {
   Eye,
   Bell,
   BellSlash,
+  RefreshCw,
 };
 
 const Icon = ({ name, size = 18, className = "", ...props }) => {
@@ -2105,6 +2108,20 @@ function App() {
     } catch (error) {
       console.error("No se pudo cargar el historial de tareas:", error);
       showToast("No se pudo cargar el historial de tareas.", "error");
+    } finally {
+      setIsLoadingTaskHistory(false);
+    }
+  };
+  const handleRefreshReports = async () => {
+    if (isLoadingTaskHistory) return;
+    setIsLoadingTaskHistory(true);
+    try {
+      await refreshReportData();
+      setTaskHistoryLoaded(true);
+      showToast("Datos actualizados", "success");
+    } catch (error) {
+      console.error("No se pudieron actualizar los reportes:", error);
+      showToast("No se pudieron actualizar los datos", "error");
     } finally {
       setIsLoadingTaskHistory(false);
     }
@@ -7156,6 +7173,27 @@ function App() {
     });
   };
 
+  const deactivateUserRecord = async (userRecord) => {
+    if (!userRecord?.id) return;
+    if (userRecord.id === currentUserProfile?.id) {
+      showToast("No puedes desactivar tu propio usuario", "error");
+      return;
+    }
+    await runMutation({
+      permission: "manage_users",
+      action: "update",
+      entityType: "user",
+      entityId: userRecord.id,
+      description: `Desactiva usuario ${userRecord.email || userRecord.name || userRecord.id}`,
+      successMessage: "Usuario desactivado",
+      execute: () =>
+        updateDoc(dataDoc("users", userRecord.id), {
+          isActive: false,
+          updatedAt: nowIso(),
+        }),
+    });
+  };
+
   const canEditActivity = (collectionType) => {
     if (collectionType === "accountTask")
       return userHasPermission(currentUserProfile, "manage_account_tasks");
@@ -8137,6 +8175,23 @@ function App() {
               managers={managers}
               editors={editors}
               users={managementUsers}
+              directoryUsers={appUsers}
+              currentUserProfile={currentUserProfile}
+              canManageUsers={userHasPermission(
+                currentUserProfile,
+                "manage_users",
+              )}
+              onRefresh={handleRefreshReports}
+              refreshing={isLoadingTaskHistory}
+              onDeleteUser={(userRecord) =>
+                setDeleteConfirm({
+                  isOpen: true,
+                  type: "user",
+                  id: userRecord.id,
+                  title: userRecord.name,
+                })
+              }
+              onDeactivateUser={deactivateUserRecord}
             />
           )}
         </div>
@@ -23295,6 +23350,13 @@ const ReportsView = ({
   managers,
   editors,
   users = [],
+  directoryUsers,
+  currentUserProfile = null,
+  canManageUsers = false,
+  onRefresh,
+  refreshing = false,
+  onDeleteUser,
+  onDeactivateUser,
 }) => {
   const todayStr = getHondurasTodayStr();
   const now = new Date();
@@ -23304,7 +23366,17 @@ const ReportsView = ({
   const [activeTab, setActiveTab] = useState("content");
   const [downloadingPdf, setDownloadingPdf] = useState("");
   const [pdfError, setPdfError] = useState("");
+  const [userSearchTerm, setUserSearchTerm] = useState("");
   const hasAutoExpandedRangeRef = useRef(false);
+  const peopleDirectory = Array.isArray(directoryUsers) ? directoryUsers : users;
+
+  const inRange = (dateStr) => {
+    if (!dateStr) return false;
+    return (
+      compareDateOnlyStrings(dateStr, fromDate) >= 0 &&
+      compareDateOnlyStrings(dateStr, toDate) <= 0
+    );
+  };
 
   const filteredAccountTasks = accountTasks.filter((t) => inRange(t.date));
   const filteredEditingTasks = editingTasks.filter((t) => inRange(t.date));
@@ -23647,7 +23719,24 @@ const ReportsView = ({
     { id: "managers", label: "Por Manager" },
     { id: "editors", label: "Por Editor" },
     { id: "management", label: "Gestión" },
+    ...(canManageUsers ? [{ id: "users", label: "Usuarios" }] : []),
   ];
+  const normalizedUserSearch = userSearchTerm.trim().toLowerCase();
+  const reportDirectoryUsers = [...peopleDirectory]
+    .filter((person) => {
+      if (!normalizedUserSearch) return true;
+      return `${person.name || ""} ${person.email || ""} ${person.role || ""}`
+        .toLowerCase()
+        .includes(normalizedUserSearch);
+    })
+    .sort((left, right) => {
+      const leftInactive = left.isActive === false ? 1 : 0;
+      const rightInactive = right.isActive === false ? 1 : 0;
+      if (leftInactive !== rightInactive) return rightInactive - leftInactive;
+      return String(left.name || "").localeCompare(String(right.name || ""), "es", {
+        sensitivity: "base",
+      });
+    });
 
   const rowStyle = (i) =>
     i % 2 !== 0 ? "bg-slate-50/50 dark:bg-slate-950/30" : "";
@@ -23710,6 +23799,31 @@ const ReportsView = ({
           >
             PDF community
           </button>
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing || Boolean(downloadingPdf)}
+              className="flex min-h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700 disabled:opacity-40 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+            >
+              <Icon
+                name="RefreshCw"
+                size={14}
+                className={refreshing ? "animate-spin" : ""}
+              />
+              {refreshing ? "Actualizando..." : "Actualizar"}
+            </button>
+          )}
+          {canManageUsers && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("users")}
+              className="flex min-h-11 items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+            >
+              <Icon name="Trash2" size={14} />
+              Eliminar usuarios
+            </button>
+          )}
         </div>
       </div>
       {pdfError ? (
@@ -24233,6 +24347,115 @@ const ReportsView = ({
               color="emerald"
               icon="CheckCircle2"
             />
+          </div>
+        </div>
+      )}
+
+      {activeTab === "users" && canManageUsers && (
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+              Desactiva un usuario activo y luego elimínalo. No puedes borrar tu
+              propia cuenta.
+            </p>
+            <SearchBar
+              searchTerm={userSearchTerm}
+              setSearchTerm={setUserSearchTerm}
+              placeholder="Buscar usuario..."
+            />
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            {reportDirectoryUsers.length === 0 ? (
+              <div className="p-16 text-center text-slate-500 font-bold">
+                No hay usuarios para este filtro
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px]">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
+                      <th className="p-4 text-left text-xs font-black uppercase tracking-widest text-slate-500">
+                        Usuario
+                      </th>
+                      <th className="p-4 text-left text-xs font-black uppercase tracking-widest text-slate-500">
+                        Rol
+                      </th>
+                      <th className="p-4 text-left text-xs font-black uppercase tracking-widest text-slate-500">
+                        Estado
+                      </th>
+                      <th className="p-4 text-right text-xs font-black uppercase tracking-widest text-slate-500">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportDirectoryUsers.map((person, index) => {
+                      const inactive = person.isActive === false;
+                      const isSelf =
+                        String(person.id) === String(currentUserProfile?.id || "");
+                      return (
+                        <tr
+                          key={person.id}
+                          className={`border-b border-slate-50 dark:border-slate-800/50 ${rowStyle(index)}`}
+                        >
+                          <td className="p-4">
+                            <p className="font-bold text-slate-800 dark:text-white">
+                              {person.name || "Sin nombre"}
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              {person.email || "Sin correo"}
+                            </p>
+                          </td>
+                          <td className="p-4 text-sm text-slate-500 dark:text-slate-400">
+                            {getRoleMeta(person.role).label}
+                          </td>
+                          <td className="p-4">
+                            <span
+                              className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${
+                                inactive
+                                  ? "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-300"
+                                  : "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                              }`}
+                            >
+                              {inactive ? "Inactivo" : "Activo"}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex justify-end gap-2">
+                              {!inactive && !isSelf && onDeactivateUser && (
+                                <button
+                                  type="button"
+                                  onClick={() => onDeactivateUser(person)}
+                                  className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-amber-200 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-amber-700 hover:bg-amber-50 dark:border-amber-500/30 dark:text-amber-300 dark:hover:bg-amber-500/10"
+                                >
+                                  <Icon name="UserX" size={13} />
+                                  Desactivar
+                                </button>
+                              )}
+                              {inactive && !isSelf && onDeleteUser && (
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteUser(person)}
+                                  className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-red-200 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-red-600 hover:bg-red-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10"
+                                >
+                                  <Icon name="Trash2" size={13} />
+                                  Eliminar
+                                </button>
+                              )}
+                              {isSelf && (
+                                <span className="text-xs font-semibold text-slate-400">
+                                  Tu usuario
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
