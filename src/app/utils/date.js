@@ -68,3 +68,50 @@ export const resolveStoredTaskRoomDate = (currentDate = '', savedAt = '', today 
     const isStaleState = !normalizedSavedAt || compareDateOnlyStrings(normalizedSavedAt, normalizedToday) < 0;
     return isPastDate && isStaleState ? normalizedToday : normalizedCurrentDate;
 };
+
+const WEEKEND_UTC_DAYS = new Set([0, 6]);
+
+const LAST_24H_MS = 24 * 60 * 60 * 1000;
+
+export const formatHondurasDateTime = (dateObj = new Date()) => {
+    const date = dateObj instanceof Date ? dateObj : new Date(dateObj);
+    if (Number.isNaN(date.getTime())) return '';
+    try {
+        return new Intl.DateTimeFormat('es-HN', {
+            timeZone: 'America/Tegucigalpa',
+            day: 'numeric',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit'
+        }).format(date);
+    } catch {
+        return date.toISOString();
+    }
+};
+
+export const getLast24HoursRange = (now = new Date()) => {
+    const end = now instanceof Date ? now : new Date(now);
+    const start = new Date(end.getTime() - LAST_24H_MS);
+    return {
+        fromDate: getHondurasDateString(start),
+        toDate: getHondurasDateString(end),
+        startMs: start.getTime(),
+        endMs: end.getTime(),
+        periodLabel: `${formatHondurasDateTime(start)} – ${formatHondurasDateTime(end)} (Honduras)`
+    };
+};
+
+export const addBusinessDays = (value = '', amount = 0) => {
+    const normalized = normalizeDateOnlyString(value);
+    const steps = Number(amount);
+    if (!normalized || !Number.isFinite(steps) || steps === 0) return normalized;
+    const [year, month, day] = normalized.split('-').map(Number);
+    const cursor = new Date(Date.UTC(year, month - 1, day));
+    const direction = steps > 0 ? 1 : -1;
+    let remaining = Math.abs(Math.trunc(steps));
+    while (remaining > 0) {
+        cursor.setUTCDate(cursor.getUTCDate() + direction);
+        if (!WEEKEND_UTC_DAYS.has(cursor.getUTCDay())) remaining -= 1;
+    }
+    return cursor.toISOString().slice(0, 10);
+};

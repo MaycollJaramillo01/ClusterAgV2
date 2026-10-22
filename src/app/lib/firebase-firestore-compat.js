@@ -384,6 +384,21 @@ export const loadAllTaskHistory = async () => {
     await Promise.all(['account_tasks', 'editing', 'management_tasks'].map(refreshCollection));
 };
 
+export const refreshReportData = async () => {
+    if (typeof window !== 'undefined') {
+        window.__cluster_task_history = 'all';
+    }
+    await Promise.all([
+        'account_tasks',
+        'editing',
+        'management_tasks',
+        'users',
+        'managers',
+        'editors',
+        'clients'
+    ].map(refreshCollection));
+};
+
 export const onSnapshot = (ref, onNext, onError) => {
     const key = buildRegistryKey(ref);
     if (!registry.has(key)) {

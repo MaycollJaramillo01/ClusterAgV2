@@ -90,6 +90,8 @@ import {
   Eye,
   Bell,
   BellSlash,
+  ArrowsClockwise as RefreshCw,
+  Camera,
 } from "@phosphor-icons/react";
 import {
   signInAnonymously,
@@ -117,6 +119,7 @@ import {
   getDocs,
   getDoc,
   loadAllTaskHistory,
+  refreshReportData,
 } from "./lib/firebase-firestore-compat.js";
 import { auth, db, appId } from "./config/firebase.js";
 import {
@@ -136,10 +139,15 @@ import {
   compareDateOnlyStrings,
   getDateOnlyDiffDays,
   getHondurasTodayStr,
+  getLast24HoursRange,
   isDateBeforeDateString,
   normalizeDateOnlyString,
   resolveStoredTaskRoomDate,
 } from "./utils/date.js";
+import {
+  captureNodePng,
+  downloadDataUrl,
+} from "./utils/capture-node.js";
 import {
   KPI_MIN_TASKS,
   buildManagerKpiStats,
@@ -268,6 +276,8 @@ const IconsMap = {
   Eye,
   Bell,
   BellSlash,
+  RefreshCw,
+  Camera,
 };
 
 const Icon = ({ name, size = 18, className = "", ...props }) => {
@@ -1924,6 +1934,9 @@ function App() {
   const [view, setView] = useState(
     () => localStorage.getItem("cluster_os_view") || "dashboard",
   );
+  const [performancePeriodPreset, setPerformancePeriodPreset] =
+    useState("custom");
+  const [performanceAutoCapture, setPerformanceAutoCapture] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [isSendingLoginLink, setIsSendingLoginLink] = useState(false);
@@ -2047,6 +2060,20 @@ function App() {
     } catch (error) {
       console.error("No se pudo cargar el historial de tareas:", error);
       showToast("No se pudo cargar el historial de tareas.", "error");
+    } finally {
+      setIsLoadingTaskHistory(false);
+    }
+  };
+  const handleRefreshReports = async () => {
+    if (isLoadingTaskHistory) return;
+    setIsLoadingTaskHistory(true);
+    try {
+      await refreshReportData();
+      setTaskHistoryLoaded(true);
+      showToast("Datos actualizados", "success");
+    } catch (error) {
+      console.error("No se pudieron actualizar los reportes:", error);
+      showToast("No se pudieron actualizar los datos", "error");
     } finally {
       setIsLoadingTaskHistory(false);
     }
@@ -4728,6 +4755,11 @@ function App() {
       description: `Abre la vista ${newView}`,
     });
   };
+  const openDailyPerformanceReport = ({ capture = true } = {}) => {
+    setPerformancePeriodPreset("last24h");
+    setPerformanceAutoCapture(Boolean(capture));
+    handleNavigate("performance");
+  };
 
   const handleEventClick = (event, type) =>
     setEventAction({ isOpen: true, event, type });
@@ -6614,6 +6646,14 @@ function App() {
 
   const handleDelete = async () => {
     const { type, id } = deleteConfirm;
+    if (
+      type === "user" &&
+      String(id) === String(currentUserProfile?.id || "")
+    ) {
+      showToast("No puedes eliminar tu propio usuario", "error");
+      closeDelete();
+      return;
+    }
     const map = {
       client: {
         collection: "clients",
@@ -6662,6 +6702,11 @@ function App() {
         permission: "manage_management_tasks",
         entityType: "managementTask",
       },
+      user: {
+        collection: "users",
+        permission: "manage_users",
+        entityType: "user",
+      },
     };
     const current = map[type];
     if (!current) {
@@ -6680,6 +6725,27 @@ function App() {
         if (current.after) current.after();
         closeDelete();
       },
+    });
+  };
+
+  const deactivateUserRecord = async (userRecord) => {
+    if (!userRecord?.id) return;
+    if (String(userRecord.id) === String(currentUserProfile?.id || "")) {
+      showToast("No puedes desactivar tu propio usuario", "error");
+      return;
+    }
+    await runMutation({
+      permission: "manage_users",
+      action: "update",
+      entityType: "user",
+      entityId: userRecord.id,
+      description: `Desactiva usuario ${userRecord.email || userRecord.name || userRecord.id}`,
+      successMessage: "Usuario desactivado",
+      execute: () =>
+        updateDoc(dataDoc("users", userRecord.id), {
+          isActive: false,
+          updatedAt: nowIso(),
+        }),
     });
   };
 
@@ -7455,6 +7521,14 @@ function App() {
                   isEdit: true,
                 })
               }
+              onDelete={(userRecord) =>
+                setDeleteConfirm({
+                  isOpen: true,
+                  type: "user",
+                  id: userRecord.id,
+                  title: userRecord.name,
+                })
+              }
               onResendVerification={requestUserVerification}
             />
           )}
@@ -7578,6 +7652,10 @@ function App() {
               editors={editorTeam}
               managers={managerTeam}
               users={appUsers}
+              periodPreset={performancePeriodPreset}
+              autoCapture={performanceAutoCapture}
+              onPeriodPresetChange={setPerformancePeriodPreset}
+              onAutoCaptureDone={() => setPerformanceAutoCapture(false)}
             />
           )}
           {view === "podcast" && (
@@ -7628,6 +7706,24 @@ function App() {
               managers={managers}
               editors={editors}
               users={managementUsers}
+              directoryUsers={appUsers}
+              currentUserProfile={currentUserProfile}
+              canManageUsers={userHasPermission(
+                currentUserProfile,
+                "manage_users",
+              )}
+              onRefresh={handleRefreshReports}
+              refreshing={isLoadingTaskHistory}
+              onDeleteUser={(userRecord) =>
+                setDeleteConfirm({
+                  isOpen: true,
+                  type: "user",
+                  id: userRecord.id,
+                  title: userRecord.name,
+                })
+              }
+              onDeactivateUser={deactivateUserRecord}
+              onOpenDailyReport={openDailyPerformanceReport}
             />
           )}
         </div>
@@ -12615,6 +12711,7 @@ const UsersAccessView = ({
   currentUserProfile,
   onAdd,
   onEdit,
+  onDelete,
   onResendVerification,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -12801,6 +12898,17 @@ const UsersAccessView = ({
                       >
                         <Icon name="Edit" size={18} />
                       </button>
+                      {record.isActive === false &&
+                        String(record.id) !== String(currentUserProfile?.id || "") &&
+                        onDelete && (
+                          <button
+                            onClick={() => onDelete(record)}
+                            className="p-2 text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                            title="Eliminar usuario inactivo"
+                          >
+                            <Icon name="Trash2" size={18} />
+                          </button>
+                        )}
                       </div>
                     </div>
                 );
@@ -21221,6 +21329,14 @@ const ReportsView = ({
   managers,
   editors,
   users = [],
+  directoryUsers,
+  currentUserProfile = null,
+  canManageUsers = false,
+  onRefresh,
+  refreshing = false,
+  onDeleteUser,
+  onDeactivateUser,
+  onOpenDailyReport,
 }) => {
   const todayStr = getHondurasTodayStr();
   const now = new Date();
@@ -21228,7 +21344,9 @@ const ReportsView = ({
   const [fromDate, setFromDate] = useState(firstOfMonth);
   const [toDate, setToDate] = useState(todayStr);
   const [activeTab, setActiveTab] = useState("content");
+  const [userSearchTerm, setUserSearchTerm] = useState("");
   const hasAutoExpandedRangeRef = useRef(false);
+  const peopleDirectory = Array.isArray(directoryUsers) ? directoryUsers : users;
 
   const inRange = (dateStr) => {
     if (!dateStr) return false;
@@ -21563,7 +21681,24 @@ const ReportsView = ({
     { id: "managers", label: "Por Manager" },
     { id: "editors", label: "Por Editor" },
     { id: "management", label: "Gestión" },
+    ...(canManageUsers ? [{ id: "users", label: "Usuarios" }] : []),
   ];
+  const normalizedUserSearch = userSearchTerm.trim().toLowerCase();
+  const reportDirectoryUsers = [...peopleDirectory]
+    .filter((person) => {
+      if (!normalizedUserSearch) return true;
+      return `${person.name || ""} ${person.email || ""} ${person.role || ""}`
+        .toLowerCase()
+        .includes(normalizedUserSearch);
+    })
+    .sort((left, right) => {
+      const leftInactive = left.isActive === false ? 1 : 0;
+      const rightInactive = right.isActive === false ? 1 : 0;
+      if (leftInactive !== rightInactive) return rightInactive - leftInactive;
+      return String(left.name || "").localeCompare(String(right.name || ""), "es", {
+        sensitivity: "base",
+      });
+    });
 
   const rowStyle = (i) =>
     i % 2 !== 0 ? "bg-slate-50/50 dark:bg-slate-950/30" : "";
@@ -21597,6 +21732,41 @@ const ReportsView = ({
               className="text-sm font-bold text-slate-700 dark:text-slate-200 bg-transparent outline-none"
             />
           </div>
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              className="flex min-h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700 disabled:opacity-40 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+            >
+              <Icon
+                name="RefreshCw"
+                size={14}
+                className={refreshing ? "animate-spin" : ""}
+              />
+              {refreshing ? "Actualizando..." : "Actualizar"}
+            </button>
+          )}
+          {onOpenDailyReport && (
+            <button
+              type="button"
+              onClick={() => onOpenDailyReport({ capture: true })}
+              className="flex min-h-11 items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-xs font-black text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300"
+            >
+              <Icon name="Camera" size={14} />
+              Reporte diario
+            </button>
+          )}
+          {canManageUsers && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("users")}
+              className="flex min-h-11 items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+            >
+              <Icon name="Trash2" size={14} />
+              Eliminar usuarios
+            </button>
+          )}
         </div>
       </div>
 
@@ -22120,20 +22290,223 @@ const ReportsView = ({
           </div>
         </div>
       )}
+
+      {activeTab === "users" && canManageUsers && (
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+              Desactiva un usuario activo y luego elimínalo. No puedes borrar tu
+              propia cuenta.
+            </p>
+            <SearchBar
+              searchTerm={userSearchTerm}
+              setSearchTerm={setUserSearchTerm}
+              placeholder="Buscar usuario..."
+            />
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            {reportDirectoryUsers.length === 0 ? (
+              <div className="p-16 text-center text-slate-500 font-bold">
+                No hay usuarios para este filtro
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px]">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
+                      <th className="p-4 text-left text-xs font-black uppercase tracking-widest text-slate-500">
+                        Usuario
+                      </th>
+                      <th className="p-4 text-left text-xs font-black uppercase tracking-widest text-slate-500">
+                        Rol
+                      </th>
+                      <th className="p-4 text-left text-xs font-black uppercase tracking-widest text-slate-500">
+                        Estado
+                      </th>
+                      <th className="p-4 text-right text-xs font-black uppercase tracking-widest text-slate-500">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportDirectoryUsers.map((person, index) => {
+                      const inactive = person.isActive === false;
+                      const isSelf =
+                        String(person.id) === String(currentUserProfile?.id || "");
+                      return (
+                        <tr
+                          key={person.id}
+                          className={`border-b border-slate-50 dark:border-slate-800/50 ${rowStyle(index)}`}
+                        >
+                          <td className="p-4">
+                            <p className="font-bold text-slate-800 dark:text-white">
+                              {person.name || "Sin nombre"}
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              {person.email || "Sin correo"}
+                            </p>
+                          </td>
+                          <td className="p-4 text-sm text-slate-500 dark:text-slate-400">
+                            {getRoleMeta(person.role).label}
+                          </td>
+                          <td className="p-4">
+                            <span
+                              className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${
+                                inactive
+                                  ? "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-300"
+                                  : "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                              }`}
+                            >
+                              {inactive ? "Inactivo" : "Activo"}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex justify-end gap-2">
+                              {!inactive && !isSelf && onDeactivateUser && (
+                                <button
+                                  type="button"
+                                  onClick={() => onDeactivateUser(person)}
+                                  className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-amber-200 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-amber-700 hover:bg-amber-50 dark:border-amber-500/30 dark:text-amber-300 dark:hover:bg-amber-500/10"
+                                >
+                                  <Icon name="UserX" size={13} />
+                                  Desactivar
+                                </button>
+                              )}
+                              {inactive && !isSelf && onDeleteUser && (
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteUser(person)}
+                                  className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-red-200 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-red-600 hover:bg-red-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10"
+                                >
+                                  <Icon name="Trash2" size={13} />
+                                  Eliminar
+                                </button>
+                              )}
+                              {isSelf && (
+                                <span className="text-xs font-semibold text-slate-400">
+                                  Tu usuario
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], managers = [], users = [] }) => {
+const PerformanceView = ({
+  accountTasks = [],
+  editingTasks = [],
+  editors = [],
+  managers = [],
+  users = [],
+  periodPreset = "custom",
+  autoCapture = false,
+  onPeriodPresetChange,
+  onAutoCaptureDone,
+}) => {
   const todayStr = getHondurasTodayStr();
   const now = new Date();
   const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const [fromDate, setFromDate] = useState(firstOfMonth);
-  const [toDate, setToDate] = useState(todayStr);
+  const initialLast24h = periodPreset === "last24h" ? getLast24HoursRange() : null;
+  const dashboardRef = useRef(null);
+  const capturingRef = useRef(false);
+  const autoCaptureStartedRef = useRef(false);
+  const [fromDate, setFromDate] = useState(initialLast24h?.fromDate || firstOfMonth);
+  const [toDate, setToDate] = useState(initialLast24h?.toDate || todayStr);
   const [searchTerm, setSearchTerm] = useState("");
   const [personGroupFilter, setPersonGroupFilter] = useState("all");
+  const [pdfError, setPdfError] = useState("");
+  const [periodMode, setPeriodMode] = useState(
+    periodPreset === "last24h" ? "last24h" : "custom",
+  );
+  const [last24hRange, setLast24hRange] = useState(
+    () => initialLast24h || getLast24HoursRange(),
+  );
+  const [capturing, setCapturing] = useState(false);
 
-  const inRange = (dateStr) => {
+  const applyLast24h = useCallback(() => {
+    const range = getLast24HoursRange();
+    setLast24hRange(range);
+    setFromDate(range.fromDate);
+    setToDate(range.toDate);
+    setPeriodMode("last24h");
+    onPeriodPresetChange?.("last24h");
+    return range;
+  }, [onPeriodPresetChange]);
+
+  useEffect(() => {
+    if (periodPreset === "last24h") applyLast24h();
+  }, [periodPreset, applyLast24h]);
+
+  const captureDailyReport = useCallback(async () => {
+    if (capturingRef.current) return;
+    capturingRef.current = true;
+    setPdfError("");
+    setCapturing(true);
+    try {
+      applyLast24h();
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
+      const dataUrl = await captureNodePng(dashboardRef.current);
+      downloadDataUrl(
+        dataUrl,
+        `reporte-diario-rendimiento-${getHondurasTodayStr()}.png`,
+      );
+    } catch (error) {
+      setPdfError(error?.message || "No se pudo capturar el reporte diario");
+    } finally {
+      capturingRef.current = false;
+      setCapturing(false);
+      onAutoCaptureDone?.();
+    }
+  }, [applyLast24h, onAutoCaptureDone]);
+
+  useEffect(() => {
+    if (!autoCapture) {
+      autoCaptureStartedRef.current = false;
+      return undefined;
+    }
+    if (autoCaptureStartedRef.current) return undefined;
+    autoCaptureStartedRef.current = true;
+    captureDailyReport();
+    return undefined;
+  }, [autoCapture, captureDailyReport]);
+
+  const inRange = (taskOrDate) => {
+    const task =
+      taskOrDate && typeof taskOrDate === "object" ? taskOrDate : null;
+    const dateStr = task ? task.date : taskOrDate;
+    if (periodMode === "last24h") {
+      if (task) {
+        const activityInWindow = [
+          task.createdAt,
+          task.updatedAt,
+          task.completedAt,
+          task.editorCompletedAt,
+        ].some((value) => {
+          const ms = Date.parse(value || "");
+          return (
+            Number.isFinite(ms) &&
+            ms >= last24hRange.startMs &&
+            ms < last24hRange.endMs
+          );
+        });
+        if (activityInWindow) return true;
+        const completed =
+          isEditingDelivered(task) ||
+          ["aprobado_internamente", "publicado"].includes(task.status);
+        if (completed) return false;
+      }
+    }
     if (!dateStr) return false;
     return (
       compareDateOnlyStrings(dateStr, fromDate) >= 0 &&
@@ -22141,19 +22514,30 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
     );
   };
 
-  const filteredEditingTasks = editingTasks.filter((task) => inRange(task.date));
-  const filteredAccountTasks = accountTasks.filter((task) => inRange(task.date));
+  const filteredEditingTasks = editingTasks.filter((task) => inRange(task));
+  const filteredAccountTasks = accountTasks.filter((task) => inRange(task));
 
-  const userById = new Map(users.map((item) => [item.id, item]));
-  const userByEditorId = new Map(
-    users
-      .filter((item) => item.linkedEditorId)
-      .map((item) => [item.linkedEditorId, item]),
+  const userById = useMemo(
+    () => new Map(users.map((item) => [item.id, item])),
+    [users],
   );
-  const userByManagerId = new Map(
-    users
-      .filter((item) => item.linkedManagerId)
-      .map((item) => [item.linkedManagerId, item]),
+  const userByEditorId = useMemo(
+    () =>
+      new Map(
+        users
+          .filter((item) => item.linkedEditorId)
+          .map((item) => [item.linkedEditorId, item]),
+      ),
+    [users],
+  );
+  const userByManagerId = useMemo(
+    () =>
+      new Map(
+        users
+          .filter((item) => item.linkedManagerId)
+          .map((item) => [item.linkedManagerId, item]),
+      ),
+    [users],
   );
 
   const getPersonLoginRecency = (personType, personId, personUserId = "") => {
@@ -22340,7 +22724,10 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
         : "Todo el equipo";
 
   return (
-    <section className="performance-dashboard fade-in">
+    <section
+      ref={dashboardRef}
+      className={`performance-dashboard fade-in ${capturing ? "is-capturing" : ""}`}
+    >
       <header className="performance-header">
         <div className="performance-heading">
           <p className="eyebrow">Editores y Community Managers</p>
@@ -22348,26 +22735,68 @@ const PerformanceView = ({ accountTasks = [], editingTasks = [], editors = [], m
           <p>
             Entregas, publicaciones y carga pendiente en una sola lectura.
           </p>
+          {periodMode === "last24h" && (
+            <div className="performance-daily-stamp">
+              Reporte diario · últimas 24 horas · {last24hRange.periodLabel}
+            </div>
+          )}
         </div>
 
-        <div className="performance-period" aria-label="Rango del reporte">
-          <label>
-            <span>Desde</span>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(event) => setFromDate(event.target.value)}
-            />
-          </label>
-          <span aria-hidden="true">→</span>
-          <label>
-            <span>Hasta</span>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(event) => setToDate(event.target.value)}
-            />
-          </label>
+        <div className="performance-header-tools">
+          <div className="performance-period" aria-label="Rango del reporte">
+            <button
+              type="button"
+              className={periodMode === "last24h" ? "is-active" : ""}
+              onClick={applyLast24h}
+            >
+              Últimas 24h
+            </button>
+            <label>
+              <span>Desde</span>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(event) => {
+                  setPeriodMode("custom");
+                  onPeriodPresetChange?.("custom");
+                  setFromDate(event.target.value);
+                }}
+              />
+            </label>
+            <span aria-hidden="true">→</span>
+            <label>
+              <span>Hasta</span>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(event) => {
+                  setPeriodMode("custom");
+                  onPeriodPresetChange?.("custom");
+                  setToDate(event.target.value);
+                }}
+              />
+            </label>
+          </div>
+          <div
+            className="performance-downloads"
+            aria-label="Capturar informe diario"
+          >
+            <button
+              type="button"
+              onClick={captureDailyReport}
+              disabled={capturing}
+            >
+              {capturing ? (
+                <Icon name="Loader2" size={13} className="animate-spin" />
+              ) : (
+                <Icon name="Camera" size={13} />
+              )}
+              Reporte diario
+            </button>
+            {pdfError ? (
+              <p className="performance-download-error">{pdfError}</p>
+            ) : null}
+          </div>
         </div>
       </header>
 

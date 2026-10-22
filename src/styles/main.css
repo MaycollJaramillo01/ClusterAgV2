@@ -4451,6 +4451,113 @@ textarea:focus-visible,
     box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
+.performance-period button {
+    min-height: 2.1rem;
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 0.65rem;
+    background: var(--surface-subtle);
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.performance-period button.is-active {
+    border-color: var(--focus);
+    background: var(--primary-soft);
+    color: var(--text);
+}
+
+.performance-daily-stamp {
+    margin-top: 0.7rem;
+    color: var(--primary);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.performance-dashboard.is-capturing .performance-header-tools,
+.performance-dashboard.is-capturing .performance-toolbar {
+    display: none !important;
+}
+
+.performance-header-tools {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.75rem;
+}
+
+.performance-downloads {
+    display: grid;
+    gap: 0.4rem;
+    justify-items: end;
+}
+
+.performance-downloads > p {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-faint);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.performance-downloads > div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.65rem 0.85rem;
+}
+
+.performance-download-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.performance-download-group > span {
+    color: var(--text-faint);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.performance-downloads button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 2.35rem;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.performance-downloads button:hover:not(:disabled) {
+    border-color: var(--focus);
+}
+
+.performance-downloads button:disabled {
+    opacity: 0.45;
+}
+
+.performance-download-error {
+    margin: 0;
+    color: var(--status-red-text);
+    font-size: 0.78rem;
+    font-weight: 650;
+}
+
 .performance-overview {
     display: grid;
     grid-template-columns: minmax(15rem, 0.8fr) minmax(0, 2fr);
