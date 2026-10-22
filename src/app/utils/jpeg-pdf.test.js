@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { buildJpegPdf, dataUrlToBytes } from "./jpeg-pdf.js";
+
+const TINY_JPEG_BASE64 =
+  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGf/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPwCf/9k=";
+
+test("dataUrlToBytes lee un JPEG en base64", () => {
+  const { mime, bytes } = dataUrlToBytes(`data:image/jpeg;base64,${TINY_JPEG_BASE64}`);
+  assert.equal(mime, "image/jpeg");
+  assert.equal(bytes[0], 0xff);
+  assert.equal(bytes[1], 0xd8);
+  assert.ok(bytes.length > 20);
+});
+
+test("dataUrlToBytes rechaza una captura inválida", () => {
+  assert.throws(() => dataUrlToBytes("not-a-data-url"), /Captura inválida/);
+});
+
+test("buildJpegPdf arma un PDF con el JPEG embebido", () => {
+  const { bytes } = dataUrlToBytes(`data:image/jpeg;base64,${TINY_JPEG_BASE64}`);
+  const pdf = buildJpegPdf(bytes, 1200, 800, 900, 600);
+  const text = Buffer.from(pdf).toString("latin1");
+  assert.equal(text.slice(0, 8), "%PDF-1.4");
+  assert.match(text, /\/Filter \/DCTDecode/);
+  assert.match(text, /\/Width 1200/);
+  assert.match(text, /\/Height 800/);
+  assert.match(text, /MediaBox \[0 0 900.00 600.00\]/);
+  assert.match(text, /%%EOF/);
+  assert.ok(pdf.length > bytes.length);
+});
