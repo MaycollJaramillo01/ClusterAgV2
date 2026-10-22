@@ -40,7 +40,7 @@ class FixedDate extends Date {
 const module = { exports: {} };
 vm.runInNewContext(outputFiles[0].text, {
     module, exports: module.exports, require: createRequire(import.meta.url),
-    console, Date: FixedDate
+    console, Date: FixedDate, TextEncoder, TextDecoder, Buffer, Uint8Array,
 });
 const { ReportsView } = module.exports;
 const renderReports = (props = {}) => renderToStaticMarkup(React.createElement(ReportsView, {
@@ -68,4 +68,21 @@ test('Reportes incluye los limites del rango y excluye fechas externas o ausente
     assert.match(text, /Total Piezas 4 accounts \+ edición/);
     assert.match(text, /Sala Accounts 2 2 publicadas/);
     assert.match(text, /Sala Edición 2 2 publicadas/);
+});
+
+test('Reportes expandido incluye todas las secciones en la captura', () => {
+    const task = { date: '2026-10-19', contextId: 'person', status: 'publicado' };
+    const text = renderReports({
+        expandAllSections: true,
+        accountTasks: [{ ...task, id: 'account' }],
+        editingTasks: [{ ...task, id: 'editing' }],
+        managementTasks: [{ ...task, id: 'management', status: 'cerrado' }],
+        managers: [{ id: 'person', name: 'Ana' }],
+        editors: [{ id: 'person', name: 'Leo' }],
+    });
+    assert.match(text, /Piezas de contenido/);
+    assert.match(text, /Diario por usuario/);
+    assert.match(text, /Por manager/);
+    assert.match(text, /Por editor/);
+    assert.match(text, /Gestión/);
 });

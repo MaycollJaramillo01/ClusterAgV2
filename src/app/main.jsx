@@ -149,7 +149,7 @@ import {
   resolveStoredTaskRoomDate,
 } from "./utils/date.js";
 import {
-  captureNodePdf,
+  captureNodesPdf,
   downloadBytes,
 } from "./utils/capture-node.js";
 import {
@@ -1943,7 +1943,8 @@ function App() {
   );
   const [performancePeriodPreset, setPerformancePeriodPreset] =
     useState("custom");
-  const [performanceAutoCapture, setPerformanceAutoCapture] = useState(false);
+  const [dailyCaptureActive, setDailyCaptureActive] = useState(false);
+  const dailyCaptureRef = useRef(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [isSendingLoginLink, setIsSendingLoginLink] = useState(false);
@@ -4814,9 +4815,51 @@ function App() {
   };
   const openDailyPerformanceReport = ({ capture = true } = {}) => {
     setPerformancePeriodPreset("last24h");
-    setPerformanceAutoCapture(Boolean(capture));
+    if (capture) {
+      setDailyCaptureActive(true);
+      return;
+    }
     handleNavigate("performance");
   };
+
+  useEffect(() => {
+    if (!dailyCaptureActive) return undefined;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        await new Promise((resolve) => window.setTimeout(resolve, 220));
+        if (cancelled) return;
+        const root = dailyCaptureRef.current;
+        if (!root) throw new Error("No hay contenido para capturar");
+        const sections = [
+          ...root.querySelectorAll("[data-daily-capture-section]"),
+        ];
+        const pdfBytes = await captureNodesPdf(
+          sections.length ? sections : [root],
+        );
+        if (cancelled) return;
+        downloadBytes(
+          pdfBytes,
+          `reporte-diario-rendimiento-${getHondurasTodayStr()}.pdf`,
+        );
+        showToast("PDF del reporte diario listo", "success");
+      } catch (error) {
+        console.error("No se pudo generar el PDF del reporte diario:", error);
+        if (!cancelled) {
+          showToast(
+            error?.message || "No se pudo generar el PDF del reporte diario",
+            "error",
+          );
+        }
+      } finally {
+        if (!cancelled) setDailyCaptureActive(false);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [dailyCaptureActive]);
 
   const handleEventClick = (event, type) =>
     setEventAction({ isOpen: true, event, type });
@@ -8107,7 +8150,7 @@ function App() {
               </div>
             </div>
           )}
-          {view === "performance" && (
+          {view === "performance" && !dailyCaptureActive && (
             <PerformanceView
               accountTasks={accountTasks}
               editingTasks={editingTasks}
@@ -8116,9 +8159,8 @@ function App() {
               managers={managerTeam}
               users={appUsers}
               periodPreset={performancePeriodPreset}
-              autoCapture={performanceAutoCapture}
               onPeriodPresetChange={setPerformancePeriodPreset}
-              onAutoCaptureDone={() => setPerformanceAutoCapture(false)}
+              onRequestDailyCapture={() => setDailyCaptureActive(true)}
             />
           )}
           {view === "podcast" && (
@@ -8160,7 +8202,7 @@ function App() {
               }
             />
           )}
-          {view === "reports" && (
+          {view === "reports" && !dailyCaptureActive && (
             <ReportsView
               accountTasks={accountTasks}
               editingTasks={editingTasks}
@@ -8173,6 +8215,43 @@ function App() {
               refreshing={isLoadingTaskHistory}
               onOpenDailyReport={openDailyPerformanceReport}
             />
+          )}
+          {dailyCaptureActive && (
+            <div
+              ref={dailyCaptureRef}
+              className="daily-capture-sheet"
+              aria-busy="true"
+            >
+              <p className="daily-capture-status">
+                Generando PDF con Informes y Rendimiento…
+              </p>
+              <div
+                data-daily-capture-section="performance"
+                className="daily-capture-section"
+              >
+                <PerformanceView
+                  accountTasks={accountTasks}
+                  editingTasks={editingTasks}
+                  managementTasks={managementTasks}
+                  editors={editorTeam}
+                  managers={managerTeam}
+                  users={appUsers}
+                  periodPreset="last24h"
+                  isCapturing
+                />
+              </div>
+              <ReportsView
+                accountTasks={accountTasks}
+                editingTasks={editingTasks}
+                managementTasks={managementTasks}
+                clients={clients}
+                managers={managers}
+                editors={editors}
+                users={managementUsers}
+                periodPreset="last24h"
+                expandAllSections
+              />
+            </div>
           )}
         </div>
       </main>
@@ -23318,13 +23397,24 @@ const ReportsView = ({
   onRefresh,
   refreshing = false,
   onOpenDailyReport,
+  periodPreset = "custom",
+  expandAllSections = false,
 }) => {
   const todayStr = getHondurasTodayStr();
   const now = new Date();
   const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const [fromDate, setFromDate] = useState(firstOfMonth);
-  const [toDate, setToDate] = useState(todayStr);
+  const initialLast24h = periodPreset === "last24h" ? getLast24HoursRange() : null;
+  const [fromDate, setFromDate] = useState(initialLast24h?.fromDate || firstOfMonth);
+  const [toDate, setToDate] = useState(initialLast24h?.toDate || todayStr);
   const [activeTab, setActiveTab] = useState("content");
+
+  useEffect(() => {
+    if (periodPreset !== "last24h") return undefined;
+    const range = getLast24HoursRange();
+    setFromDate(range.fromDate);
+    setToDate(range.toDate);
+    return undefined;
+  }, [periodPreset]);
   const [downloadingPdf, setDownloadingPdf] = useState("");
   const [pdfError, setPdfError] = useState("");
   const hasAutoExpandedRangeRef = useRef(false);
@@ -23679,16 +23769,25 @@ const ReportsView = ({
     { id: "editors", label: "Por Editor" },
     { id: "management", label: "Gestión" },
   ];
+  const showSection = (id) => expandAllSections || activeTab === id;
 
   const rowStyle = (i) =>
     i % 2 !== 0 ? "bg-slate-50/50 dark:bg-slate-950/30" : "";
 
   return (
-    <div className="space-y-6 fade-in">
+    <div className={`space-y-6 fade-in ${expandAllSections ? "is-capturing-reports" : ""}`}>
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <h2 className="text-2xl font-black text-slate-800 dark:text-white">
-          Reportes
-        </h2>
+        <div>
+          <h2 className="text-2xl font-black text-slate-800 dark:text-white">
+            Reportes
+          </h2>
+          {expandAllSections && (
+            <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+              Informe completo · {fromDate} → {toDate}
+            </p>
+          )}
+        </div>
+        {!expandAllSections && (
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5">
             <span className="text-xs font-black text-slate-500 uppercase">
@@ -23767,12 +23866,16 @@ const ReportsView = ({
             </button>
           )}
         </div>
+        )}
       </div>
       {pdfError ? (
         <p className="text-sm font-semibold text-red-600">{pdfError}</p>
       ) : null}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div
+        data-daily-capture-section={expandAllSections ? "reports-overview" : undefined}
+        className="grid grid-cols-2 md:grid-cols-4 gap-4"
+      >
         <ReportStatCard
           label="Total Piezas"
           value={totalContentPieces}
@@ -23803,6 +23906,7 @@ const ReportsView = ({
         />
       </div>
 
+      {!expandAllSections && (
       <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
         {tabs.map((tab) => (
           <button
@@ -23814,8 +23918,18 @@ const ReportsView = ({
           </button>
         ))}
       </div>
+      )}
 
-      {activeTab === "content" && (
+      {showSection("content") && (
+        <div
+          data-daily-capture-section={expandAllSections ? "reports-content" : undefined}
+          className="space-y-4"
+        >
+          {expandAllSections && (
+            <h3 className="text-lg font-black text-slate-800 dark:text-white">
+              Piezas de contenido
+            </h3>
+          )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
             <h3 className="font-black text-slate-800 dark:text-white mb-5 flex items-center gap-2">
@@ -23936,10 +24050,19 @@ const ReportsView = ({
             </div>
           </div>
         </div>
+        </div>
       )}
 
-      {activeTab === "daily" && (
-        <div className="space-y-4">
+      {showSection("daily") && (
+        <div
+          data-daily-capture-section={expandAllSections ? "reports-daily" : undefined}
+          className="space-y-4"
+        >
+          {expandAllSections && (
+            <h3 className="text-lg font-black text-slate-800 dark:text-white">
+              Diario por usuario
+            </h3>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <ReportStatCard
               label="Usuarios Activos"
@@ -24100,8 +24223,16 @@ const ReportsView = ({
         </div>
       )}
 
-      {activeTab === "managers" && (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+      {showSection("managers") && (
+        <div
+          data-daily-capture-section={expandAllSections ? "reports-managers" : undefined}
+          className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
+        >
+          {expandAllSections && (
+            <h3 className="px-4 pt-4 text-lg font-black text-slate-800 dark:text-white">
+              Por manager
+            </h3>
+          )}
           {managerStats.length === 0 ? (
             <div className="p-16 text-center text-slate-500 font-bold">
               Sin datos en este rango de fechas
@@ -24156,8 +24287,16 @@ const ReportsView = ({
         </div>
       )}
 
-      {activeTab === "editors" && (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+      {showSection("editors") && (
+        <div
+          data-daily-capture-section={expandAllSections ? "reports-editors" : undefined}
+          className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
+        >
+          {expandAllSections && (
+            <h3 className="px-4 pt-4 text-lg font-black text-slate-800 dark:text-white">
+              Por editor
+            </h3>
+          )}
           {editorStats.length === 0 ? (
             <div className="p-16 text-center text-slate-500 font-bold">
               Sin datos en este rango de fechas
@@ -24212,7 +24351,16 @@ const ReportsView = ({
         </div>
       )}
 
-      {activeTab === "management" && (
+      {showSection("management") && (
+        <div
+          data-daily-capture-section={expandAllSections ? "reports-management" : undefined}
+          className="space-y-4"
+        >
+          {expandAllSections && (
+            <h3 className="text-lg font-black text-slate-800 dark:text-white">
+              Gestión
+            </h3>
+          )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
             <h3 className="font-black text-slate-800 dark:text-white mb-5 flex items-center gap-2">
@@ -24291,6 +24439,7 @@ const ReportsView = ({
             />
           </div>
         </div>
+        </div>
       )}
     </div>
   );
@@ -24304,16 +24453,13 @@ const PerformanceView = ({
   managers = [],
   users = [],
   periodPreset = "custom",
-  autoCapture = false,
+  isCapturing = false,
   onPeriodPresetChange,
-  onAutoCaptureDone,
+  onRequestDailyCapture,
 }) => {
   const todayStr = getHondurasTodayStr();
   const firstOfMonth = getKpiPeriod(todayStr).start;
   const initialLast24h = periodPreset === "last24h" ? getLast24HoursRange() : null;
-  const dashboardRef = useRef(null);
-  const capturingRef = useRef(false);
-  const autoCaptureStartedRef = useRef(false);
   const [fromDate, setFromDate] = useState(initialLast24h?.fromDate || firstOfMonth);
   const [toDate, setToDate] = useState(initialLast24h?.toDate || todayStr);
   const [searchTerm, setSearchTerm] = useState("");
@@ -24326,7 +24472,9 @@ const PerformanceView = ({
   const [last24hRange, setLast24hRange] = useState(
     () => initialLast24h || getLast24HoursRange(),
   );
-  const [capturing, setCapturing] = useState(false);
+  const capturing = Boolean(isCapturing);
+  const activeSearchTerm = capturing ? "" : searchTerm;
+  const activePersonGroup = capturing ? "all" : personGroupFilter;
 
   const applyLast24h = useCallback(() => {
     const range = getLast24HoursRange();
@@ -24341,39 +24489,6 @@ const PerformanceView = ({
   useEffect(() => {
     if (periodPreset === "last24h") applyLast24h();
   }, [periodPreset, applyLast24h]);
-
-  const captureDailyReport = useCallback(async () => {
-    if (capturingRef.current) return;
-    capturingRef.current = true;
-    setPdfError("");
-    setCapturing(true);
-    try {
-      applyLast24h();
-      await new Promise((resolve) => window.setTimeout(resolve, 120));
-      const pdfBytes = await captureNodePdf(dashboardRef.current);
-      downloadBytes(
-        pdfBytes,
-        `reporte-diario-rendimiento-${getHondurasTodayStr()}.pdf`,
-      );
-    } catch (error) {
-      setPdfError(error?.message || "No se pudo generar el PDF del reporte diario");
-    } finally {
-      capturingRef.current = false;
-      setCapturing(false);
-      onAutoCaptureDone?.();
-    }
-  }, [applyLast24h, onAutoCaptureDone]);
-
-  useEffect(() => {
-    if (!autoCapture) {
-      autoCaptureStartedRef.current = false;
-      return undefined;
-    }
-    if (autoCaptureStartedRef.current) return undefined;
-    autoCaptureStartedRef.current = true;
-    captureDailyReport();
-    return undefined;
-  }, [autoCapture, captureDailyReport]);
 
   const kpiPeriod = useMemo(
     () => ({ start: fromDate, end: toDate }),
@@ -24521,13 +24636,13 @@ const PerformanceView = ({
       String(left.name || "").localeCompare(String(right.name || "")),
   );
 
-  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const normalizedSearch = activeSearchTerm.trim().toLowerCase();
   const visiblePersonStats = useMemo(() => {
     let filtered = [...personStats];
-    if (personGroupFilter !== "all") {
+    if (activePersonGroup !== "all") {
       filtered = filtered.filter((person) => {
-        if (personGroupFilter === "editors") return person.kind === "editor";
-        if (personGroupFilter === "managers") return person.kind === "manager";
+        if (activePersonGroup === "editors") return person.kind === "editor";
+        if (activePersonGroup === "managers") return person.kind === "manager";
         return person.kind === "developer";
       });
     }
@@ -24535,7 +24650,7 @@ const PerformanceView = ({
     return filtered.filter((person) =>
       String(person.name || "").toLowerCase().includes(normalizedSearch),
     );
-  }, [normalizedSearch, personGroupFilter, personStats]);
+  }, [normalizedSearch, activePersonGroup, personStats]);
 
   const visiblePerformanceStats = visiblePersonStats.filter(
     (person) => person.kind !== "developer",
@@ -24593,11 +24708,11 @@ const PerformanceView = ({
         (person.qualified && person.overallPerformance < 60)),
   ).length;
   const groupLabel =
-    personGroupFilter === "editors"
+    activePersonGroup === "editors"
       ? "Editores"
-      : personGroupFilter === "managers"
+      : activePersonGroup === "managers"
         ? "Community Managers"
-        : personGroupFilter === "developers"
+        : activePersonGroup === "developers"
           ? "Desarrolladores"
         : "Todo el equipo";
 
@@ -24616,7 +24731,6 @@ const PerformanceView = ({
 
   return (
     <section
-      ref={dashboardRef}
       className={`performance-dashboard fade-in ${capturing ? "is-capturing" : ""}`}
     >
       <header className="performance-header">
@@ -24679,8 +24793,8 @@ const PerformanceView = ({
             <div>
               <button
                 type="button"
-                onClick={captureDailyReport}
-                disabled={capturing}
+                onClick={() => onRequestDailyCapture?.()}
+                disabled={capturing || !onRequestDailyCapture}
               >
                 {capturing ? (
                   <Icon name="Loader2" size={13} className="animate-spin" />

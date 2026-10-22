@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildJpegPdf, dataUrlToBytes } from "./jpeg-pdf.js";
+import { buildJpegPdf, buildJpegPdfPages, dataUrlToBytes } from "./jpeg-pdf.js";
 
 const TINY_JPEG_BASE64 =
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGf/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPwCf/9k=";
@@ -28,4 +28,17 @@ test("buildJpegPdf arma un PDF con el JPEG embebido", () => {
   assert.match(text, /MediaBox \[0 0 900.00 600.00\]/);
   assert.match(text, /%%EOF/);
   assert.ok(pdf.length > bytes.length);
+});
+
+test("buildJpegPdfPages arma un PDF de varias paginas", () => {
+  const { bytes } = dataUrlToBytes(`data:image/jpeg;base64,${TINY_JPEG_BASE64}`);
+  const pdf = buildJpegPdfPages([
+    { bytes, width: 800, height: 400, pageWidth: 600, pageHeight: 300 },
+    { bytes, width: 800, height: 600, pageWidth: 600, pageHeight: 450 },
+  ]);
+  const text = Buffer.from(pdf).toString("latin1");
+  assert.match(text, /\/Count 2/);
+  assert.match(text, /MediaBox \[0 0 600.00 300.00\]/);
+  assert.match(text, /MediaBox \[0 0 600.00 450.00\]/);
+  assert.match(text, /%%EOF/);
 });

@@ -1,4 +1,4 @@
-import { buildJpegPdf, dataUrlToBytes } from "./jpeg-pdf.js";
+import { buildJpegPdfPages, dataUrlToBytes } from "./jpeg-pdf.js";
 
 const waitForPaint = () =>
   new Promise((resolve) => {
@@ -25,6 +25,66 @@ const readDataUrlSize = (dataUrl) =>
     image.src = dataUrl;
   });
 
+const CLIPPED_OVERFLOW = new Set(["hidden", "auto", "scroll", "clip"]);
+
+const patchOverflow = (element, restored) => {
+  if (!element || element.nodeType !== 1) return;
+  const computed = typeof getComputedStyle === "function"
+    ? getComputedStyle(element)
+    : null;
+  const overflow = computed?.overflow || "";
+  const overflowX = computed?.overflowX || "";
+  const overflowY = computed?.overflowY || "";
+  if (
+    !CLIPPED_OVERFLOW.has(overflow)
+    && !CLIPPED_OVERFLOW.has(overflowX)
+    && !CLIPPED_OVERFLOW.has(overflowY)
+  ) {
+    return;
+  }
+  restored.push({
+    element,
+    overflow: element.style.overflow,
+    overflowX: element.style.overflowX,
+    overflowY: element.style.overflowY,
+    height: element.style.height,
+    maxHeight: element.style.maxHeight,
+    maxWidth: element.style.maxWidth,
+  });
+  element.style.overflow = "visible";
+  element.style.overflowX = "visible";
+  element.style.overflowY = "visible";
+  element.style.height = "auto";
+  element.style.maxHeight = "none";
+  element.style.maxWidth = "none";
+};
+
+const expandClippedOverflow = (node) => {
+  const restored = [];
+  let current = node;
+  while (current && current !== document.documentElement) {
+    patchOverflow(current, restored);
+    current = current.parentElement;
+  }
+  const walk = (element) => {
+    [...element.children].forEach((child) => {
+      patchOverflow(child, restored);
+      walk(child);
+    });
+  };
+  if (node) walk(node);
+  return () => {
+    restored.forEach((entry) => {
+      entry.element.style.overflow = entry.overflow;
+      entry.element.style.overflowX = entry.overflowX;
+      entry.element.style.overflowY = entry.overflowY;
+      entry.element.style.height = entry.height;
+      entry.element.style.maxHeight = entry.maxHeight;
+      entry.element.style.maxWidth = entry.maxWidth;
+    });
+  };
+};
+
 export const downloadBytes = (bytes, filename, mimeType = "application/pdf") => {
   const blob = new Blob([bytes], { type: mimeType });
   const objectUrl = URL.createObjectURL(blob);
@@ -37,29 +97,51 @@ export const downloadBytes = (bytes, filename, mimeType = "application/pdf") => 
   URL.revokeObjectURL(objectUrl);
 };
 
-export const captureNodePdf = async (node, { backgroundColor } = {}) => {
+const captureNodeImage = async (node, { backgroundColor } = {}) => {
   if (!node) throw new Error("No hay contenido para capturar");
   await waitForPaint();
   const { toJpeg } = await import("html-to-image");
   const styles = typeof window !== "undefined" ? getComputedStyle(node) : null;
+  const width = Math.max(node.scrollWidth, node.clientWidth, node.offsetWidth);
+  const height = Math.max(node.scrollHeight, node.clientHeight, node.offsetHeight);
   const dataUrl = await toJpeg(node, {
     cacheBust: true,
     quality: 0.92,
-    pixelRatio: Math.min(
-      2,
-      typeof window !== "undefined" ? window.devicePixelRatio || 2 : 2,
-    ),
+    pixelRatio: 1.5,
     backgroundColor:
       backgroundColor ||
       styles?.backgroundColor ||
       styles?.getPropertyValue("--surface") ||
       "#ffffff",
-    width: Math.max(node.scrollWidth, node.clientWidth),
-    height: Math.max(node.scrollHeight, node.clientHeight),
+    width,
+    height,
   });
   const { bytes } = dataUrlToBytes(dataUrl);
   const size = await readDataUrlSize(dataUrl);
-  const pageWidth = (size.width * 72) / 96;
-  const pageHeight = (size.height * 72) / 96;
-  return buildJpegPdf(bytes, size.width, size.height, pageWidth, pageHeight);
+  return {
+    bytes,
+    width: size.width,
+    height: size.height,
+    pageWidth: (size.width * 72) / 96,
+    pageHeight: (size.height * 72) / 96,
+  };
 };
+
+export const captureNodesPdf = async (nodes, options = {}) => {
+  const list = (Array.isArray(nodes) ? nodes : [nodes]).filter(Boolean);
+  if (!list.length) throw new Error("No hay contenido para capturar");
+  const pages = [];
+  for (const node of list) {
+    const restore = expandClippedOverflow(node);
+    try {
+      await waitForPaint();
+      pages.push(await captureNodeImage(node, options));
+    } finally {
+      restore();
+    }
+  }
+  return buildJpegPdfPages(pages);
+};
+
+export const captureNodePdf = async (node, options) =>
+  captureNodesPdf([node], options);

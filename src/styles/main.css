@@ -5168,3 +5168,30 @@ textarea:focus-visible,
         display: none;
     }
 }
+
+.daily-capture-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 85;
+    overflow: auto;
+    padding: 1.25rem 1.25rem 3rem;
+    background: var(--surface, #ffffff);
+}
+
+.daily-capture-status {
+    margin: 0 0 1.1rem;
+    color: var(--text-muted, #64748b);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.daily-capture-section,
+.daily-capture-sheet [data-daily-capture-section] {
+    overflow: visible;
+    background: var(--surface, #ffffff);
+}
+
+.is-capturing-reports .overflow-hidden,
+.is-capturing-reports .overflow-x-auto {
+    overflow: visible !important;
+}
