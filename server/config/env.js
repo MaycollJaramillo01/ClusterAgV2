@@ -6,6 +6,7 @@ import {
     DEFAULT_MANAGEMENT_TEAM,
     DEFAULT_SUPER_ADMIN_EMAILS
 } from './bootstrap.js';
+import { resolveR2Endpoint, resolveR2PublicBaseUrl } from '../lib/r2-endpoint.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -149,5 +150,17 @@ export const env = {
         appId: process.env.JAAS_APP_ID || '',
         kid: process.env.JAAS_KID || '',
         privateKey: normalizePem(process.env.JAAS_PRIVATE_KEY)
+    },
+    r2: {
+        accountId: process.env.R2_ACCOUNT_ID || '',
+        accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+        bucket: process.env.R2_BUCKET || '',
+        endpoint: resolveR2Endpoint(process.env.R2_ACCOUNT_ID, process.env.R2_ENDPOINT),
+        publicBaseUrl: resolveR2PublicBaseUrl(process.env.R2_PUBLIC_BASE_URL),
+        maxFileBytes: parseNumber(process.env.R2_MAX_UPLOAD_BYTES, 10 * 1024 * 1024 * 1024),
+        retentionDays: parseNumber(process.env.R2_RETENTION_DAYS, 5),
+        signTtlSeconds: parseNumber(process.env.R2_SIGN_TTL_SECONDS, 15 * 60),
+        downloadTtlSeconds: parseNumber(process.env.R2_DOWNLOAD_TTL_SECONDS, 60 * 60)
     }
 };

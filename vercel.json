@@ -13,6 +13,10 @@
     {
       "path": "/api/cron/weekly-module-reports",
       "schedule": "0 18 * * 6"
+    },
+    {
+      "path": "/api/cron/purge-expired-r2-attachments",
+      "schedule": "15 6 * * *"
     }
   ],
   "functions": {
@@ -25,12 +29,16 @@
       "maxDuration": 30
     },
     "api/collections-entry.js": {
-      "includeFiles": "server/**",
+      "includeFiles": "{server/**,node_modules/pdfkit/js/data/**}",
       "maxDuration": 30
     },
     "api/cron-entry.js": {
+      "includeFiles": "{server/**,node_modules/pdfkit/js/data/**}",
+      "maxDuration": 120
+    },
+    "api/uploads-entry.js": {
       "includeFiles": "server/**",
-      "maxDuration": 60
+      "maxDuration": 30
     }
   },
   "rewrites": [
@@ -61,6 +69,14 @@
     {
       "source": "/api/cron/:path*",
       "destination": "/api/cron-entry"
+    },
+    {
+      "source": "/api/uploads",
+      "destination": "/api/uploads-entry"
+    },
+    {
+      "source": "/api/uploads/:path*",
+      "destination": "/api/uploads-entry"
     },
     {
       "source": "/api/:path*",

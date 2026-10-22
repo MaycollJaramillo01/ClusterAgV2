@@ -85,7 +85,8 @@ export const buildChatGroups = ({
     membershipRecords = [],
     users = [],
     managers = [],
-    editors = []
+    editors = [],
+    teamGroups = []
 } = {}) => {
     const directory = buildChatDirectory({ users, managers, editors });
     const clientIds = new Set(clients.map((client) => String(client?.id || '')).filter(Boolean));
@@ -143,7 +144,23 @@ export const buildChatGroups = ({
         };
     });
 
-    return { ...directory, groups };
+    const teamGroupEntries = (Array.isArray(teamGroups) ? teamGroups : [])
+        .map((group) => {
+            const groupId = String(group?.id || '').trim();
+            if (!groupId) return null;
+            const memberIds = uniqueStrings(group?.memberIds)
+                .map((id) => directory.resolvePersonId({ id }) || String(id || '').trim())
+                .filter(Boolean);
+            return {
+                clientId: groupId,
+                memberIds,
+                source: 'team_group',
+                updatedAt: group?.updatedAt || ''
+            };
+        })
+        .filter(Boolean);
+
+    return { ...directory, groups: [...groups, ...teamGroupEntries] };
 };
 
 export const getChatGroupChangeError = ({
@@ -152,13 +169,18 @@ export const getChatGroupChangeError = ({
     currentMemberIds = [],
     nextMemberIds = []
 } = {}) => {
-    if (!['manager', 'super_admin'].includes(String(actorRole || ''))) {
-        return 'forbidden';
-    }
     const normalizedActorId = String(actorId || '');
+    const currentIds = uniqueStrings(currentMemberIds);
+    const nextIds = uniqueStrings(nextMemberIds);
+    if (!['manager', 'super_admin'].includes(String(actorRole || ''))) {
+        if (!normalizedActorId || !currentIds.includes(normalizedActorId)) {
+            return 'membership-required';
+        }
+        return currentIds.some((id) => !nextIds.includes(id)) ? 'remove-forbidden' : '';
+    }
     const removesSelf = normalizedActorId
-        && uniqueStrings(currentMemberIds).includes(normalizedActorId)
-        && !uniqueStrings(nextMemberIds).includes(normalizedActorId);
+        && currentIds.includes(normalizedActorId)
+        && !nextIds.includes(normalizedActorId);
     if (removesSelf && actorRole !== 'super_admin') return 'manager-cannot-leave';
     return '';
 };

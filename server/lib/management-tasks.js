@@ -1,4 +1,7 @@
 import { createHttpError } from './http.js';
+import { normalizeTaskAssignees } from './task-assignees.js';
+import { latestDevStatusLabel, normalizeDevStatusLog } from './dev-task-status.js';
+import { normalizeEmail } from './text.js';
 
 const DATE_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
 const TIME_RE = /^(\d{1,2}):(\d{2})$/;
@@ -22,10 +25,12 @@ export const normalizeManagementTaskTime = (value = '') => {
 };
 
 const buildReminderResetPatch = () => ({
+    reminder24hSentAt: null,
     reminder8hSentAt: null,
     reminder1hSentAt: null,
     overdueSentAt: null,
-    lastOverdueNagAt: null
+    lastOverdueNagAt: null,
+    lastUpcomingNagAt: null
 });
 
 const resolveAssignerName = (actor = null) => normalizeText(actor?.name) || normalizeText(actor?.email) || 'Sistema';
@@ -41,9 +46,16 @@ export const prepareManagementTaskPayload = ({
     if ('title' in nextPayload) nextPayload.title = normalizeText(nextPayload.title);
     if ('notes' in nextPayload) nextPayload.notes = typeof nextPayload.notes === 'string' ? nextPayload.notes.trim() : '';
     if ('clientId' in nextPayload) nextPayload.clientId = normalizeText(nextPayload.clientId);
-    if ('category' in nextPayload) nextPayload.category = normalizeText(nextPayload.category) || 'seguimiento';
+    if ('category' in nextPayload) nextPayload.category = normalizeText(nextPayload.category).toLowerCase() || 'seguimiento';
+    if ('devStatusLog' in nextPayload) {
+        nextPayload.devStatusLog = normalizeDevStatusLog(nextPayload.devStatusLog);
+        nextPayload.devStatus = latestDevStatusLabel(nextPayload.devStatusLog);
+    } else if ('devStatus' in nextPayload) {
+        nextPayload.devStatus = normalizeText(nextPayload.devStatus).slice(0, 80);
+    }
     if ('contextId' in nextPayload) nextPayload.contextId = normalizeText(nextPayload.contextId);
     if ('assigneeUserId' in nextPayload) nextPayload.assigneeUserId = normalizeText(nextPayload.assigneeUserId);
+    Object.assign(nextPayload, normalizeTaskAssignees(nextPayload, existing));
     if ('notificationsEnabled' in nextPayload || isCreate) nextPayload.notificationsEnabled = nextPayload.notificationsEnabled !== false;
 
     const titleAfterPatch = normalizeText('title' in nextPayload ? nextPayload.title : existing?.title);
@@ -79,10 +91,10 @@ export const prepareManagementTaskPayload = ({
     const notificationsDisabled = Boolean(existing) && existing.notificationsEnabled !== false && nextPayload.notificationsEnabled === false;
     const notificationsReenabled = Boolean(existing) && existing.notificationsEnabled === false && nextPayload.notificationsEnabled !== false;
 
-    if (isCreate || assigneeChanged || !normalizeText(existing?.assignedByName)) {
+    if (isCreate || assigneeChanged) {
         nextPayload.assignedByUserId = actor?.id || existing?.assignedByUserId || '';
         nextPayload.assignedByName = resolveAssignerName(actor);
-        nextPayload.assignedByEmail = normalizeText(actor?.email);
+        nextPayload.assignedByEmail = normalizeEmail(actor?.email);
     }
 
     if (dueChanged || assigneeChanged || reopened || notificationsDisabled || notificationsReenabled) {

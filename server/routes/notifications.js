@@ -10,12 +10,13 @@ import { normalizeEmail } from '../lib/text.js';
 
 const router = Router();
 
-const NOTIFICATION_TYPES = new Set(['assigned', 'mention', 'chat_mention', 'call_invite']);
+const NOTIFICATION_TYPES = new Set(['assigned', 'mention', 'chat_mention', 'call_invite', 'client_priority', 'task_updated']);
 const RECIPIENT_COLLECTIONS = ['users', 'managers', 'editors'];
 const TASK_COLLECTION_BY_TYPE = {
     accountTask: 'account_tasks',
     editingTask: 'editing',
-    managementTask: 'management_tasks'
+    managementTask: 'management_tasks',
+    event: 'events'
 };
 
 const findRecipient = async (email) => {
@@ -45,7 +46,7 @@ export const buildCallJoinUrl = (appUrl, { roomId, clientId, messageId } = {}) =
     }
 };
 
-export const buildEmail = ({ type, senderName, taskTitle, taskType, comment, appUrl, clientName, callUrl }) => {
+export const buildEmail = ({ type, senderName, taskTitle, taskType, comment, appUrl, clientName, callUrl, priorityLabel }) => {
     const isChat = type === 'chat_mention';
     const isCall = type === 'call_invite';
     const accent = isCall ? '#16a34a'
@@ -75,6 +76,10 @@ export const buildEmail = ({ type, senderName, taskTitle, taskType, comment, app
         subject = `📋 Te asignaron a: ${taskTitle}`;
         heading = 'Te asignaron a una tarea';
         body = `<strong>${escapeHtml(senderName)}</strong> te asignó a la tarea <strong>"${escapeHtml(taskTitle)}"</strong> en el módulo de <strong>${typeLabel}</strong>.`;
+    } else if (type === 'task_updated') {
+        subject = `✏️ Actualizaron: ${taskTitle}`;
+        heading = 'Se modificó una tarea';
+        body = `<strong>${escapeHtml(senderName)}</strong> editó la tarea <strong>"${escapeHtml(taskTitle)}"</strong> en el módulo de <strong>${typeLabel}</strong>.`;
     } else if (type === 'mention') {
         subject = `💬 ${senderName} te mencionó en: ${taskTitle}`;
         heading = 'Te mencionaron en un comentario';
@@ -82,6 +87,10 @@ export const buildEmail = ({ type, senderName, taskTitle, taskType, comment, app
             <blockquote style="margin:12px 0;padding:12px 16px;background:#f8fafc;border-left:3px solid ${accent};border-radius:0 8px 8px 0;color:#475569;font-style:italic;">
                 "${escapeHtml(comment)}"
             </blockquote>`;
+    } else if (type === 'client_priority') {
+        subject = `🚩 ${clientName} quedó en prioridad ${priorityLabel || 'alta'}`;
+        heading = 'Cambio de prioridad';
+        body = `<strong>${escapeHtml(senderName)}</strong> marcó a <strong>"${escapeHtml(clientName)}"</strong> como <strong>${escapeHtml(priorityLabel || 'alta')}</strong>.`;
     } else if (type === 'chat_mention') {
         subject = `💬 ${senderName} te mencionó en el chat de ${clientName}`;
         heading = 'Te mencionaron en el chat';
@@ -143,6 +152,19 @@ router.post('/send', asyncHandler(async (req, res) => {
         if (!message || !isAuthoredByActor || !includesRecipient || !hasMatchingClient || !hasMatchingCall) {
             throw createHttpError(403, 'La notificacion no corresponde a un mensaje valido.', 'notifications/resource-mismatch');
         }
+    } else if (type === 'client_priority') {
+        if (!hasPermission(actor, 'manage_clients')) {
+            throw createHttpError(403, 'No tienes permisos para notificar prioridad de clientes.', 'auth/insufficient-permission');
+        }
+        const clientId = String(req.body?.clientId || '').trim();
+        const client = clientId ? await getRecord({ collectionName: 'clients', recordId: clientId }) : null;
+        if (!client) {
+            throw createHttpError(403, 'La notificacion no corresponde a un cliente valido.', 'notifications/resource-mismatch');
+        }
+        const managerIds = [client.managerId, client.managerUserId].filter(Boolean).map(String);
+        if (managerIds.length && !managerIds.includes(String(recipient.id))) {
+            throw createHttpError(403, 'El destinatario no es el asignado de este cliente.', 'notifications/resource-mismatch');
+        }
     } else {
         const collectionName = TASK_COLLECTION_BY_TYPE[String(req.body?.taskType || '')];
         const taskId = String(req.body?.taskId || '').trim();
@@ -153,7 +175,7 @@ router.post('/send', asyncHandler(async (req, res) => {
         if (!task || !readPermission || !hasPermission(actor, readPermission)) {
             throw createHttpError(403, 'La notificacion no corresponde a una tarea accesible.', 'notifications/resource-mismatch');
         }
-        if (type === 'assigned') {
+        if (type === 'assigned' || type === 'task_updated') {
             const assigneeIds = [
                 ...(Array.isArray(task.assignees) ? task.assignees : []),
                 task.contextId,
@@ -183,6 +205,7 @@ router.post('/send', asyncHandler(async (req, res) => {
         comment: req.body?.comment,
         appUrl,
         clientName: req.body?.clientName,
+        priorityLabel: req.body?.priorityLabel,
         callUrl: buildCallJoinUrl(appUrl, {
             roomId: req.body?.roomId,
             clientId: req.body?.clientId,

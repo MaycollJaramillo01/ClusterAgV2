@@ -15,6 +15,7 @@ import pushRoutes from './routes/push.js';
 import { getRequestOrigin, isLocalOrigin } from './lib/request-origin.js';
 import reportsRouter from './routes/reports.js';
 import chatGroupRoutes from './routes/chat-groups.js';
+import uploadRoutes from './routes/uploads.js';
 import { applySecurityHeaders, isTrustedRequestOrigin, requireTrustedOrigin } from './lib/security.js';
 import { rateLimit } from './lib/rate-limit.js';
 
@@ -51,8 +52,12 @@ export const createApp = async () => {
     const allowedCorsOrigins = new Set([
         env.appBaseUrl,
         'capacitor://localhost',
+        'ionic://localhost',
         'http://localhost',
-        'https://localhost'
+        'https://localhost',
+        'http://127.0.0.1',
+        'http://127.0.0.1:3000',
+        'http://localhost:3000'
     ].filter(Boolean));
 
     app.use((req, res, next) => {
@@ -121,6 +126,7 @@ export const createApp = async () => {
     app.use('/api/chat-groups', chatGroupRoutes);
     app.use('/api/push', rateLimit({ windowMs: 10 * 60_000, max: 30, keyPrefix: 'push' }), pushRoutes);
     app.use('/api/reports', reportsRouter);
+    app.use('/api/uploads', rateLimit({ windowMs: 60_000, max: 40, keyPrefix: 'uploads' }), uploadRoutes);
 
     const publicDir = path.join(env.rootDir, 'public');
     app.use(express.static(publicDir, {
@@ -137,14 +143,17 @@ export const createApp = async () => {
 
     app.use((error, _req, res, _next) => {
         const status = Number(error?.status || 500);
-        const isServerError = status >= 500;
+        const appCode = typeof error?.code === 'string' && error.code.includes('/')
+            ? error.code
+            : '';
+        const isUnexpected = status >= 500 && !appCode;
         const payload = {
             error: {
-                message: isServerError ? 'Error interno del servidor.' : (error?.message || 'Solicitud invalida.'),
-                code: isServerError ? 'internal/error' : (error?.code || 'request/error')
+                message: isUnexpected ? 'Error interno del servidor.' : (error?.message || 'Solicitud invalida.'),
+                code: isUnexpected ? 'internal/error' : (appCode || 'request/error')
             }
         };
-        if (isServerError) {
+        if (isUnexpected) {
             console.error(error);
         }
         res.status(status).json(payload);

@@ -89,7 +89,35 @@ test('solo el superadmin puede salir por si mismo', () => {
         actorId: 'ops-user',
         currentMemberIds: ['ops-user'],
         nextMemberIds: []
-    }), 'forbidden');
+    }), 'remove-forbidden');
+});
+
+test('todos los integrantes pueden agregar personas sin quitar integrantes existentes', () => {
+    for (const actorRole of ['editor', 'operations', 'management', 'viewer']) {
+        assert.equal(getChatGroupChangeError({
+            actorRole,
+            actorId: 'member-user',
+            currentMemberIds: ['member-user', 'other-user'],
+            nextMemberIds: ['member-user', 'other-user', 'new-user']
+        }), '');
+        assert.equal(getChatGroupChangeError({
+            actorRole,
+            actorId: 'member-user',
+            currentMemberIds: ['member-user', 'other-user'],
+            nextMemberIds: ['member-user', 'new-user']
+        }), 'remove-forbidden');
+    }
+});
+
+test('una persona ajena al grupo no puede agregarse ni agregar a otros', () => {
+    for (const actorId of ['outsider-user', '']) {
+        assert.equal(getChatGroupChangeError({
+            actorRole: 'editor',
+            actorId,
+            currentMemberIds: ['member-user'],
+            nextMemberIds: ['member-user', 'outsider-user', 'new-user']
+        }), 'membership-required');
+    }
 });
 
 test('marca managers y superadmins como disponibles para llamadas fuera del grupo', () => {
@@ -127,4 +155,27 @@ test('el directorio expone el rol de quien solo existe como usuario', () => {
 
     assert.equal(result.people.find((person) => person.id === 'solo-user')?.role, 'editor');
     assert.equal(result.people.find((person) => person.id === 'editor-record')?.role, '');
+});
+
+test('los grupos de equipo entran en la membresia del chat', () => {
+    const result = buildChatGroups({
+        clients: [{ id: 'client-1', name: 'Cliente' }],
+        users: people,
+        teamGroups: [{
+            id: 'team-ops',
+            name: 'Operaciones',
+            memberIds: ['author-user', 'manager-record']
+        }],
+        managers: [{
+            id: 'manager-record',
+            name: 'Manager Uno',
+            email: 'manager@example.com',
+            userId: 'manager-user'
+        }]
+    });
+
+    const teamGroup = result.groups.find((group) => group.clientId === 'team-ops');
+    assert.equal(teamGroup?.source, 'team_group');
+    assert.deepEqual(new Set(teamGroup.memberIds), new Set(['author-user', 'manager-user']));
+    assert.equal(result.groups.some((group) => group.clientId === 'client-1'), true);
 });

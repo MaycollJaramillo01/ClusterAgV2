@@ -102,7 +102,9 @@ export const ensureAuthUserRecord = async ({
             linkedEditorId: existing?.linkedEditorId || '',
             createdAt: existing?.createdAt || stamp,
             updatedAt: stamp,
-            lastSeenAt: stamp
+            lastSeenAt: existing?.lastSeenAt || '',
+            lastDisconnectedAt: existing?.lastDisconnectedAt || '',
+            lastLoginAt: stamp
         }
     });
 

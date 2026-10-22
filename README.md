@@ -19,6 +19,7 @@ La base local se crea en `.tmp/clusterag.sqlite`. El proyecto no copia ni restau
 - Declara los usuarios iniciales mediante `SEED_SUPER_ADMIN_EMAILS`, `SEED_MANAGEMENT_TEAM_JSON` y `SEED_EDITOR_TEAM_JSON`; no hay identidades privilegiadas dentro del codigo.
 - Ejecuta el bootstrap solo de forma deliberada con `RUN_BOOTSTRAP_ON_START=true`. En Vercel permanece desactivado por defecto.
 - Completa `FIREBASE_*` para autenticacion por correo y push, y `SMTP_*` para reportes/notificaciones por email.
+- Completa `R2_*` para archivos de tareas en Cloudflare R2 (hasta 10 GB). El endpoint se arma con `R2_ACCOUNT_ID`. Sin `R2_PUBLIC_BASE_URL` las descargas van por URL firmada. Los objetos se borran a los 5 dias (`R2_RETENTION_DAYS`). CORS: `npm run r2:cors`.
 
 El acceso es por invitacion: una identidad de Google o Firebase que no exista previamente en `users` ni en la configuracion de bootstrap es rechazada.
 
@@ -30,6 +31,14 @@ El acceso es por invitacion: una identidad de Google o Firebase que no exista pr
 - `npm run check:kpi`: valida calculos KPI y ranking.
 - `npm run check:polling`: valida la sincronizacion adaptativa.
 - `npm run db:cleanup:dry-run`: calcula la limpieza segura del historial sin modificar datos.
+
+El KPI de Inicio y Rendimiento usa el mismo periodo (inicio del mes hasta hoy,
+hora de Honduras) y consolida las tareas asignadas de Accounts, Edicion y Gestion.
+La nota es `(70 * peso completado + 30 * peso entregado a tiempo) / peso asignado`,
+redondeada una sola vez; P1/P2/P3/P4 pesan 4/3/2/1. Las entregas sin fecha verificable
+no acreditan puntualidad y mantienen la nota provisional, al igual que una muestra
+de menos de cinco tareas. Los responsables y el vencimiento se conservan al completar
+la tarea; reasignarla o editarla despues no transfiere el credito historico.
 
 La limpieza real del historial exige `--apply --backup-confirmed`. No se debe ejecutar contra produccion sin una copia verificada.
 

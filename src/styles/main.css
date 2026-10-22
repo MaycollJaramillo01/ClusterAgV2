@@ -1797,7 +1797,6 @@ h1, h2, .editorial-title {
     }
 }
 
-/* ponytail: one global geometry rule replaces hundreds of decorative Tailwind edits. */
 .rounded-3xl, .rounded-2xl { border-radius: 12px !important; }
 .shadow-2xl, .shadow-xl, .shadow-lg, .shadow-md { box-shadow: none !important; }
 [class~="font-black"] { font-weight: 700 !important; }
@@ -5027,8 +5026,16 @@ textarea:focus-visible,
         flex-direction: column;
         gap: 1.1rem;
     }
+    .performance-header-tools,
+    .performance-downloads,
+    .performance-downloads > div,
+    .performance-download-group {
+        align-items: stretch;
+        justify-items: stretch;
+        width: 100%;
+    }
     .performance-period {
-        width: fit-content;
+        width: 100%;
     }
     .performance-overview {
         grid-template-columns: 1fr;

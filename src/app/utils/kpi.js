@@ -6,7 +6,8 @@ import {
 } from "./date.js";
 
 export const KPI_MIN_TASKS = 5;
-export const KPI_MIN_TIMED_TASKS = 5;
+export const KPI_COMPLETION_WEIGHT = 70;
+export const KPI_ON_TIME_WEIGHT = 30;
 
 const ACCOUNT_HIERARCHY_WEIGHTS = { p1: 4, p2: 3, p3: 2, p4: 1 };
 const getAccountTaskWeight = (task = {}) => {
@@ -18,6 +19,32 @@ const getAccountTaskWeight = (task = {}) => {
         ? "p3"
         : "p2");
   return ACCOUNT_HIERARCHY_WEIGHTS[hierarchy] || ACCOUNT_HIERARCHY_WEIGHTS.p2;
+};
+export const getKpiTaskWeight = (task = {}) => getAccountTaskWeight(task);
+
+export const calculateKpiScore = ({
+  weightedTotal = 0,
+  weightedCompleted = 0,
+  onTimeWeight = 0,
+} = {}) => {
+  if (!Number.isFinite(weightedTotal) || weightedTotal <= 0) return 0;
+  const completed = Number.isFinite(weightedCompleted)
+    ? Math.max(0, Math.min(weightedTotal, weightedCompleted))
+    : 0;
+  const onTime = Number.isFinite(onTimeWeight)
+    ? Math.max(0, Math.min(completed, onTimeWeight))
+    : 0;
+  // Both components use the assigned workload. A late delivery adds credit
+  // without reducing the credit already earned by other deliveries.
+  return Math.round(
+    (completed * KPI_COMPLETION_WEIGHT + onTime * KPI_ON_TIME_WEIGHT) /
+      weightedTotal,
+  );
+};
+
+export const getKpiPeriod = (today = getHondurasTodayStr()) => {
+  const end = normalizeDateOnlyString(today) || getHondurasTodayStr();
+  return { start: `${end.slice(0, 7)}-01`, end };
 };
 
 export const isWorkflowCompleted = (status = "") =>
@@ -70,142 +97,262 @@ export const getMeasuredCompletionIso = (task = {}) => {
   return candidates.sort((left, right) => Date.parse(left) - Date.parse(right))[0] || "";
 };
 
-export const buildManagerKpiStats = ({
-  managers = [],
-  clients = [],
-  accountTasks = [],
-  rankingPeriod,
+const isEditorKpiCompleted = (task = {}) =>
+  ["revision_interna", "aprobado", "publicado"].includes(
+    normalizeEditingWorkflowStatus(task.status),
+  );
+
+export const getKpiTaskMeta = (task = {}, kind) => {
+  kind = task._taskType ? (task._taskType === "editingTask"
+    ? "editor"
+    : task._taskType === "managementTask" ? "management" : "manager") : kind || "manager";
+  const completed =
+    kind === "editor"
+      ? isEditorKpiCompleted(task)
+      : kind === "management"
+        ? task.status === "cerrado"
+        : ["aprobado_internamente", "publicado"].includes(task.status);
+  const ownerAtCompletion = kind === "editor"
+    ? task.editorOwnerAtCompletionId : task.ownerAtCompletionId;
+  const assigneeAtCompletion = kind === "editor"
+    ? task.editorAssigneeUserAtCompletionId : task.assigneeUserAtCompletionId;
+  const assigneesAtCompletion = kind === "editor"
+    ? task.editorAssigneesAtCompletion : task.assigneesAtCompletion;
+  const hasHistoricalOwners = completed && (
+    ownerAtCompletion || assigneeAtCompletion || Array.isArray(assigneesAtCompletion)
+  );
+  const ownerIds = [...new Set((hasHistoricalOwners
+    ? [ownerAtCompletion, assigneeAtCompletion,
+        ...(Array.isArray(assigneesAtCompletion) ? assigneesAtCompletion : [])]
+    : [task.contextId, task.assigneeUserId, ...(Array.isArray(task.assignees) ? task.assignees : [])]
+  ).filter(Boolean))];
+  const dueDate = normalizeDateOnlyString(
+    completed
+      ? kind === "editor"
+        ? task.editorDueDateAtCompletion || task.date
+        : task.dueDateAtCompletion || task.date
+      : task.date,
+  );
+  const completionCandidates = kind === "editor"
+    ? [task.editorCompletedAt, task.statusTimestamps?.revision_interna,
+        getMeasuredCompletionIso(task)]
+    : [getMeasuredCompletionIso(task)];
+  const completionIso = completed
+    ? completionCandidates.filter((value) => Number.isFinite(Date.parse(value)))
+        .sort((left, right) => Date.parse(left) - Date.parse(right))[0] || ""
+    : "";
+  return { kind, completed, ownerIds, dueDate, completionIso };
+};
+
+// Capture all responsible people before a completed task is edited/reassigned.
+// Existing historical owners take precedence over the current assignment.
+export const getKpiHistoryPatch = (task = {}, kind) => {
+  const meta = getKpiTaskMeta(task, kind);
+  if (!meta.completed) return {};
+  kind = meta.kind;
+  const editor = kind === "editor";
+  const ownerKey = editor ? "editorOwnerAtCompletionId" : "ownerAtCompletionId";
+  const userKey = editor ? "editorAssigneeUserAtCompletionId" : "assigneeUserAtCompletionId";
+  const assigneesKey = editor ? "editorAssigneesAtCompletion" : "assigneesAtCompletion";
+  const dateKey = editor ? "editorDueDateAtCompletion" : "dueDateAtCompletion";
+  const patch = {};
+  if (!task[ownerKey]) patch[ownerKey] = task.contextId || task.assigneeUserId || "";
+  if (!task[dateKey]) patch[dateKey] = normalizeDateOnlyString(task.date);
+  if (!task[ownerKey] || task[ownerKey] === task.contextId) {
+    if (!Object.hasOwn(task, userKey)) patch[userKey] = task.assigneeUserId || "";
+    if (!Array.isArray(task[assigneesKey])) {
+      patch[assigneesKey] = Array.isArray(task.assignees)
+        ? task.assignees.filter(Boolean) : [task.contextId].filter(Boolean);
+    }
+  }
+  return patch;
+};
+
+export const getStatusTimestampPatch = (
+  task = {},
+  newStatus = "",
+  stamp = new Date().toISOString(),
+  actorUserId = "",
+  workflowType = "",
+) => {
+  const statusTimestamps = {
+    ...(task.statusTimestamps || {}),
+    [newStatus]: task.statusTimestamps?.[newStatus] || stamp,
+  };
+  const patch = { lastStatusChangedAt: stamp, statusTimestamps };
+  if (newStatus === "publicado" && !task.publishedAt) patch.publishedAt = stamp;
+  if (newStatus === "aprobado" && !task.approvedAt) patch.approvedAt = stamp;
+  if (newStatus === "aprobado_internamente" && !task.internallyApprovedAt)
+    patch.internallyApprovedAt = stamp;
+  if (newStatus === "cerrado" && !task.closedAt) patch.closedAt = stamp;
+  if (isWorkflowCompleted(newStatus) && !task.completedAt) {
+    patch.completedAt = stamp;
+    patch.completedByUserId = actorUserId || "";
+    patch.ownerAtCompletionId = task.contextId || task.assigneeUserId || "";
+    patch.dueDateAtCompletion = normalizeDateOnlyString(task.date);
+  }
+  Object.assign(patch, getKpiHistoryPatch(
+    { ...task, status: newStatus },
+    workflowType === "editing" ? "editor" : workflowType === "management" ? "management" : "manager",
+  ));
+  if (workflowType === "editing") {
+    const previousEditingStatus = normalizeEditingWorkflowStatus(task.status);
+    const nextEditingStatus = normalizeEditingWorkflowStatus(newStatus);
+    const isEditorDelivery = [
+      "revision_interna",
+      "aprobado",
+      "publicado",
+    ].includes(nextEditingStatus);
+    const isReturnedToEditing =
+      ["revision_interna", "aprobado", "publicado"].includes(
+        previousEditingStatus,
+      ) && ["editar", "en_edicion"].includes(nextEditingStatus);
+
+    if (isEditorDelivery && !task.editorCompletedAt) {
+      patch.editorCompletedAt = stamp;
+      patch.editorCompletedByUserId = actorUserId || "";
+      patch.editorOwnerAtCompletionId =
+        task.contextId || task.assigneeUserId || "";
+      patch.editorAssigneeUserAtCompletionId = task.assigneeUserId || "";
+      patch.editorAssigneesAtCompletion = Array.isArray(task.assignees)
+        ? task.assignees.filter(Boolean)
+        : [];
+      patch.editorDueDateAtCompletion = normalizeDateOnlyString(task.date);
+    }
+    if (isReturnedToEditing && task.editorCompletedAt) {
+      patch.editorReworkCount = Number(task.editorReworkCount || 0) + 1;
+      patch.lastEditorReworkAt = stamp;
+    }
+  }
+  return patch;
+};
+
+const getProfileIds = (profile = {}) => [
+  profile.id, profile.userId, profile.assigneeUserId,
+  profile.linkedManagerId, profile.linkedEditorId,
+].filter(Boolean);
+
+const isInPeriod = (meta, period) => Boolean(
+  meta.dueDate && period?.start && period?.end &&
+  compareDateOnlyStrings(meta.dueDate, period.start) >= 0 &&
+  compareDateOnlyStrings(meta.dueDate, period.end) <= 0,
+);
+
+const summarizeKpiEntries = (entries, today) => {
+  const completedEntries = entries.filter(({ meta }) => meta.completed);
+  const measuredEntries = completedEntries.filter(({ meta }) => meta.completionIso);
+  const onTimeEntries = measuredEntries.filter(({ meta }) =>
+    compareDateOnlyStrings(getHondurasDateFromIso(meta.completionIso), meta.dueDate) <= 0,
+  );
+  const sumWeight = (items) => items.reduce((sum, { task }) => sum + getKpiTaskWeight(task), 0);
+  const weightedTotal = sumWeight(entries);
+  const weightedCompleted = sumWeight(completedEntries);
+  const measuredWeight = sumWeight(measuredEntries);
+  const onTimeWeight = sumWeight(onTimeEntries);
+  const total = entries.length;
+  const completed = completedEntries.length;
+  const missingTimingCount = completed - measuredEntries.length;
+  const completionPercent = weightedTotal ? Math.round(weightedCompleted / weightedTotal * 100) : 0;
+  return {
+    monthlyTasks: entries.map(({ task }) => task),
+    completedTasks: completedEntries.map(({ task }) => task),
+    total, completed, delivered: completed, pending: total - completed,
+    overdueTasks: entries.filter(({ meta }) =>
+      !meta.completed && isDateBeforeDateString(meta.dueDate, today),
+    ).length,
+    weightedTotal, weightedCompleted, measuredWeight, onTimeWeight,
+    completionPercent, deliveryPerformance: completionPercent,
+    measuredCompletionCount: measuredEntries.length,
+    missingTimingCount,
+    onTimeCount: onTimeEntries.length,
+    onTimePercent: measuredWeight ? Math.round(onTimeWeight / measuredWeight * 100) : null,
+    qualified: total >= KPI_MIN_TASKS && missingTimingCount === 0,
+    provisionalReason: missingTimingCount > 0
+      ? `${missingTimingCount} entregas sin fecha`
+      : total < KPI_MIN_TASKS ? `${total}/${KPI_MIN_TASKS} tareas` : "",
+    score: calculateKpiScore({ weightedTotal, weightedCompleted, onTimeWeight }),
+  };
+};
+
+export const buildPersonalKpiSnapshot = (
+  tasks = [], period = getKpiPeriod(), profile, today = getHondurasTodayStr(),
+) => {
+  const profileIds = profile ? new Set(getProfileIds(profile)) : null;
+  const entries = tasks.map((task) => ({ task, meta: getKpiTaskMeta(task) }))
+    .filter(({ meta }) => isInPeriod(meta, period) &&
+      (!profileIds || meta.ownerIds.some((id) => profileIds.has(id))));
+  return summarizeKpiEntries(entries, today);
+};
+
+export const buildTeamKpiStats = ({
+  people = [], tasks = [], kind = "manager", period = getKpiPeriod(),
   today = getHondurasTodayStr(),
-}) => {
+} = {}) => {
+  const peopleByAlias = new Map();
+  people.forEach((person) => getProfileIds(person).forEach((alias) => {
+    if (!peopleByAlias.has(alias)) peopleByAlias.set(alias, new Set());
+    peopleByAlias.get(alias).add(person.id);
+  }));
+  const tasksByOwner = new Map();
+  tasks.forEach((task) => {
+    const meta = getKpiTaskMeta(task, kind);
+    if (!isInPeriod(meta, period)) return;
+    const owners = new Set(meta.ownerIds.flatMap((id) => [...(peopleByAlias.get(id) || [])]));
+    owners.forEach((id) => {
+      if (!tasksByOwner.has(id)) tasksByOwner.set(id, []);
+      tasksByOwner.get(id).push({ task, meta });
+    });
+  });
+  return people.map((person) => {
+    const entries = tasksByOwner.get(person.id) || [];
+    return {
+      ...person,
+      ...summarizeKpiEntries(entries, today),
+      kind,
+      kindLabel: kind === "editor" ? "Editor" : "Account Manager",
+      published: entries.filter(({ task }) => task.status === "publicado").length,
+      approved: entries.filter(({ task, meta }) => meta.kind === "editor"
+        ? ["aprobado", "publicado"].includes(normalizeEditingWorkflowStatus(task.status))
+        : ["aprobado_internamente", "publicado"].includes(task.status),
+      ).length,
+    };
+  });
+};
+
+export const buildManagerKpiStats = ({
+  managers = [], clients = [], accountTasks = [], rankingPeriod = getKpiPeriod(),
+  today = getHondurasTodayStr(),
+} = {}) => {
   const inactiveClientIds = new Set(
     clients.filter((client) => client.isActive === false).map((client) => client.id),
   );
-
-  const stats = managers.map((manager) => {
-      const tasks = accountTasks.filter((task) => {
-        const isCompleted = isWorkflowCompleted(task.status);
-        const ownerId =
-          isCompleted && task.ownerAtCompletionId
-            ? task.ownerAtCompletionId
-            : task.contextId;
-        const taskDate = normalizeDateOnlyString(
-          isCompleted && task.dueDateAtCompletion
-            ? task.dueDateAtCompletion
-            : task.date,
-        );
-        const isInPeriod =
-          taskDate &&
-          compareDateOnlyStrings(taskDate, rankingPeriod.start) >= 0 &&
-          compareDateOnlyStrings(taskDate, rankingPeriod.end) <= 0;
-        const isUnreachablePending =
-          inactiveClientIds.has(task.clientId) && !isWorkflowCompleted(task.status);
-        return ownerId === manager.id && isInPeriod && !isUnreachablePending;
-      });
-      const completedTasks = tasks.filter((task) =>
-        ["aprobado_internamente", "publicado"].includes(task.status),
-      );
-      const measuredCompletions = completedTasks
-        .map((task) => ({ task, completedAt: getMeasuredCompletionIso(task) }))
-        .filter((item) => item.completedAt);
-      const onTimeCount = measuredCompletions.filter(({ task, completedAt }) => {
-        const dueDate = normalizeDateOnlyString(
-          task.dueDateAtCompletion || task.date,
-        );
-        const completedDate = getHondurasDateFromIso(completedAt);
-        return (
-          dueDate &&
-          completedDate &&
-          compareDateOnlyStrings(completedDate, dueDate) <= 0
-        );
-      }).length;
-      const completionPercent = tasks.length
-        ? Math.round((completedTasks.length / tasks.length) * 100)
-        : 0;
-      const onTimePercent = measuredCompletions.length
-        ? Math.round((onTimeCount / measuredCompletions.length) * 100)
-        : null;
-      const weightedTotal = tasks.reduce(
-        (sum, task) => sum + getAccountTaskWeight(task),
-        0,
-      );
-      const weightedCompleted = completedTasks.reduce(
-        (sum, task) => sum + getAccountTaskWeight(task),
-        0,
-      );
-      const weightedCompletionPercent = weightedTotal
-        ? Math.round((weightedCompleted / weightedTotal) * 100)
-        : 0;
-
-      return {
-        ...manager,
-        totalTasks: tasks.length,
-        completedTasks: completedTasks.length,
-        totalClients: new Set(tasks.map((task) => task.clientId).filter(Boolean)).size,
-        pendingTasks: tasks.length - completedTasks.length,
-        overdueTasks: tasks.filter(
-          (task) =>
-            !isWorkflowCompleted(task.status) &&
-            isDateBeforeDateString(task.date, today),
-        ).length,
-        measuredCompletionCount: measuredCompletions.length,
-        onTimeCount,
-        weightedTotal,
-        weightedCompleted,
-        weightedCompletionPercent,
-        completionPercent,
-        onTimePercent,
-      };
-    });
-  const qualifiedStats = stats.filter(
-    (item) => item.totalTasks >= KPI_MIN_TASKS,
-  );
-  const loadReference = Math.max(
-    1,
-    ...(qualifiedStats.length > 0 ? qualifiedStats : stats).map(
-      (item) => item.weightedCompleted,
+  const stats = buildTeamKpiStats({
+    people: managers,
+    tasks: accountTasks.filter((task) =>
+      !inactiveClientIds.has(task.clientId) || getKpiTaskMeta(task, "manager").completed,
     ),
+    kind: "manager", period: rankingPeriod, today,
+  }).map((item) => ({
+    ...item,
+    totalTasks: item.total,
+    completedTasks: item.completed,
+    totalClients: new Set(item.monthlyTasks.map((task) => task.clientId).filter(Boolean)).size,
+    pendingTasks: item.pending,
+    weightedCompletionPercent: item.completionPercent,
+  }));
+  const qualifiedStats = stats.filter((item) => item.qualified);
+  const loadReference = Math.max(1,
+    ...(qualifiedStats.length ? qualifiedStats : stats).map((item) => item.weightedCompleted),
   );
-
-  return stats
-    .map((item) => {
-      const loadPercent = Math.min(
-        100,
-        Math.round((item.weightedCompleted / loadReference) * 100),
-      );
-      const components = [
-        { value: item.weightedCompletionPercent, weight: 50 },
-        { value: loadPercent, weight: 20 },
-      ];
-      if (
-        item.onTimePercent !== null &&
-        item.measuredCompletionCount >= KPI_MIN_TIMED_TASKS
-      ) {
-        components.push({ value: item.onTimePercent, weight: 30 });
-      }
-      const activeWeight = components.reduce(
-        (sum, component) => sum + component.weight,
-        0,
-      );
-      const score = activeWeight
-        ? Math.round(
-            components.reduce(
-              (sum, component) => sum + component.value * component.weight,
-              0,
-            ) / activeWeight,
-          )
-        : 0;
-
-      return { ...item, loadPercent, score };
-    })
-    .sort(
-      (left, right) =>
-        Number(right.totalTasks >= KPI_MIN_TASKS) -
-          Number(left.totalTasks >= KPI_MIN_TASKS) ||
-        right.score - left.score ||
-        right.weightedCompleted - left.weightedCompleted ||
-        (right.onTimePercent ?? -1) - (left.onTimePercent ?? -1) ||
-        String(left.name || "").localeCompare(String(right.name || "")),
-    );
+  return stats.map((item) => ({
+    ...item,
+    loadPercent: Math.min(100, Math.round(item.weightedCompleted / loadReference * 100)),
+  })).sort((left, right) =>
+    Number(right.qualified) - Number(left.qualified) ||
+    right.score - left.score || right.weightedCompleted - left.weightedCompleted ||
+    (right.onTimePercent ?? -1) - (left.onTimePercent ?? -1) ||
+    String(left.name || "").localeCompare(String(right.name || "")),
+  );
 };
 
 const EDITING_DUE_BUCKET = { overdue: 0, today: 1, tomorrow: 2, later: 3 };

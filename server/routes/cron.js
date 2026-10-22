@@ -4,6 +4,7 @@ import { asyncHandler, createHttpError } from '../lib/http.js';
 import { processManagementTaskReminders } from '../lib/management-notifications.js';
 import { sendDailyRoleReports } from '../lib/daily-reports.js';
 import { sendWeeklyModuleReports } from '../lib/weekly-module-reports.js';
+import { purgeExpiredStoredAttachments } from '../lib/r2-retention.js';
 import { safeEqual } from '../lib/crypto.js';
 import { withCronLock } from '../lib/cron-lock.js';
 
@@ -51,9 +52,14 @@ const dailyRoleReports = jobHandler('daily-role-reports', () => sendDailyRoleRep
 const weeklyModuleReports = jobHandler('weekly-module-reports', () => sendWeeklyModuleReports({
     to: dailyReportRecipient()
 }));
+const purgeExpiredR2Attachments = jobHandler(
+    'purge-expired-r2-attachments',
+    purgeExpiredStoredAttachments
+);
 
 router.route('/management-task-reminders').get(managementTaskReminders).post(managementTaskReminders);
 router.route('/daily-role-reports').get(dailyRoleReports).post(dailyRoleReports);
 router.route('/weekly-module-reports').get(weeklyModuleReports).post(weeklyModuleReports);
+router.route('/purge-expired-r2-attachments').get(purgeExpiredR2Attachments).post(purgeExpiredR2Attachments);
 
 export default router;

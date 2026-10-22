@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
+import { createHttpError } from './http.js';
 
 const createAttachmentBuffer = (buffer, filename, contentType = 'application/pdf') => ({
     filename,
@@ -9,7 +10,12 @@ const createAttachmentBuffer = (buffer, filename, contentType = 'application/pdf
 
 let transporter = null;
 
-const hasSmtpConfig = () => Boolean(env.smtp.host && env.smtp.user && env.smtp.password);
+export const hasSmtpConfig = () => Boolean(env.smtp.host && env.smtp.user && env.smtp.password);
+
+export const shouldRequireSmtp = ({
+    isProduction = env.isProduction,
+    hasAttachments = false
+} = {}) => Boolean(isProduction || hasAttachments);
 
 const getTransporter = () => {
     if (!hasSmtpConfig()) return null;
@@ -42,23 +48,35 @@ export const sendEmail = async ({
     logLabel = 'email'
 }) => {
     const mailer = getTransporter();
+    const mustDeliver = shouldRequireSmtp({ hasAttachments: attachments.length > 0 });
     if (!mailer) {
-        console.info(`[${logLabel}:${to}] ${subject}`);
+        if (mustDeliver) {
+            throw createHttpError(503, 'SMTP no configurado.', 'email/not-configured');
+        }
+        console.info(`[${logLabel}:${Array.isArray(to) ? to.join(', ') : to}] ${subject}`);
         return { mode: 'console' };
     }
 
-    await mailer.sendMail({
-        from: env.smtp.from,
-        to,
-        subject,
-        html,
-        ...(attachments.length > 0 ? { attachments } : {})
-    });
+    try {
+        await mailer.sendMail({
+            from: env.smtp.from,
+            to: Array.isArray(to) ? to.filter(Boolean).join(', ') : to,
+            subject,
+            html,
+            ...(attachments.length > 0 ? { attachments } : {})
+        });
+    } catch (error) {
+        throw createHttpError(
+            502,
+            `No se pudo enviar el correo: ${error?.message || 'error SMTP'}.`,
+            'email/send-failed'
+        );
+    }
 
     return { mode: 'smtp' };
 };
 
-const buildManagementTaskEmail = ({
+export const buildManagementTaskEmail = ({
     variant,
     label,
     overdueHours,
@@ -67,6 +85,8 @@ const buildManagementTaskEmail = ({
     doneLabel = 'completada',
     assigneeName,
     assignedByName,
+    recipientName,
+    recipientRole = 'assignee',
     taskTitle,
     taskNotes,
     clientName,
@@ -74,14 +94,29 @@ const buildManagementTaskEmail = ({
     taskUrl
 }) => {
     const safeTitle = escapeHtml(taskTitle);
-    const safeName = escapeHtml(assigneeName || '');
+    const greetingSource = recipientName || (recipientRole === 'assignee' ? assigneeName : '') || '';
+    const safeName = escapeHtml(greetingSource);
     const safeAssignedBy = escapeHtml(assignedByName || '');
+    const safeAssignee = escapeHtml(assigneeName || '');
     const safeClient = clientName ? escapeHtml(clientName) : '';
     const safeNotes = taskNotes ? escapeHtml(taskNotes) : '';
     const safeDue = escapeHtml(dueHuman || '');
+    const hello = `Hola${safeName ? ` ${safeName}` : ''}`;
+    const taskPhrase = escapeHtml(taskTypeLabel);
+    const assignedByBit = safeAssignedBy ? ` asignada por <strong>${safeAssignedBy}</strong>` : '';
     const link = taskUrl
         ? `<p style="margin:16px 0;"><a href="${taskUrl}" style="background:#7c3aed;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700;">Abrir en Cluster OS</a></p>`
         : '';
+
+    const roleLead = (upcomingText) => {
+        if (recipientRole === 'assigner') {
+            return `${hello}, una ${taskPhrase} que asignaste ${upcomingText}`;
+        }
+        if (recipientRole === 'admin') {
+            return `${hello}, una ${taskPhrase} del equipo${assignedByBit} ${upcomingText}`;
+        }
+        return `${hello}, tenes una ${taskPhrase}${assignedByBit} ${upcomingText}`;
+    };
 
     let subject = '';
     let heading = '';
@@ -90,24 +125,30 @@ const buildManagementTaskEmail = ({
 
     if (variant === 'upcoming') {
         subject = `[Cluster OS] Tarea proxima a vencer (${label}): ${taskTitle}`;
-        heading = `Tu tarea esta por vencer en ${escapeHtml(label)}`;
-        lead = `Hola${safeName ? ` ${safeName}` : ''}, tenes una ${escapeHtml(taskTypeLabel)}${safeAssignedBy ? ` asignada por <strong>${safeAssignedBy}</strong>` : ''} que vence en <strong>${escapeHtml(label)}</strong>.`;
+        heading = `Tarea por vencer en ${escapeHtml(label)}`;
+        lead = roleLead(`vence en <strong>${escapeHtml(label)}</strong>.`);
         accent = '#f59e0b';
+    } else if (variant === 'upcoming-nag') {
+        subject = `[Cluster OS] Tarea proxima: ${taskTitle}`;
+        heading = 'Recordatorio: sigue proxima a vencer';
+        lead = `${roleLead(`sigue abierta y vence en <strong>${escapeHtml(label || 'unas horas')}</strong>.`)} Te seguiremos avisando hasta que se complete o venza.`;
+        accent = '#d97706';
     } else if (variant === 'overdue') {
         subject = `[Cluster OS] Tarea VENCIDA: ${taskTitle}`;
-        heading = 'Tu tarea acaba de vencer';
-        lead = `Hola${safeName ? ` ${safeName}` : ''}, la siguiente ${escapeHtml(taskTypeLabel)}${safeAssignedBy ? ` asignada por <strong>${safeAssignedBy}</strong>` : ''} ya paso su fecha limite y sigue pendiente.`;
+        heading = 'Tarea vencida';
+        lead = roleLead('ya paso su fecha limite y sigue pendiente.');
         accent = '#dc2626';
     } else {
         subject = `[Cluster OS] Tarea vencida hace ${overdueHours || 0}h: ${taskTitle}`;
         heading = `Recordatorio: sigue vencida hace ${overdueHours || 0}h`;
-        lead = `Hola${safeName ? ` ${safeName}` : ''}, esta ${escapeHtml(taskTypeLabel)}${safeAssignedBy ? ` asignada por <strong>${safeAssignedBy}</strong>` : ''} todavia sigue pendiente. Te enviaremos un aviso cada 24 h hasta que la marques como ${escapeHtml(doneLabel)}.`;
+        lead = `${roleLead('todavia sigue pendiente.')} Te enviaremos un aviso cada 24 h hasta que se marque como ${escapeHtml(doneLabel)}.`;
         accent = '#b91c1c';
     }
 
     const rows = [
         ['Tarea', `<strong>${safeTitle}</strong>`],
         ['Fecha limite', safeDue],
+        ...(safeAssignee ? [['Asignada a', safeAssignee]] : []),
         ...(safeAssignedBy ? [['Asignada por', safeAssignedBy]] : []),
         ...(safeClient ? [['Cliente', safeClient]] : []),
         ...(safeNotes ? [['Notas', safeNotes.replace(/\n/g, '<br>')]] : [])
@@ -148,17 +189,25 @@ export const sendManagementTaskReminderEmail = async (context = {}) => {
     });
 };
 
-export const sendDailyReportEmail = async ({ to, subject, editorPdf, accountPdf, generatedAt, periodLabel = '' }) => {
+export const sendDailyReportEmail = async ({
+    to,
+    subject,
+    generalPdf,
+    editorPdf,
+    accountPdf,
+    generatedAt,
+    periodLabel = ''
+}) => {
     const periodLine = periodLabel
         ? `<p style="margin:0 0 12px;color:#475569;">Periodo: <strong>${escapeHtml(periodLabel)}</strong></p>`
         : '';
     const html = `
         <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;padding:24px;background:#f8fafc;">
             <div style="background:#fff;border-radius:16px;padding:24px;border:1px solid #e2e8f0;">
-                <h2 style="margin:0 0 8px;color:#0f172a;">Resumen diario de Editores y Community Managers</h2>
+                <h2 style="margin:0 0 8px;color:#0f172a;">Rendimiento diario del equipo</h2>
                 ${periodLine}
-                <p style="margin:0 0 16px;color:#475569;">Se adjuntan dos PDFs con el rendimiento del periodo (solo tareas <strong>creadas</strong> entre 6:00 AM y 6:00 AM Honduras, y su estado actual), generado el ${escapeHtml(generatedAt)}.</p>
-                <p style="margin:0;color:#64748b;font-size:13px;">Este correo fue generado automáticamente por Cluster OS.</p>
+                <p style="margin:0 0 16px;color:#475569;">Se adjuntan PDFs con las tareas <strong>creadas y completadas el mismo dia</strong> (ventana 6:00 AM a 6:00 AM Honduras): informe general, editores y community managers. Generado el ${escapeHtml(generatedAt)}.</p>
+                <p style="margin:0;color:#64748b;font-size:13px;">Este correo fue generado automaticamente por Cluster OS.</p>
             </div>
         </div>
     `;
@@ -168,6 +217,7 @@ export const sendDailyReportEmail = async ({ to, subject, editorPdf, accountPdf,
         subject,
         html,
         attachments: [
+            ...(generalPdf ? [createAttachmentBuffer(generalPdf, 'rendimiento-general.pdf')] : []),
             ...(editorPdf ? [createAttachmentBuffer(editorPdf, 'resumen-editores.pdf')] : []),
             ...(accountPdf ? [createAttachmentBuffer(accountPdf, 'resumen-community-managers.pdf')] : [])
         ],
@@ -191,7 +241,7 @@ export const sendWeeklyModuleReportEmail = async ({
             <div style="background:#fff;border-radius:16px;padding:24px;border:1px solid #e2e8f0;">
                 <h2 style="margin:0 0 8px;color:#0f172a;">Resumen semanal de Podcast y Producción</h2>
                 ${periodLine}
-                <p style="margin:0 0 16px;color:#475569;">Se adjuntan dos PDFs con las tareas <strong>creadas y finalizadas</strong> (columna listo) entre lunes 6:00 AM y sábado 12:00 mediodía Honduras, generado el ${escapeHtml(generatedAt)}.</p>
+                <p style="margin:0 0 16px;color:#475569;">Se adjuntan dos PDFs con las tareas pasadas a <strong>listo</strong> entre lunes 6:00 AM y sábado 12:00 mediodía Honduras, generado el ${escapeHtml(generatedAt)}.</p>
                 <p style="margin:0;color:#64748b;font-size:13px;">Este correo fue generado automáticamente por Cluster OS.</p>
             </div>
         </div>

@@ -1,7 +1,8 @@
-import PDFDocument from 'pdfkit';
 import { listRecords } from './records.js';
 import { sendWeeklyModuleReportEmail } from './email.js';
+import { collectReportRecipientEmails } from './permissions.js';
 import { nowIso } from './time.js';
+import { createPdfDocument } from './pdf.js';
 
 const HONDURAS_TIMEZONE = 'America/Tegucigalpa';
 const HONDURAS_OFFSET = '-06:00';
@@ -213,7 +214,6 @@ export const summarizeModuleWeek = ({
     for (const item of itemList) {
         if (!isModuleItem(item, moduleKey)) continue;
         if (!isReadyStatus(item._taskType, item.status)) continue;
-        if (!isTimestampInWindow(item.createdAt || '', window)) continue;
         const completionIso = getTaskCompletionIso(item);
         if (!isTimestampInWindow(completionIso, window)) continue;
 
@@ -265,7 +265,7 @@ export const summarizeModuleWeek = ({
 };
 
 const buildPdfBuffer = async ({ title, people, totals, generatedAt, periodLabel }) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const doc = createPdfDocument();
     const chunks = [];
     doc.on('data', (chunk) => chunks.push(chunk));
 
@@ -277,7 +277,7 @@ const buildPdfBuffer = async ({ title, people, totals, generatedAt, periodLabel 
         doc.fontSize(10).fillColor('#64748b').text(`Periodo: ${periodLabel}`, { align: 'left' });
         doc.moveDown(0.2);
         doc.fontSize(10).fillColor('#64748b').text(
-            'Tareas creadas y finalizadas (columna listo) en el periodo',
+            'Tareas pasadas a listo en el periodo',
             { align: 'left' }
         );
         doc.moveDown(1);
@@ -349,29 +349,18 @@ export const buildWeeklyModuleReportPdf = async ({
     periodLabel = ''
 }) => buildPdfBuffer({ title, people, totals, generatedAt, periodLabel });
 
-export const sendWeeklyModuleReports = async ({ to = '' } = {}) => {
-    const recipient = String(to || '').trim();
-    if (!recipient) throw new Error('Falta el destinatario del reporte semanal.');
-    const now = Date.now();
-    if (!shouldSendWeeklyModuleReport(new Date(now))) {
-        return {
-            ok: true,
-            skipped: true,
-            reason: 'no-sabado',
-            generatedAt: nowIso(),
-            to: recipient
-        };
-    }
-
+export const buildWeeklyModuleReports = async ({ now = Date.now() } = {}) => {
     const generatedAt = nowIso();
     const editors = await listRecords({ collectionName: 'editors' });
     const managers = await listRecords({ collectionName: 'managers' });
     const people = mergeRosterPeople(editors, managers);
 
+    const window = getWeeklyModuleReportWindow(now);
+    const updatedFrom = new Date(window.startMs - DAY_MS).toISOString();
     const [events, accountTasks, editingTasks] = await Promise.all([
-        listRecords({ collectionName: 'events' }),
-        listRecords({ collectionName: 'account_tasks' }),
-        listRecords({ collectionName: 'editing' })
+        listRecords({ collectionName: 'events', updatedFrom }),
+        listRecords({ collectionName: 'account_tasks', updatedFrom }),
+        listRecords({ collectionName: 'editing', updatedFrom })
     ]);
 
     const items = normalizeItemsWithType(events, accountTasks, editingTasks);
@@ -391,39 +380,74 @@ export const sendWeeklyModuleReports = async ({ to = '' } = {}) => {
     });
 
     const periodLabel = podcastSummary.window?.periodLabel
-        || getWeeklyModuleReportWindow(now).periodLabel;
+        || window.periodLabel;
 
-    const podcastPdf = await buildWeeklyModuleReportPdf({
-        title: 'Resumen semanal de Podcast',
-        people: podcastSummary.people,
-        totals: podcastSummary.totals,
+    const [podcastPdf, productionPdf] = await Promise.all([
+        buildWeeklyModuleReportPdf({
+            title: 'Resumen semanal de Podcast',
+            people: podcastSummary.people,
+            totals: podcastSummary.totals,
+            generatedAt,
+            periodLabel
+        }),
+        buildWeeklyModuleReportPdf({
+            title: 'Resumen semanal de Producción',
+            people: productionSummary.people,
+            totals: productionSummary.totals,
+            generatedAt,
+            periodLabel
+        })
+    ]);
+
+    return {
         generatedAt,
-        periodLabel
-    });
+        periodLabel,
+        window,
+        podcast: podcastSummary,
+        production: productionSummary,
+        pdfs: {
+            podcast: podcastPdf,
+            production: productionPdf
+        }
+    };
+};
 
-    const productionPdf = await buildWeeklyModuleReportPdf({
-        title: 'Resumen semanal de Producción',
-        people: productionSummary.people,
-        totals: productionSummary.totals,
-        generatedAt,
-        periodLabel
-    });
+export const sendWeeklyModuleReports = async ({ to = '' } = {}) => {
+    const recipient = String(to || '').trim();
+    if (!recipient) throw new Error('Falta el destinatario del reporte semanal.');
+    const now = Date.now();
+    if (!shouldSendWeeklyModuleReport(new Date(now))) {
+        return {
+            ok: true,
+            skipped: true,
+            reason: 'no-sabado',
+            generatedAt: nowIso(),
+            to: recipient
+        };
+    }
 
-    await sendWeeklyModuleReportEmail({
-        to: recipient,
+    const users = await listRecords({ collectionName: 'users' });
+    const recipients = collectReportRecipientEmails({
+        users,
+        extraEmails: [recipient]
+    });
+    const bundle = await buildWeeklyModuleReports({ now });
+    const delivery = await sendWeeklyModuleReportEmail({
+        to: recipients,
         subject: 'Resumen semanal de Podcast y Producción',
-        podcastPdf,
-        productionPdf,
-        generatedAt,
-        periodLabel
+        podcastPdf: bundle.pdfs.podcast,
+        productionPdf: bundle.pdfs.production,
+        generatedAt: bundle.generatedAt,
+        periodLabel: bundle.periodLabel
     });
 
     return {
         ok: true,
-        to: recipient,
-        generatedAt,
-        periodLabel,
-        podcast: podcastSummary.totals,
-        production: productionSummary.totals
+        to: recipients.join(', '),
+        generatedAt: bundle.generatedAt,
+        periodLabel: bundle.periodLabel,
+        delivery: delivery.mode,
+        podcast: bundle.podcast.totals,
+        production: bundle.production.totals
     };
 };

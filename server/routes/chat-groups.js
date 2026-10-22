@@ -13,13 +13,14 @@ import { nowIso } from '../lib/time.js';
 const router = Router();
 
 const loadChatGroupContext = async () => {
-    const [clients, messages, membershipRecords, users, managers, editors] = await Promise.all([
+    const [clients, messages, membershipRecords, users, managers, editors, teamGroups] = await Promise.all([
         listRecords({ collectionName: 'clients' }),
         listRecords({ collectionName: 'client_chats' }),
         listRecords({ collectionName: 'chat_group_memberships' }),
         listRecords({ collectionName: 'users' }),
         listRecords({ collectionName: 'managers' }),
-        listRecords({ collectionName: 'editors' })
+        listRecords({ collectionName: 'editors' }),
+        listRecords({ collectionName: 'team_groups' })
     ]);
     return {
         clients,
@@ -28,7 +29,8 @@ const loadChatGroupContext = async () => {
         users,
         managers,
         editors,
-        ...buildChatGroups({ clients, messages, membershipRecords, users, managers, editors })
+        teamGroups,
+        ...buildChatGroups({ clients, messages, membershipRecords, users, managers, editors, teamGroups })
     };
 };
 
@@ -58,18 +60,19 @@ router.get('/', asyncHandler(async (req, res) => {
 
 router.put('/:clientId/members', asyncHandler(async (req, res) => {
     const userRecord = requireAuthenticatedUser(req);
+    requireChatAccess(userRecord);
     const clientId = String(req.params.clientId || '').trim();
-    if (!canManageChatGroups(userRecord)) {
-        throw createHttpError(403, 'Solo managers y superadmins pueden administrar integrantes.', 'chat-groups/manage-forbidden');
-    }
     if (!clientId || !(await getRecord({ collectionName: 'clients', recordId: clientId }))) {
         throw createHttpError(404, 'El grupo no existe.', 'chat-groups/not-found');
     }
 
     const context = await loadChatGroupContext();
     const group = context.groups.find((item) => item.clientId === clientId);
+    if (!Array.isArray(req.body?.memberIds)) {
+        throw createHttpError(400, 'La lista de integrantes no es valida.', 'chat-groups/invalid-members');
+    }
     const requestedIds = [...new Set(
-        (Array.isArray(req.body?.memberIds) ? req.body.memberIds : [])
+        req.body.memberIds
             .map((value) => String(value || '').trim())
             .filter(Boolean)
     )];
@@ -90,6 +93,12 @@ router.put('/:clientId/members', asyncHandler(async (req, res) => {
         currentMemberIds: group?.memberIds || [],
         nextMemberIds: requestedIds
     });
+    if (changeError === 'membership-required') {
+        throw createHttpError(403, 'No perteneces a este grupo.', 'chat-groups/membership-required');
+    }
+    if (changeError === 'remove-forbidden') {
+        throw createHttpError(403, 'Solo managers y superadmins pueden quitar integrantes.', 'chat-groups/remove-forbidden');
+    }
     if (changeError === 'manager-cannot-leave') {
         throw createHttpError(403, 'Los managers no pueden salir por si mismos del grupo.', 'chat-groups/manager-cannot-leave');
     }

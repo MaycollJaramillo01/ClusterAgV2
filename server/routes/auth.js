@@ -5,7 +5,7 @@ import { asyncHandler, createHttpError } from '../lib/http.js';
 import { randomToken, signPayload, verifySignedPayload } from '../lib/crypto.js';
 import { addMinutesToIso, isIsoExpired, nowIso } from '../lib/time.js';
 import { normalizeEmail } from '../lib/text.js';
-import { createSession, clearSession } from '../lib/sessions.js';
+import { createSession, clearSession, markCurrentSessionDisconnected } from '../lib/sessions.js';
 import { ensureAuthUserRecord } from '../lib/users.js';
 import { verifyFirebaseIdToken } from '../lib/firebase-admin.js';
 import { getLocalGoogleCallbackUrl, getRequestOrigin, isLocalOrigin } from '../lib/request-origin.js';
@@ -105,6 +105,11 @@ router.get('/session', asyncHandler(async (req, res) => {
 router.post('/logout', asyncHandler(async (req, res) => {
     await clearSession({ req, res });
     res.json({ ok: true });
+}));
+
+router.post('/presence/disconnect', asyncHandler(async (req, res) => {
+    await markCurrentSessionDisconnected(req);
+    res.status(204).end();
 }));
 
 router.post('/token/exchange', asyncHandler(async (req, res) => {

@@ -383,7 +383,7 @@ test('referenced records cannot be deleted directly or through a batch', async (
         method: 'DELETE'
     });
     assert.equal(direct.status, 409);
-    assert.equal(direct.payload?.error?.code, 'document/in-use');
+    assert.equal(direct.payload?.error?.code, 'document/must-deactivate');
 
     const batched = await request('/api/collections/_batch', {
         token: operationsToken,
@@ -397,8 +397,53 @@ test('referenced records cannot be deleted directly or through a batch', async (
         }
     });
     assert.equal(batched.status, 409);
-    assert.equal(batched.payload?.error?.code, 'document/in-use');
+    assert.equal(batched.payload?.error?.code, 'document/must-deactivate');
     assert.ok(await getRecord({ collectionName: 'clients', recordId: 'client-1' }));
+});
+
+test('inactive clients can be deleted even with chat history', async () => {
+    await upsertRecord({
+        collectionName: 'clients',
+        recordId: 'client-1',
+        payload: { name: 'Cliente de prueba', status: 'Inactivo' }
+    });
+    const deleted = await request('/api/collections/clients/client-1', {
+        token: operationsToken,
+        method: 'DELETE'
+    });
+    assert.equal(deleted.status, 200);
+    assert.equal(await getRecord({ collectionName: 'clients', recordId: 'client-1' }), null);
+    await createRecord({
+        collectionName: 'clients',
+        recordId: 'client-1',
+        payload: { name: 'Cliente de prueba' }
+    });
+});
+
+test('inactive users can be deleted after deactivation', async () => {
+    await createRecord({
+        collectionName: 'users',
+        recordId: 'inactive-user',
+        payload: {
+            name: 'Ex integrante',
+            email: 'ex@example.test',
+            role: 'viewer',
+            isActive: false
+        }
+    });
+    const activeBlocked = await request('/api/collections/users/viewer', {
+        token: operationsToken,
+        method: 'DELETE'
+    });
+    assert.equal(activeBlocked.status, 409);
+    assert.equal(activeBlocked.payload?.error?.code, 'document/must-deactivate');
+
+    const deleted = await request('/api/collections/users/inactive-user', {
+        token: operationsToken,
+        method: 'DELETE'
+    });
+    assert.equal(deleted.status, 200);
+    assert.equal(await getRecord({ collectionName: 'users', recordId: 'inactive-user' }), null);
 });
 
 test('quien puede crear eventos tambien puede moverlos en Produccion', async () => {
@@ -493,6 +538,82 @@ test('management tasks reject an empty title', async () => {
     });
     assert.equal(response.status, 400);
     assert.equal(response.payload?.error?.code, 'management_tasks/title-required');
+});
+
+test('chat members of every chat role can add participants without removing others', async () => {
+    await createRecord({
+        collectionName: 'users',
+        recordId: 'management-member',
+        payload: { name: 'Gestion', email: 'gestion@example.test', role: 'management', isActive: true }
+    });
+    const managementToken = await createToken('management-member');
+    await createRecord({
+        collectionName: 'clients',
+        recordId: 'client-members',
+        payload: { name: 'Grupo con todos los roles' }
+    });
+    const memberIds = ['editor', 'operations', 'management-member'];
+    await createRecord({
+        collectionName: 'chat_group_memberships',
+        recordId: 'client-members',
+        payload: { clientId: 'client-members', memberIds, managed: true }
+    });
+
+    assert.equal((await request('/api/chat-groups/client-members/members', {
+        method: 'PUT', body: { memberIds }
+    })).status, 401);
+    // No se permite que una persona se una agregandose a la lista.
+    const outside = await request('/api/chat-groups/client-1/members', {
+        token: editorToken, method: 'PUT', body: { memberIds: ['viewer', 'editor'] }
+    });
+    assert.equal(outside.status, 403);
+    assert.equal(outside.payload?.error?.code, 'chat-groups/membership-required');
+
+    for (const [token, newMemberId] of [
+        [editorToken, 'manager'],
+        [operationsToken, 'super-admin'],
+        [managementToken, 'viewer']
+    ]) {
+        memberIds.push(newMemberId);
+        const added = await request('/api/chat-groups/client-members/members', {
+            token, method: 'PUT', body: { memberIds }
+        });
+        assert.equal(added.status, 200);
+        assert.deepEqual(added.payload?.group?.memberIds, memberIds);
+        const removed = await request('/api/chat-groups/client-members/members', {
+            token, method: 'PUT', body: { memberIds: memberIds.filter((id) => id !== 'editor') }
+        });
+        assert.equal(removed.status, 403);
+        assert.equal(removed.payload?.error?.code, 'chat-groups/remove-forbidden');
+    }
+    assert.equal((await request('/api/chat-groups/client-members/members', {
+        token: editorToken, method: 'PUT', body: { memberIds: [...memberIds, 'unknown-user'] }
+    })).status, 400);
+    assert.equal((await request('/api/chat-groups/client-members/members', {
+        token: editorToken, method: 'PUT', body: {}
+    })).status, 400);
+    assert.deepEqual((await getRecord({
+        collectionName: 'chat_group_memberships', recordId: 'client-members'
+    })).memberIds, memberIds);
+
+    // Los grupos internos comparten el selector y ya admiten cambios por estos roles.
+    await createRecord({
+        collectionName: 'team_groups',
+        recordId: 'team-members',
+        payload: { name: 'Equipo', memberIds: ['editor', 'operations', 'management-member'] }
+    });
+    const teamIds = ['editor', 'operations', 'management-member'];
+    for (const [token, newMemberId] of [
+        [editorToken, 'manager'], [operationsToken, 'super-admin'], [managementToken, 'viewer']
+    ]) {
+        teamIds.push(newMemberId);
+        assert.equal((await request('/api/collections/team_groups/team-members', {
+            token, method: 'PATCH', body: { data: { memberIds: teamIds } }
+        })).status, 200);
+    }
+    assert.deepEqual((await getRecord({
+        collectionName: 'team_groups', recordId: 'team-members'
+    })).memberIds, teamIds);
 });
 
 test('chat groups derive members and enforce manager and superadmin rules', async () => {
@@ -605,12 +726,47 @@ test('notifications require a session and a known active recipient', async () =>
 
 test('editor performance report is protected and database portable', async () => {
     assert.equal((await request('/api/reports/rendimiento-editores')).status, 401);
+    assert.equal((await request('/api/reports/rendimiento-diario.pdf')).status, 401);
+    assert.equal((await request('/api/reports/rendimiento-semanal.pdf')).status, 401);
     assert.equal((await request('/api/reports/rendimiento-editores', { token: viewerToken })).status, 403);
+
+    await createRecord({
+        collectionName: 'users',
+        recordId: 'developer-without-session',
+        payload: {
+            name: 'Leandro Matias',
+            email: 'leandro@example.test',
+            role: 'super_admin',
+            isActive: true,
+            lastDisconnectedAt: '2026-08-07T15:30:00.000Z',
+            lastSeenAt: '2026-08-07T15:30:00.000Z'
+        }
+    });
 
     const response = await request('/api/reports/rendimiento-editores', { token: operationsToken });
     assert.equal(response.status, 200);
     assert.equal(response.payload?.success, true);
     assert.ok(response.payload?.data?.some((item) => item.email === 'viewer@example.test'));
+    assert.ok(response.payload?.data?.some((item) => (
+        item.nombre === 'Leandro Matias'
+        && item.ultima_desconexion === '2026-08-07T15:30:00.000Z'
+    )));
+});
+
+test('presence records disconnection time without requiring a new Google login', async () => {
+    const response = await request('/api/auth/presence/disconnect', {
+        token: viewerToken,
+        method: 'POST'
+    });
+    assert.equal(response.status, 204);
+
+    const viewer = await getRecord({ collectionName: 'users', recordId: 'viewer' });
+    assert.ok(Number.isFinite(Date.parse(viewer.lastDisconnectedAt)));
+    assert.equal(viewer.lastSeenAt, viewer.lastDisconnectedAt);
+
+    const sessionResponse = await request('/api/auth/session', { token: viewerToken });
+    assert.equal(sessionResponse.status, 200);
+    assert.equal(sessionResponse.payload?.user?.email, 'viewer@example.test');
 });
 
 test('OAuth web redirects stay on the application origin', () => {

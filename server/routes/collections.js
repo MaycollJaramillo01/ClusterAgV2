@@ -1,7 +1,7 @@
 import express from 'express';
 import { db } from '../db/knex.js';
 import { asyncHandler, createHttpError } from '../lib/http.js';
-import { getCollectionPermission, hasPermission } from '../lib/permissions.js';
+import { assertTaskPrivilegedFields, getCollectionPermission, hasPermission, normalizePermissionPacks } from '../lib/permissions.js';
 import {
     createRecord,
     deleteRecord,
@@ -20,6 +20,9 @@ import { sendClientChatPush } from '../lib/push-notifications.js';
 import { buildChatGroups, canManageChatGroups } from '../lib/chat-groups.js';
 import { nowIso } from '../lib/time.js';
 import { writeAuditLog } from '../lib/audit.js';
+import { MAX_ATTACHMENT_COUNT, sanitizeAttachments } from '../lib/attachments.js';
+import { normalizeClientPriority } from '../lib/client-priority.js';
+import { normalizeTaskAssignees } from '../lib/task-assignees.js';
 
 const router = express.Router();
 
@@ -67,32 +70,6 @@ const VALID_USER_ROLES = new Set([
 ]);
 const MAX_BATCH_OPERATIONS = 100;
 const MAX_RECORD_BYTES = 5 * 1024 * 1024;
-const MAX_EMBEDDED_ATTACHMENT_BYTES = 3 * 1024 * 1024;
-const MAX_ATTACHMENT_COUNT = 10;
-const ALLOWED_ATTACHMENT_TYPES = new Set([
-    'image/gif',
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'audio/mpeg',
-    'audio/mp4',
-    'audio/ogg',
-    'audio/wav',
-    'audio/webm',
-    'video/mp4',
-    'video/quicktime',
-    'video/webm',
-    'application/pdf',
-    'application/zip',
-    'application/msword',
-    'application/vnd.ms-excel',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'text/csv',
-    'text/plain'
-]);
 const DEFAULT_LIMIT_BY_COLLECTION = {
     client_chats: 1_000,
     chat_stickers: 200,
@@ -122,51 +99,6 @@ const assertPayload = (value) => {
         throw createHttpError(413, 'El documento supera el limite de 5 MB.', 'document/too-large');
     }
     return value;
-};
-
-const sanitizeEmbeddedAttachments = (value) => {
-    if (!Array.isArray(value) || value.length > MAX_ATTACHMENT_COUNT) {
-        throw createHttpError(400, 'Los adjuntos deben ser una lista de hasta 10 archivos.', 'attachment/invalid-list');
-    }
-
-    let totalBytes = 0;
-    const attachments = value.map((attachment, index) => {
-        if (!attachment || typeof attachment !== 'object' || Array.isArray(attachment)) {
-            throw createHttpError(400, 'El adjunto no es valido.', 'attachment/invalid');
-        }
-        const name = String(attachment.name || `archivo-${index + 1}`).trim().slice(0, 180);
-        const type = String(attachment.type || '').trim().toLowerCase();
-        const data = String(attachment.data || '');
-        if (!name || !ALLOWED_ATTACHMENT_TYPES.has(type)) {
-            throw createHttpError(400, 'El tipo de archivo no esta permitido.', 'attachment/type-denied');
-        }
-
-        const match = data.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
-        if (!match || match[1].toLowerCase() !== type) {
-            throw createHttpError(400, 'El contenido del adjunto no es valido.', 'attachment/invalid-data');
-        }
-        const decoded = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
-        if (decoded.length === 0) {
-            throw createHttpError(400, 'El adjunto esta vacio.', 'attachment/empty');
-        }
-        totalBytes += decoded.length;
-        if (totalBytes > MAX_EMBEDDED_ATTACHMENT_BYTES) {
-            throw createHttpError(413, 'Los adjuntos superan el limite total de 3 MB.', 'attachment/too-large');
-        }
-
-        const duration = Number(attachment.duration);
-        return {
-            id: String(attachment.id || `attachment-${index + 1}`).trim().slice(0, 120),
-            name,
-            type,
-            size: decoded.length,
-            data,
-            ...(Number.isFinite(duration) && duration >= 0 && duration <= 86_400
-                ? { duration }
-                : {})
-        };
-    });
-    return attachments;
 };
 
 const isOwnedByActor = (record, actor) => (
@@ -229,19 +161,42 @@ const validateReferences = async ({ collectionName, existing = null, payload, tr
         if (existing && String(record[field] ?? '') === String(existing[field] ?? '')) return;
         const recordId = String(record[field] || '');
         if (!recordId) return;
+        await requireReferenceValue(recordId, collections);
+    };
+
+    const requireReferenceValue = async (recordId, collections) => {
+        const id = String(recordId || '').trim();
+        if (!id) return;
         for (const name of collections) {
-            if (await getRecord({ collectionName: name, recordId, trx })) return;
+            if (await getRecord({ collectionName: name, recordId: id, trx })) return;
         }
-        throw createHttpError(400, `La referencia ${field} no existe.`, 'document/invalid-reference');
+        throw createHttpError(400, `La referencia ${id} no existe.`, 'document/invalid-reference');
     };
 
     if (TASK_COLLECTIONS.has(collectionName)) {
         await requireReference('clientId', ['clients']);
         await requireReference('contextId', PEOPLE_COLLECTIONS);
         await requireReference('assigneeUserId', PEOPLE_COLLECTIONS);
+        const existingAssigneeIds = new Set([
+            ...(Array.isArray(existing?.assignees) ? existing.assignees : []),
+            existing?.contextId,
+            existing?.assigneeUserId
+        ].map((value) => String(value || '')).filter(Boolean));
+        for (const assigneeId of (Array.isArray(record.assignees) ? record.assignees : [])) {
+            if (existing && existingAssigneeIds.has(String(assigneeId))) continue;
+            await requireReferenceValue(assigneeId, PEOPLE_COLLECTIONS);
+        }
     }
     if (collectionName === 'clients') {
         await requireReference('managerId', ['managers']);
+    }
+    if (collectionName === 'client_chats' && (record.kind === 'team_group' || existing?.kind === 'team_group')) {
+        await requireReference('clientId', ['team_groups']);
+    }
+    if (collectionName === 'team_groups') {
+        for (const memberId of (Array.isArray(record.memberIds) ? record.memberIds : [])) {
+            await requireReferenceValue(memberId, PEOPLE_COLLECTIONS);
+        }
     }
     if (collectionName === 'managers' || collectionName === 'editors') {
         await requireReference('userId', ['users']);
@@ -298,6 +253,28 @@ const assertRecordIsNotReferenced = async ({ collectionName, recordId, trx }) =>
             );
         }
     }
+};
+
+const isInactiveUserRecord = (record = {}) => record?.isActive === false;
+const isInactiveClientRecord = (record = {}) => String(record?.status || 'Activo') === 'Inactivo';
+
+const assertRecordCanBeDeleted = async ({ collectionName, record, recordId, actor, trx }) => {
+    if (collectionName === 'users') {
+        if (String(recordId) === String(actor?.id || '')) {
+            throw createHttpError(409, 'No puedes eliminar tu propio usuario.', 'document/cannot-delete-self');
+        }
+        if (!isInactiveUserRecord(record)) {
+            throw createHttpError(409, 'Desactiva el usuario antes de eliminarlo.', 'document/must-deactivate');
+        }
+        return;
+    }
+    if (collectionName === 'clients') {
+        if (!isInactiveClientRecord(record)) {
+            throw createHttpError(409, 'Marca el cliente como inactivo antes de eliminarlo.', 'document/must-deactivate');
+        }
+        return;
+    }
+    await assertRecordIsNotReferenced({ collectionName, recordId, trx });
 };
 
 const ensureCollectionPermission = (req, action) => {
@@ -427,13 +404,14 @@ const loadChatGroupAccess = async (
     if (canAccessAll && !includeContext) {
         return { canAccessAll: true, clientIds: new Set(), context: null };
     }
-    const [clients, allMessages, membershipRecords, users, managers, editors] = await Promise.all([
+    const [clients, allMessages, membershipRecords, users, managers, editors, teamGroups] = await Promise.all([
         listRecords({ collectionName: 'clients' }),
         messages ? Promise.resolve(messages) : listRecords({ collectionName: 'client_chats' }),
         listRecords({ collectionName: 'chat_group_memberships' }),
         listRecords({ collectionName: 'users' }),
         listRecords({ collectionName: 'managers' }),
-        listRecords({ collectionName: 'editors' })
+        listRecords({ collectionName: 'editors' }),
+        listRecords({ collectionName: 'team_groups' })
     ]);
     const context = buildChatGroups({
         clients,
@@ -441,7 +419,8 @@ const loadChatGroupAccess = async (
         membershipRecords,
         users,
         managers,
-        editors
+        editors,
+        teamGroups
     });
     const actorId = context.resolvePersonId({
         id: userRecord?.id,
@@ -513,12 +492,16 @@ const isOwnedChange = (change, userRecord) => {
     return Boolean(userId && (recordId.startsWith(`${userId}__`) || recordId.endsWith(`__${userId}`)));
 };
 
-const prepareCollectionPayload = ({ collectionName, payload, existing = null, actor = null, isCreate = false }) => {
+const prepareCollectionPayload = ({ collectionName, payload, existing = null, actor = null, isCreate = false, recordId = null }) => {
     let safePayload = assertPayload(payload || {});
     if (Object.hasOwn(safePayload, 'attachments')) {
         safePayload = {
             ...safePayload,
-            attachments: sanitizeEmbeddedAttachments(safePayload.attachments)
+            attachments: sanitizeAttachments(safePayload.attachments, {
+                collectionName,
+                recordId: recordId || existing?.id || null,
+                clientId: existing?.clientId || safePayload.clientId || null
+            })
         };
     }
     const stamp = nowIso();
@@ -542,8 +525,16 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         if (!title) {
             throw createHttpError(400, 'El titulo de la tarea es obligatorio.', 'task/title-required');
         }
+        const assignerName = String(actor?.name || actor?.email || existing?.assignedByName || '').trim();
+        const shouldStampAssigner = isCreate || !String(existing?.assignedByEmail || '').trim();
         return {
             ...safePayload,
+            ...normalizeTaskAssignees(safePayload, existing),
+            ...(shouldStampAssigner ? {
+                assignedByUserId: actor?.id || existing?.assignedByUserId || '',
+                assignedByName: assignerName || 'Sistema',
+                assignedByEmail: normalizeEmail(actor?.email || existing?.assignedByEmail || '')
+            } : {}),
             title,
             createdAt: existing?.createdAt || safePayload.createdAt || stamp,
             updatedAt: stamp
@@ -557,6 +548,34 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         return {
             ...safePayload,
             name,
+            priorityFlag: normalizeClientPriority(
+                Object.hasOwn(safePayload, 'priorityFlag')
+                    ? safePayload.priorityFlag
+                    : (existing?.priorityFlag || existing?.priority)
+            ),
+            createdAt: existing?.createdAt || safePayload.createdAt || stamp,
+            updatedAt: stamp
+        };
+    }
+    if (collectionName === 'team_groups') {
+        const name = String(safePayload.name ?? existing?.name ?? '').trim();
+        const memberIds = [...new Set(
+            (Array.isArray(safePayload.memberIds) ? safePayload.memberIds : (existing?.memberIds || []))
+                .map((id) => String(id || '').trim())
+                .filter(Boolean)
+        )];
+        if (!name) {
+            throw createHttpError(400, 'El nombre del grupo es obligatorio.', 'team-groups/name-required');
+        }
+        if (memberIds.length < 1) {
+            throw createHttpError(400, 'El grupo debe tener al menos un integrante.', 'team-groups/members-required');
+        }
+        return {
+            ...safePayload,
+            name: name.slice(0, 80),
+            memberIds,
+            createdById: existing?.createdById || actor?.id || '',
+            createdByName: existing?.createdByName || actor?.name || '',
             createdAt: existing?.createdAt || safePayload.createdAt || stamp,
             updatedAt: stamp
         };
@@ -594,8 +613,12 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         if (call && !/^[A-Za-z0-9_-]{3,120}$/.test(String(call.roomId || ''))) {
             throw createHttpError(400, 'La sala de llamada no es valida.', 'chat/invalid-call-room');
         }
+        const kind = String(safePayload.kind || existing?.kind || 'client') === 'team_group'
+            ? 'team_group'
+            : 'client';
         return {
             ...safePayload,
+            kind,
             text: text.slice(0, 20_000),
             attachments,
             mentionedIds: normalizeMentionIds(safePayload.mentionedIds ?? existing?.mentionedIds),
@@ -659,6 +682,9 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
             email: targetEmail,
             role,
             isActive: nextPayload.isActive !== false,
+            ...(Object.hasOwn(nextPayload, 'permissionPacks')
+                ? { permissionPacks: normalizePermissionPacks(nextPayload.permissionPacks) }
+                : {}),
             createdAt: existing?.createdAt || nextPayload.createdAt || stamp,
             updatedAt: stamp
         };
@@ -723,7 +749,13 @@ router.post('/_batch', asyncHandler(async (req, res) => {
                 if (!existing) {
                     throw createHttpError(404, 'El documento no existe.', 'document/not-found');
                 }
-                await assertRecordIsNotReferenced({ collectionName, recordId, trx });
+                await assertRecordCanBeDeleted({
+                    collectionName,
+                    record: existing,
+                    recordId,
+                    actor,
+                    trx
+                });
                 await deleteRecord({
                     collectionName,
                     recordId,
@@ -737,10 +769,19 @@ router.post('/_batch', asyncHandler(async (req, res) => {
                 throw createHttpError(404, 'El documento no existe.', 'document/not-found');
             }
 
+            const incoming = assertPayload(operation.data || {});
             const payload = prepareCollectionPayload({
                 collectionName,
-                payload: assertPayload(operation.data || {}),
+                payload: incoming,
                 existing,
+                actor,
+                isCreate: !existing,
+                recordId
+            });
+            assertTaskPrivilegedFields({
+                collectionName,
+                existing,
+                incoming,
                 actor,
                 isCreate: !existing
             });
@@ -908,7 +949,8 @@ router.post('/:collectionName', asyncHandler(async (req, res) => {
         collectionName,
         payload: rawPayload,
         actor: userRecord,
-        isCreate: true
+        isCreate: true,
+        recordId
     });
     if (collectionName === 'users') {
         await validateUserMutation({ payload, recordId });
@@ -931,13 +973,16 @@ router.post('/:collectionName', asyncHandler(async (req, res) => {
         return created;
     });
     if (collectionName === 'client_chats') {
-        const client = await getRecord({
+        const conversation = await getRecord({
             collectionName: 'clients',
+            recordId: record.clientId
+        }) || await getRecord({
+            collectionName: 'team_groups',
             recordId: record.clientId
         });
         await sendClientChatPush({
             message: record,
-            clientName: client?.name || 'Cliente'
+            clientName: conversation?.name || 'Chat'
         }).catch((error) => console.warn('[push]', error?.message || error));
     }
     res.status(201).json({ record });
@@ -964,6 +1009,14 @@ router.put('/:collectionName/:recordId', asyncHandler(async (req, res) => {
         collectionName,
         payload: selfEdit ? pickSelfProfileFields(rawPayload) : rawPayload,
         existing,
+        actor: userRecord,
+        isCreate: !existing,
+        recordId
+    });
+    assertTaskPrivilegedFields({
+        collectionName,
+        existing,
+        incoming: rawPayload,
         actor: userRecord,
         isCreate: !existing
     });
@@ -1006,6 +1059,14 @@ router.patch('/:collectionName/:recordId', asyncHandler(async (req, res) => {
         collectionName,
         payload: selfEdit ? pickSelfProfileFields(rawPayload) : rawPayload,
         existing,
+        actor: userRecord,
+        isCreate: !existing,
+        recordId
+    });
+    assertTaskPrivilegedFields({
+        collectionName,
+        existing,
+        incoming: rawPayload,
         actor: userRecord,
         isCreate: !existing
     });
@@ -1070,7 +1131,13 @@ router.delete('/:collectionName/:recordId', asyncHandler(async (req, res) => {
         });
     }
     await db.transaction(async (trx) => {
-        await assertRecordIsNotReferenced({ collectionName, recordId, trx });
+        await assertRecordCanBeDeleted({
+            collectionName,
+            record: existing,
+            recordId,
+            actor: userRecord,
+            trx
+        });
         const deleted = await deleteRecord({
             collectionName,
             recordId,
