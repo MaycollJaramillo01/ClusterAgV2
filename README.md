@@ -32,6 +32,14 @@ El acceso es por invitacion: una identidad de Google o Firebase que no exista pr
 - `npm run check:polling`: valida la sincronizacion adaptativa.
 - `npm run db:cleanup:dry-run`: calcula la limpieza segura del historial sin modificar datos.
 
+El KPI de Inicio y Rendimiento usa el mismo periodo (inicio del mes hasta hoy,
+hora de Honduras) y consolida las tareas asignadas de Accounts, Edicion y Gestion.
+La nota es `(70 * peso completado + 30 * peso entregado a tiempo) / peso asignado`,
+redondeada una sola vez; P1/P2/P3/P4 pesan 4/3/2/1. Las entregas sin fecha verificable
+no acreditan puntualidad y mantienen la nota provisional, al igual que una muestra
+de menos de cinco tareas. Los responsables y el vencimiento se conservan al completar
+la tarea; reasignarla o editarla despues no transfiere el credito historico.
+
 La limpieza real del historial exige `--apply --backup-confirmed`. No se debe ejecutar contra produccion sin una copia verificada.
 
 ## Arquitectura

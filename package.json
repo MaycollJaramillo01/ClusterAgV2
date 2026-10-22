@@ -10,7 +10,7 @@
     "build:css": "tailwindcss -c tailwind.config.cjs -i ./src/styles/tailwind.input.css -o ./src/styles/tailwind.generated.css --minify",
     "build:js": "esbuild src/app/main.jsx --bundle --minify --target=es2020 --outfile=src/app/main.compiled.js --format=esm --legal-comments=none",
     "check:design": "node scripts/check-design.mjs",
-    "check:kpi": "node scripts/check-kpi.mjs",
+    "check:kpi": "node scripts/check-kpi.mjs && node --test src/app/utils/kpi.test.js",
     "check:polling": "node scripts/check-polling.mjs",
     "test": "node --test \"server/**/*.test.js\" \"src/app/utils/*.test.js\" \"src/app/lib/*.test.js\"",
     "db:cleanup:dry-run": "node scripts/cleanup-record-changes.mjs",
