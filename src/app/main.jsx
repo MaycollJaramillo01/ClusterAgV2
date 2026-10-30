@@ -5239,11 +5239,26 @@ function App() {
         management_tasks: managementTasks,
       };
       const targetView = viewByCollection[item.entityCollection];
-      const task = taskByCollection[item.entityCollection]?.find(
+      let task = taskByCollection[item.entityCollection]?.find(
         (entry) => String(entry.id) === String(item.entityId),
       );
+      if (!task && targetView) {
+        try {
+          const snapshot = await getDoc(dataDoc(item.entityCollection, item.entityId));
+          task = snapshot.data();
+        } catch (error) {
+          console.warn("[notifications:open-task]", error.message);
+        }
+      }
       if (targetView) handleNavigate(targetView);
-      if (task) openTaskDetail(task);
+      if (task) {
+        const typeByCollection = {
+          account_tasks: "accountTask",
+          editing: "editingTask",
+          management_tasks: "managementTask",
+        };
+        openTaskDetail({ ...task, _taskType: typeByCollection[item.entityCollection] }, typeByCollection[item.entityCollection]);
+      }
     } else if (item?.entityType === "chat") {
       handleNavigate("chat");
     } else if (item?.entityType === "client") {
@@ -5268,23 +5283,35 @@ function App() {
         if (cancelled) return;
         const root = dailyCaptureRef.current;
         if (!root) throw new Error("No hay contenido para capturar");
-        const sections = [
-          ...root.querySelectorAll("[data-daily-capture-section]"),
-        ];
-        const pdfBytes = await captureNodesPdf(
-          sections.length ? sections : [root],
-        );
-        if (cancelled) return;
-        downloadBytes(
-          pdfBytes,
-          `reporte-diario-rendimiento-${getHondurasTodayStr()}.pdf`,
-        );
-        showToast("PDF del reporte diario listo", "success");
+        const html = document.documentElement;
+        const wasDark = html.classList.contains("dark");
+        try {
+          // Los PDF se exportan con la paleta clara para mantener texto oscuro
+          // sobre superficies claras, aunque la aplicación esté en modo oscuro.
+          html.classList.remove("dark");
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const sections = [
+            ...root.querySelectorAll("[data-daily-capture-section]"),
+          ];
+          const reportBackground = getComputedStyle(root).backgroundColor;
+          const pdfBytes = await captureNodesPdf(
+            sections.length ? sections : [root],
+            { backgroundColor: reportBackground },
+          );
+          if (cancelled) return;
+          downloadBytes(
+            pdfBytes,
+            `rendimiento-y-reportes-${getHondurasTodayStr()}.pdf`,
+          );
+          showToast("PDF de Rendimiento y Reportes descargado", "success");
+        } finally {
+          if (wasDark) html.classList.add("dark");
+        }
       } catch (error) {
-        console.error("No se pudo generar el PDF del reporte diario:", error);
+        console.error("No se pudo generar el PDF completo de Rendimiento:", error);
         if (!cancelled) {
           showToast(
-            error?.message || "No se pudo generar el PDF del reporte diario",
+            error?.message || "No se pudo generar el PDF completo",
             "error",
           );
         }
@@ -8717,7 +8744,7 @@ function App() {
               aria-busy="true"
             >
               <p className="daily-capture-status">
-                Generando PDF con Informes y Rendimiento…
+                Preparando PDF de Rendimiento y Reportes…
               </p>
               <div
                 data-daily-capture-section="performance"
@@ -21086,7 +21113,7 @@ const CreateTaskModal = ({
     fetchUploadStatus().then((status) => {
       if (!cancelled) setUploadStatus({
         ...status,
-        maxBytes: status.r2 ? status.maxBytes : (status.embeddedMaxBytes || EMBEDDED_UPLOAD_MAX_BYTES),
+        maxBytes: Number(status.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES,
       });
     });
     return () => {
@@ -24516,8 +24543,8 @@ const ReportsView = ({
               onClick={() => onOpenDailyReport({ capture: true })}
               className="flex min-h-11 items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-xs font-black text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300"
             >
-              <Icon name="Camera" size={14} />
-              Reporte diario
+              <Icon name="FileText" size={14} />
+              Descargar PDF de Rendimiento
             </button>
           )}
         </div>
@@ -25121,7 +25148,6 @@ const PerformanceView = ({
   const [personGroupFilter, setPersonGroupFilter] = useState("all");
   const [downloadingPdf, setDownloadingPdf] = useState("");
   const [pdfError, setPdfError] = useState("");
-  const performanceCaptureRef = useRef(null);
   const [periodMode, setPeriodMode] = useState(
     periodPreset === "last24h" ? "last24h" : "custom",
   );
@@ -25475,28 +25501,8 @@ const PerformanceView = ({
     }
   };
 
-  const downloadPerformanceViewPdf = async () => {
-    if (!performanceCaptureRef.current || downloadingPdf) return;
-    setPdfError("");
-    setDownloadingPdf("visual");
-    try {
-      const reportSections = [...performanceCaptureRef.current.children];
-      const pdfBytes = await captureNodesPdf(
-        reportSections.length ? reportSections : [performanceCaptureRef.current],
-        { backgroundColor: "#ffffff" },
-      );
-      const safeRange = `${fromDate || "inicio"}-${toDate || "hoy"}`;
-      downloadBytes(pdfBytes, `rendimiento-${safeRange}.pdf`);
-    } catch (error) {
-      setPdfError(error.message || "No se pudo generar el PDF visual");
-    } finally {
-      setDownloadingPdf("");
-    }
-  };
-
   return (
     <section
-      ref={performanceCaptureRef}
       className={`performance-dashboard fade-in ${capturing ? "is-capturing" : ""}`}
     >
       <header className="performance-header">
@@ -25504,7 +25510,7 @@ const PerformanceView = ({
           <p className="eyebrow">Editores, Community Managers y desarrolladores</p>
           <h2>Rendimiento del equipo</h2>
           <p>
-            Entregas, publicaciones y carga pendiente en una sola lectura.
+            Revisa las entregas, los pendientes y el cumplimiento del equipo.
           </p>
           {periodMode === "last24h" && (
             <div className="performance-daily-stamp">
@@ -25559,28 +25565,15 @@ const PerformanceView = ({
             <div>
               <button
                 type="button"
-                onClick={downloadPerformanceViewPdf}
-                disabled={Boolean(downloadingPdf) || capturing}
-                className="performance-visual-pdf"
-              >
-                {downloadingPdf === "visual" ? (
-                  <Icon name="Loader2" size={13} className="animate-spin" />
-                ) : (
-                  <Icon name="FileText" size={13} />
-                )}
-                PDF estilo pantalla
-              </button>
-              <button
-                type="button"
                 onClick={() => onRequestDailyCapture?.()}
                 disabled={capturing || !onRequestDailyCapture}
               >
                 {capturing ? (
                   <Icon name="Loader2" size={13} className="animate-spin" />
                 ) : (
-                  <Icon name="Camera" size={13} />
+                  <Icon name="FileText" size={13} />
                 )}
-                Reporte diario
+                Descargar PDF de Rendimiento
               </button>
               {["Diario", "Semanal"].map((group) => (
                 <span key={group} className="performance-download-group">
@@ -25863,7 +25856,7 @@ const PerformanceView = ({
                       }}
                       className="mt-1 text-xs font-black text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-300"
                     >
-                      Ver actividad
+                      Ver registro
                     </button>
                   </div>
                 </article>
@@ -25889,9 +25882,9 @@ const PerformanceView = ({
           >
             <header className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
               <div>
-                <p className="text-xs font-black uppercase tracking-widest text-indigo-500">Registro de tareas</p>
+                <p className="text-xs font-black uppercase tracking-widest text-indigo-500">Actividad de tareas</p>
                 <h2 id={taskActivityTitleId} className="mt-1 text-xl font-black text-slate-900 dark:text-white">{activityPerson.name}</h2>
-                <p className="mt-1 text-sm text-slate-500">Aperturas y cambios recientes, con hora de Honduras.</p>
+                <p className="mt-1 text-sm text-slate-500">Tareas que abrió o modificó, con fecha y hora.</p>
               </div>
               <button type="button" onClick={() => setActivityPerson(null)} aria-label="Cerrar actividad" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
                 <Icon name="X" />
@@ -25903,7 +25896,7 @@ const PerformanceView = ({
               ) : taskActivityError ? (
                 <div role="alert" className="rounded-2xl bg-red-50 p-4 text-sm font-semibold text-red-700 dark:bg-red-500/10 dark:text-red-300">{taskActivityError}</div>
               ) : taskActivityEvents.length === 0 ? (
-                <div className="py-12 text-center text-sm font-semibold text-slate-500">No hay aperturas o cambios registrados todavía.</div>
+                <div className="py-12 text-center text-sm font-semibold text-slate-500">Aún no hay movimientos para mostrar.</div>
               ) : (
                 <ol className="space-y-3">
                   {taskActivityEvents.map((event) => {
@@ -25978,9 +25971,9 @@ const NotificationCenter = ({
       >
         <header className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
           <div>
-            <p className="text-xs font-black uppercase tracking-widest text-amber-500">Centro interno</p>
+              <p className="text-xs font-black uppercase tracking-widest text-amber-500">Avisos del equipo</p>
             <h2 id={titleId} className="mt-1 text-xl font-black text-slate-900 dark:text-white">Notificaciones</h2>
-            <p className="mt-1 text-sm text-slate-500">{unreadCount} sin leer</p>
+              <p className="mt-1 text-sm text-slate-500">{unreadCount} sin leer</p>
           </div>
           <div className="flex items-center gap-2">
             {unreadCount > 0 && (
@@ -25997,8 +25990,8 @@ const NotificationCenter = ({
           {notifications.length === 0 ? (
             <div className="px-6 py-16 text-center">
               <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-500 dark:bg-slate-800"><Icon name="Bell" size={22} /></span>
-              <strong className="mt-4 block text-slate-800 dark:text-white">Aún no tienes notificaciones</strong>
-              <p className="mt-1 text-sm text-slate-500">Las asignaciones, menciones y cambios aparecerán aquí.</p>
+              <strong className="mt-4 block text-slate-800 dark:text-white">Todo al día</strong>
+              <p className="mt-1 text-sm text-slate-500">Aquí verás las tareas que te asignen, las menciones y otros avisos.</p>
             </div>
           ) : notifications.map((item) => (
             <button

@@ -5186,12 +5186,14 @@ textarea:focus-visible,
     z-index: 85;
     overflow: auto;
     padding: 1.25rem 1.25rem 3rem;
-    background: var(--surface, #ffffff);
+    background: #e9eef5;
+    color: var(--text, #eff3ea);
+    color-scheme: light;
 }
 
 .daily-capture-status {
     margin: 0 0 1.1rem;
-    color: var(--text-muted, #64748b);
+    color: var(--text, #eff3ea);
     font-size: 0.82rem;
     font-weight: 700;
 }
@@ -5199,7 +5201,8 @@ textarea:focus-visible,
 .daily-capture-section,
 .daily-capture-sheet [data-daily-capture-section] {
     overflow: visible;
-    background: var(--surface, #ffffff);
+    background: #e9eef5;
+    color: var(--text, #eff3ea);
 }
 
 .is-capturing-reports .overflow-hidden,

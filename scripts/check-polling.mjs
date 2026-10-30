@@ -12,11 +12,11 @@ assert.equal(isPollingAllowed({ visibilityState: 'hidden', lastActivity: 0, now:
 assert.equal(isPollingAllowed({ visibilityState: 'visible', lastActivity: 0, now: 200, idleAfter: 200 }), false);
 assert.deepEqual(
     getLiveCollectionsForView('reports', () => true),
-    ['account_tasks', 'editing', 'management_tasks']
+    ['account_tasks', 'editing', 'management_tasks', 'users', 'managers', 'editors']
 );
 assert.deepEqual(
     getLiveCollectionsForView('performance', (collection) => collection !== 'editing'),
-    ['account_tasks', 'management_tasks']
+    ['account_tasks', 'management_tasks', 'users', 'managers', 'editors']
 );
 
 const auditRef = {
