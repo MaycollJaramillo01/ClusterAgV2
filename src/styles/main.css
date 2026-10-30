@@ -4481,6 +4481,29 @@ textarea:focus-visible,
     display: none !important;
 }
 
+.performance-dashboard.is-capturing {
+    width: 100%;
+    max-width: none;
+}
+
+.performance-dashboard.is-capturing .performance-header {
+    display: block;
+    width: 100%;
+    min-width: 0;
+}
+
+.performance-dashboard.is-capturing .performance-heading {
+    width: 100%;
+    min-width: 0;
+}
+
+.performance-dashboard.is-capturing .performance-heading h2 {
+    max-width: none;
+    font-size: 2.8rem;
+    line-height: 1.12;
+    white-space: nowrap;
+}
+
 .performance-header-tools {
     display: flex;
     flex-direction: column;
@@ -4949,7 +4972,8 @@ textarea:focus-visible,
 .performance-kpi-track {
     display: block;
     width: 100%;
-    height: 0.22rem;
+    height: 0.5rem;
+    min-height: 0.5rem;
     overflow: hidden;
     background: var(--surface-muted);
 }

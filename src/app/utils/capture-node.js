@@ -97,7 +97,7 @@ export const downloadBytes = (bytes, filename, mimeType = "application/pdf") => 
   URL.revokeObjectURL(objectUrl);
 };
 
-const captureNodeImage = async (node, { backgroundColor } = {}) => {
+const captureNodeImage = async (node, { backgroundColor, pageWidthPoints } = {}) => {
   if (!node) throw new Error("No hay contenido para capturar");
   await waitForPaint();
   const { toJpeg } = await import("html-to-image");
@@ -122,9 +122,49 @@ const captureNodeImage = async (node, { backgroundColor } = {}) => {
     bytes,
     width: size.width,
     height: size.height,
-    pageWidth: (size.width * 72) / 96,
-    pageHeight: (size.height * 72) / 96,
+    pageWidth: Number(pageWidthPoints) > 0 ? Number(pageWidthPoints) : (size.width * 72) / 96,
+    pageHeight: Number(pageWidthPoints) > 0
+      ? (Number(pageWidthPoints) * size.height) / size.width
+      : (size.height * 72) / 96,
+    dataUrl,
   };
+};
+
+const splitTallImage = async (page, { maxPageHeightRatio = 0, pageOverlap = 0 } = {}) => {
+  if (!Number.isFinite(maxPageHeightRatio) || maxPageHeightRatio <= 0
+    || page.height <= page.width * maxPageHeightRatio || !page.dataUrl) {
+    return [page];
+  }
+  const image = new Image();
+  await new Promise((resolve, reject) => {
+    image.onload = resolve;
+    image.onerror = () => reject(new Error("No se pudo preparar la paginación del PDF"));
+    image.src = page.dataUrl;
+  });
+  const maxHeight = Math.max(1, Math.floor(page.width * maxPageHeightRatio));
+  const overlap = Math.min(Math.max(0, Math.floor(pageOverlap)), Math.floor(maxHeight / 8));
+  const step = Math.max(1, maxHeight - overlap);
+  const pages = [];
+  for (let top = 0; top < page.height; top += step) {
+    const height = Math.min(maxHeight, page.height - top);
+    const canvas = document.createElement("canvas");
+    canvas.width = page.width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("No se pudo preparar una página del PDF");
+    context.drawImage(image, 0, top, page.width, height, 0, 0, page.width, height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    const { bytes } = dataUrlToBytes(dataUrl);
+    pages.push({
+      bytes,
+      width: page.width,
+      height,
+      pageWidth: page.pageWidth,
+      pageHeight: (page.pageWidth * height) / page.width,
+    });
+    if (top + height >= page.height) break;
+  }
+  return pages;
 };
 
 export const captureNodesPdf = async (nodes, options = {}) => {
@@ -135,7 +175,8 @@ export const captureNodesPdf = async (nodes, options = {}) => {
     const restore = expandClippedOverflow(node);
     try {
       await waitForPaint();
-      pages.push(await captureNodeImage(node, options));
+      const capturedPage = await captureNodeImage(node, options);
+      pages.push(...await splitTallImage(capturedPage, options));
     } finally {
       restore();
     }

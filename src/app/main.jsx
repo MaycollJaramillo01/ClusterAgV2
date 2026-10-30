@@ -5296,7 +5296,12 @@ function App() {
           const reportBackground = getComputedStyle(root).backgroundColor;
           const pdfBytes = await captureNodesPdf(
             sections.length ? sections : [root],
-            { backgroundColor: reportBackground },
+            {
+              backgroundColor: reportBackground,
+              pageWidthPoints: 842,
+              maxPageHeightRatio: 0.72,
+              pageOverlap: 48,
+            },
           );
           if (cancelled) return;
           downloadBytes(
@@ -25807,7 +25812,17 @@ const PerformanceView = ({
                     </span>
                     <span className="performance-kpi-track" aria-hidden="true">
                       <span
-                        style={{ width: `${person.overallPerformance}%` }}
+                        style={{
+                          width: `${person.overallPerformance}%`,
+                          height: "100%",
+                          display: "block",
+                          backgroundColor:
+                            person.overallPerformance >= 80
+                              ? "#397653"
+                              : person.overallPerformance >= 60
+                                ? "#b7791f"
+                                : "#bd4545",
+                        }}
                       />
                     </span>
                       </>
