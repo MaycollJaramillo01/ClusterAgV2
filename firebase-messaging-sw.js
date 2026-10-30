@@ -5,13 +5,14 @@ importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-com
 const config = JSON.parse(new URL(self.location.href).searchParams.get('config') || '{}');
 
 const showGroupedNotification = async ({ title, body, data = {} }) => {
+    const isCompliance = data.type === 'compliance';
     const groupId = data.clientId || data.type || 'general';
-    const tag = `cluster-chat-${groupId}`;
+    const tag = isCompliance ? 'cluster-compliance' : `cluster-chat-${groupId}`;
     const existing = await self.registration.getNotifications({ tag });
     const previousCount = Number(existing[0]?.data?.messageCount || 0);
     const messageCount = previousCount + 1;
     const groupedBody = messageCount > 1
-        ? `${body}\n${messageCount} mensajes nuevos`
+        ? `${body}\n${messageCount} ${isCompliance ? 'avisos nuevos' : 'mensajes nuevos'}`
         : body;
 
     return self.registration.showNotification(title || 'Cluster Agency OS', {

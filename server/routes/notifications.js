@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { db } from '../db/knex.js';
+import { createRecordId } from '../lib/crypto.js';
 import { env } from '../config/env.js';
 import { escapeHtml, sendEmail } from '../lib/email.js';
 import { asyncHandler, createHttpError } from '../lib/http.js';
@@ -7,6 +9,7 @@ import { getCollectionPermission, hasPermission } from '../lib/permissions.js';
 import { getRequestOrigin } from '../lib/request-origin.js';
 import { requireAuthenticatedUser } from '../lib/sessions.js';
 import { normalizeEmail } from '../lib/text.js';
+import { nowIso } from '../lib/time.js';
 
 const router = Router();
 
@@ -27,6 +30,72 @@ const findRecipient = async (email) => {
 };
 
 const cleanJoinParam = (value = '') => String(value || '').trim().slice(0, 240);
+
+const notificationTitle = (type) => ({
+    assigned: 'Tarea asignada',
+    mention: 'Te mencionaron en una tarea',
+    task_updated: 'Tarea modificada',
+    chat_mention: 'Te mencionaron en el chat',
+    call_invite: 'Invitación a llamada',
+    client_priority: 'Cambio de prioridad'
+}[type] || 'Notificación');
+
+const notificationBody = ({ type, actorName, taskTitle, clientName, priorityLabel }) => {
+    const task = String(taskTitle || 'una tarea').trim().slice(0, 180);
+    const client = String(clientName || 'un cliente').trim().slice(0, 180);
+    const actorLabel = String(actorName || 'Alguien').trim().slice(0, 120);
+    if (type === 'assigned') return `${actorLabel} te asignó: ${task}`;
+    if (type === 'task_updated') return `${actorLabel} modificó: ${task}`;
+    if (type === 'mention') return `${actorLabel} te mencionó en: ${task}`;
+    if (type === 'chat_mention') return `${actorLabel} te mencionó en el chat de ${client}`;
+    if (type === 'call_invite') return `${actorLabel} te invitó a una llamada de ${client}`;
+    if (type === 'client_priority') return `${client} cambió a prioridad ${String(priorityLabel || 'alta').slice(0, 40)}`;
+    return 'Tienes una notificación nueva.';
+};
+
+const toNotification = (row) => ({
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    body: row.body,
+    actorId: row.actor_id,
+    actorName: row.actor_name,
+    entityType: row.entity_type || '',
+    entityId: row.entity_id || '',
+    entityCollection: row.entity_collection || '',
+    createdAt: row.created_at,
+    readAt: row.read_at || ''
+});
+
+router.get('/', asyncHandler(async (req, res) => {
+    const actor = requireAuthenticatedUser(req);
+    const rows = await db('user_notifications')
+        .where({ recipient_id: String(actor.id) })
+        .orderBy('created_at', 'desc')
+        .limit(100);
+    const unreadCount = rows.filter((row) => !row.read_at).length;
+    res.json({ notifications: rows.map(toNotification), unreadCount });
+}));
+
+router.patch('/:notificationId/read', asyncHandler(async (req, res) => {
+    const actor = requireAuthenticatedUser(req);
+    const notificationId = String(req.params.notificationId || '').trim();
+    const readAt = nowIso();
+    await db('user_notifications')
+        .where({ id: notificationId, recipient_id: String(actor.id) })
+        .whereNull('read_at')
+        .update({ read_at: readAt });
+    res.json({ ok: true, readAt });
+}));
+
+router.post('/read-all', asyncHandler(async (req, res) => {
+    const actor = requireAuthenticatedUser(req);
+    await db('user_notifications')
+        .where({ recipient_id: String(actor.id) })
+        .whereNull('read_at')
+        .update({ read_at: nowIso() });
+    res.json({ ok: true });
+}));
 
 export const buildCallJoinUrl = (appUrl, { roomId, clientId, messageId } = {}) => {
     const safeRoomId = cleanJoinParam(roomId);
@@ -136,6 +205,9 @@ router.post('/send', asyncHandler(async (req, res) => {
         throw createHttpError(400, 'El destinatario no pertenece al equipo activo.', 'notifications/invalid-recipient');
     }
 
+    let entityType = '';
+    let entityId = '';
+    let entityCollection = '';
     if (type === 'chat_mention' || type === 'call_invite') {
         if (!hasPermission(actor, 'send_client_chat')) {
             throw createHttpError(403, 'No tienes permisos para notificar desde el chat.', 'auth/insufficient-permission');
@@ -152,6 +224,8 @@ router.post('/send', asyncHandler(async (req, res) => {
         if (!message || !isAuthoredByActor || !includesRecipient || !hasMatchingClient || !hasMatchingCall) {
             throw createHttpError(403, 'La notificacion no corresponde a un mensaje valido.', 'notifications/resource-mismatch');
         }
+        entityType = 'chat';
+        entityId = String(req.body?.clientId || '');
     } else if (type === 'client_priority') {
         if (!hasPermission(actor, 'manage_clients')) {
             throw createHttpError(403, 'No tienes permisos para notificar prioridad de clientes.', 'auth/insufficient-permission');
@@ -165,6 +239,8 @@ router.post('/send', asyncHandler(async (req, res) => {
         if (managerIds.length && !managerIds.includes(String(recipient.id))) {
             throw createHttpError(403, 'El destinatario no es el asignado de este cliente.', 'notifications/resource-mismatch');
         }
+        entityType = 'client';
+        entityId = clientId;
     } else {
         const collectionName = TASK_COLLECTION_BY_TYPE[String(req.body?.taskType || '')];
         const taskId = String(req.body?.taskId || '').trim();
@@ -194,6 +270,33 @@ router.post('/send', asyncHandler(async (req, res) => {
                 throw createHttpError(403, 'La mencion no corresponde al comentario guardado.', 'notifications/resource-mismatch');
             }
         }
+        entityType = 'task';
+        entityId = taskId;
+        entityCollection = collectionName;
+    }
+
+    if (String(recipient.id) !== String(actor.id)) {
+        const actorName = actor.name || actor.email || 'Usuario';
+        await db('user_notifications').insert({
+            id: createRecordId(),
+            recipient_id: String(recipient.id),
+            actor_id: String(actor.id),
+            actor_name: String(actorName).slice(0, 180),
+            type,
+            title: notificationTitle(type),
+            body: notificationBody({
+                type,
+                actorName,
+                taskTitle: req.body?.taskTitle,
+                clientName: req.body?.clientName,
+                priorityLabel: req.body?.priorityLabel
+            }),
+            entity_type: entityType,
+            entity_id: entityId.slice(0, 120),
+            entity_collection: entityCollection,
+            created_at: nowIso(),
+            read_at: null
+        });
     }
 
     const appUrl = env.appBaseUrl || getRequestOrigin(req);

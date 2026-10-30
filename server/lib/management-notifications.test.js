@@ -3,13 +3,14 @@ import test from 'node:test';
 import {
     collectReminderRecipients,
     computeDueAt,
+    isWithinNagWindow,
     selectReminderAction
 } from './task-reminders.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
-test('collectReminderRecipients uniques admin, assigner and assignee', () => {
+test('collectReminderRecipients uniques supervisor, assigner and assignee', () => {
     const recipients = collectReminderRecipients({
         assignees: [
             { name: 'Luis', email: 'luis@cluster.ag' },
@@ -33,7 +34,77 @@ test('collectReminderRecipients uniques admin, assigner and assignee', () => {
     assert.deepEqual(emails, ['admin@cluster.ag', 'ana@cluster.ag', 'luis@cluster.ag', 'ops@cluster.ag']);
     assert.equal(recipients.find((item) => item.email === 'luis@cluster.ag').primaryRole, 'assignee');
     assert.equal(recipients.find((item) => item.email === 'ana@cluster.ag').primaryRole, 'assigner');
-    assert.equal(recipients.find((item) => item.email === 'admin@cluster.ag').primaryRole, 'admin');
+    assert.equal(recipients.find((item) => item.email === 'admin@cluster.ag').primaryRole, 'supervisor');
+});
+
+const hierarchyUsers = [
+    { id: 'u-admin', name: 'Admin', email: 'admin@cluster.ag', role: 'super_admin' },
+    { id: 'u-ops', name: 'Ops', email: 'ops@cluster.ag', role: 'operations' },
+    { id: 'u-mgmt', name: 'Gestion', email: 'mgmt@cluster.ag', role: 'management' },
+    { id: 'u-am1', name: 'AM Uno', email: 'am1@cluster.ag', role: 'manager', linkedManagerId: 'm1' },
+    { id: 'u-am2', name: 'AM Dos', email: 'am2@cluster.ag', role: 'manager', linkedManagerId: 'm2' },
+    { id: 'u-ed', name: 'Edi', email: 'edi@cluster.ag', role: 'editor' }
+];
+const emailsOf = (recipients) => recipients.map((item) => item.email).sort();
+
+test('collectReminderRecipients escala al Account Manager hacia management, operations y super_admin', () => {
+    const recipients = collectReminderRecipients({
+        assignees: [{ name: 'AM Uno', email: 'am1@cluster.ag', role: 'manager' }],
+        task: { clientId: 'c1' },
+        users: hierarchyUsers,
+        clients: [{ id: 'c1', managerId: 'm1' }]
+    });
+    assert.deepEqual(emailsOf(recipients), [
+        'admin@cluster.ag', 'am1@cluster.ag', 'mgmt@cluster.ag', 'ops@cluster.ag'
+    ]);
+    assert.equal(recipients.find((item) => item.email === 'mgmt@cluster.ag').primaryRole, 'supervisor');
+});
+
+test('collectReminderRecipients avisa a los Account Managers solo si manejan el cliente del editor', () => {
+    const recipients = collectReminderRecipients({
+        assignees: [{ name: 'Edi', email: 'edi@cluster.ag', role: 'editor' }],
+        task: { clientId: 'c1' },
+        users: hierarchyUsers,
+        clients: [{ id: 'c1', managerId: 'm1' }, { id: 'c2', managerId: 'm2' }]
+    });
+    assert.deepEqual(emailsOf(recipients), [
+        'admin@cluster.ag', 'am1@cluster.ag', 'edi@cluster.ag', 'mgmt@cluster.ag', 'ops@cluster.ag'
+    ]);
+});
+
+test('el rol del responsable se deduce del usuario por correo cuando no viene informado', () => {
+    const recipients = collectReminderRecipients({
+        assignees: [{ name: 'Edi', email: 'edi@cluster.ag' }],
+        task: {},
+        users: hierarchyUsers,
+        clients: []
+    });
+    assert.deepEqual(emailsOf(recipients), [
+        'admin@cluster.ag', 'edi@cluster.ag', 'mgmt@cluster.ag', 'ops@cluster.ag'
+    ]);
+});
+
+test('isWithinNagWindow usa el horario laboral de Honduras', () => {
+    assert.equal(isWithinNagWindow(Date.parse('2026-10-28T06:30:00-06:00')), false);
+    assert.equal(isWithinNagWindow(Date.parse('2026-10-28T07:00:00-06:00')), true);
+    assert.equal(isWithinNagWindow(Date.parse('2026-10-28T18:59:00-06:00')), true);
+    assert.equal(isWithinNagWindow(Date.parse('2026-10-28T19:00:00-06:00')), false);
+    assert.equal(isWithinNagWindow(Date.parse('2026-10-28T10:00:00-06:00'), { startHour: 11, endHour: 12 }), false);
+});
+
+test('los recordatorios continuos de vencida respetan intervalo y horario', () => {
+    const nowMs = Date.parse('2026-10-28T14:00:00-06:00');
+    const task = {
+        overdueSentAt: '2026-10-28T06:00:00-06:00',
+        lastOverdueNagAt: '2026-10-28T07:30:00-06:00'
+    };
+    const dueMs = nowMs - (30 * HOUR_MS);
+    const base = { task, dueMs, nowMs, overdueNagMs: 6 * HOUR_MS };
+    assert.equal(selectReminderAction({ ...base })?.type, 'overdue-nag');
+    assert.equal(selectReminderAction({ ...base, nagAllowed: false }), null);
+    assert.equal(selectReminderAction({ ...base, overdueNagMs: 8 * HOUR_MS }), null);
+    // La primera notificacion de vencida no depende del horario.
+    assert.equal(selectReminderAction({ task: {}, dueMs, nowMs, nagAllowed: false })?.type, 'overdue');
 });
 
 test('selectReminderAction sends 24h then 8h then recurrent nags', () => {

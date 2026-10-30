@@ -1,6 +1,8 @@
-import { apiFetch } from './backend-api.js';
+import { apiFetch, buildApiUrl } from './backend-api.js';
 
 const EMBEDDED_UPLOAD_MAX_BYTES = 3 * 1024 * 1024;
+export const DEFAULT_TASK_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+const DATABASE_UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024;
 
 export const TASK_UPLOAD_COLLECTIONS = {
     accountTask: 'account_tasks',
@@ -52,7 +54,7 @@ export const fetchUploadStatus = async () => {
         cachedStatus = await apiFetch('/api/uploads/status');
         return cachedStatus;
     } catch {
-        cachedStatus = { r2: false, maxBytes: EMBEDDED_UPLOAD_MAX_BYTES, retentionDays: 0 };
+        cachedStatus = { r2: false, storage: 'database', maxBytes: DEFAULT_TASK_UPLOAD_MAX_BYTES, embeddedMaxBytes: EMBEDDED_UPLOAD_MAX_BYTES, retentionDays: 0 };
         return cachedStatus;
     }
 };
@@ -91,16 +93,17 @@ export const signTaskUpload = ({ collectionName, taskId, file }) => (
     signStoredUpload({ collectionName, taskId, file })
 );
 
-export const putFileToSignedUrl = (uploadUrl, file, headers = {}, onProgress) => (
+const putSingleFile = (uploadUrl, file, headers = {}, onProgress, offset = 0, total = file.size, chunked = false) => (
     new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', uploadUrl);
+        xhr.withCredentials = chunked;
         Object.entries(headers).forEach(([name, value]) => {
             if (value) xhr.setRequestHeader(name, value);
         });
         xhr.upload.onprogress = (event) => {
             if (!event.lengthComputable || typeof onProgress !== 'function') return;
-            onProgress(Math.round((event.loaded / event.total) * 100));
+            onProgress(Math.round(((offset + event.loaded) / total) * 100));
         };
         xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) {
@@ -121,26 +124,60 @@ export const putFileToSignedUrl = (uploadUrl, file, headers = {}, onProgress) =>
     })
 );
 
+export const putFileToSignedUrl = async (uploadUrl, file, headers = {}, onProgress) => {
+    const parsedUrl = new URL(uploadUrl, window.location.href);
+    if (parsedUrl.searchParams.get('mode') !== 'chunked') {
+        await putSingleFile(uploadUrl, file, headers, onProgress);
+        return;
+    }
+    const totalParts = Number(parsedUrl.searchParams.get('parts'));
+    if (!Number.isInteger(totalParts) || totalParts < 1
+        || totalParts !== Math.ceil(file.size / DATABASE_UPLOAD_CHUNK_BYTES)) {
+        throw new Error('La sesión de carga no coincide con el archivo seleccionado.');
+    }
+    for (let part = 0; part < totalParts; part += 1) {
+        const start = part * DATABASE_UPLOAD_CHUNK_BYTES;
+        const end = Math.min(file.size, start + DATABASE_UPLOAD_CHUNK_BYTES);
+        const partUrl = new URL(parsedUrl.toString());
+        partUrl.searchParams.set('part', String(part));
+        await putSingleFile(partUrl.toString(), file.slice(start, end), headers, onProgress, start, file.size, true);
+    }
+};
+
 export const resolveAttachmentUrl = async (attachment, { download = false } = {}) => {
     if (attachment?.data) return attachment.data;
     if (!attachment?.key) return attachment?.url || '';
+    if (attachment.storage === 'database') {
+        const query = new URLSearchParams({ key: attachment.key });
+        if (download) query.set('download', '1');
+        const response = await fetch(buildApiUrl(`/api/uploads/blob?${query.toString()}`), {
+            credentials: 'include'
+        });
+        if (!response.ok) {
+            const error = new Error('No se pudo descargar el archivo.');
+            error.status = response.status;
+            throw error;
+        }
+        return URL.createObjectURL(await response.blob());
+    }
     const payload = await apiFetch('/api/uploads/url', {
         method: 'POST',
         body: JSON.stringify({
             key: attachment.key,
             fileName: attachment.name,
+            storage: attachment.storage,
             download
         })
     });
     return payload?.url || '';
 };
 
-export const deleteStoredAttachment = async (key) => {
+export const deleteStoredAttachment = async (key, storage = '') => {
     if (!key) return;
     try {
         await apiFetch('/api/uploads/delete', {
             method: 'POST',
-            body: JSON.stringify({ key })
+            body: JSON.stringify({ key, storage })
         });
     } catch (error) {
         console.warn('[uploads] No se pudo borrar el archivo remoto:', error?.message || error);

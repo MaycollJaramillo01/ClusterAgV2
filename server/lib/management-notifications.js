@@ -5,7 +5,27 @@ import { nowIso } from './time.js';
 import { hasSmtpConfig, sendManagementTaskReminderEmail } from './email.js';
 import { createHttpError } from './http.js';
 import { normalizeEmail } from './text.js';
-import { collectReminderRecipients, computeDueAt, selectReminderAction } from './task-reminders.js';
+import {
+    HOUR_MS,
+    collectReminderRecipients,
+    computeDueAt,
+    isWithinNagWindow,
+    selectReminderAction
+} from './task-reminders.js';
+import { sendUsersPush } from './push-notifications.js';
+
+const buildReminderPush = ({ action, taskTitle }) => {
+    if (action.type === 'overdue' || action.type === 'overdue-nag') {
+        return {
+            title: 'Tarea vencida',
+            body: `${taskTitle} sigue pendiente${action.overdueHours ? ` (vencida hace ${action.overdueHours} h)` : ''}.`
+        };
+    }
+    return {
+        title: `Tarea por vencer en ${action.label || 'unas horas'}`,
+        body: taskTitle
+    };
+};
 
 const TASK_CONFIGS = [
     {
@@ -15,7 +35,7 @@ const TASK_CONFIGS = [
         roomLabel: 'Cluster OS - Sala de Gestion',
         doneLabel: 'Cerrado',
         contextCollection: 'users',
-        defaultTime: '',
+        defaultTime: '18:00',
         isClosed: (task) => task.status === 'cerrado'
     },
     {
@@ -51,8 +71,12 @@ const TASK_CONFIGS = [
     }
 ];
 
-const normalizeAssignee = (record = null) => (
-    record?.email ? { id: record.id, name: record.name || '', email: record.email } : null
+const ROLE_BY_COLLECTION = { managers: 'manager', editors: 'editor' };
+
+const normalizeAssignee = (record = null, fallbackRole = '') => (
+    record?.email
+        ? { id: record.id, name: record.name || '', email: record.email, role: fallbackRole || record.role || '' }
+        : null
 );
 
 const resolveAssignee = (task, config, recordsByCollection) => {
@@ -67,7 +91,7 @@ const resolveAssignee = (task, config, recordsByCollection) => {
     if (!contextId) return null;
 
     const fromContext = recordsByCollection[config.contextCollection].get(String(contextId));
-    const contextAssignee = normalizeAssignee(fromContext);
+    const contextAssignee = normalizeAssignee(fromContext, ROLE_BY_COLLECTION[config.contextCollection]);
     if (contextAssignee) return contextAssignee;
 
     const linkedUserId = fromContext?.userId || '';
@@ -81,7 +105,7 @@ const resolveAssignee = (task, config, recordsByCollection) => {
     for (const collectionName of ['users', 'managers', 'editors']) {
         if (collectionName === config.contextCollection) continue;
         const fallbackRecord = recordsByCollection[collectionName].get(String(contextId));
-        const fallbackAssignee = normalizeAssignee(fallbackRecord);
+        const fallbackAssignee = normalizeAssignee(fallbackRecord, ROLE_BY_COLLECTION[collectionName]);
         if (fallbackAssignee) return fallbackAssignee;
     }
 
@@ -195,6 +219,11 @@ export const processManagementTaskReminders = async () => {
     };
 
     const now = Date.now();
+    const nagAllowed = isWithinNagWindow(now, {
+        startHour: env.compliance.windowStartHour,
+        endHour: env.compliance.windowEndHour
+    });
+    const overdueNagMs = env.compliance.nagIntervalHours * HOUR_MS;
 
     const directoryCollections = ['users', 'managers', 'editors', 'clients'];
     const [directoryLists, taskLists] = await Promise.all([
@@ -205,6 +234,7 @@ export const processManagementTaskReminders = async () => {
         collectionName,
         new Map(directoryLists[index].map((record) => [String(record.id), record]))
     ]));
+    const clients = [...recordsByCollection.clients.values()];
 
     for (const [configIndex, config] of TASK_CONFIGS.entries()) {
         const tasks = taskLists[configIndex];
@@ -241,13 +271,19 @@ export const processManagementTaskReminders = async () => {
             }
 
             const users = [...recordsByCollection.users.values()];
-            const recipients = collectReminderRecipients({ assignees, task, users });
+            const recipients = collectReminderRecipients({ assignees, task, users, clients });
             if (!recipients.length) {
                 report.skippedNoEmail += 1;
                 continue;
             }
 
-            const action = selectReminderAction({ task, dueMs: due.ms, nowMs: now });
+            const action = selectReminderAction({
+                task,
+                dueMs: due.ms,
+                nowMs: now,
+                overdueNagMs,
+                nagAllowed
+            });
             if (!action) continue;
 
             const clientName = resolveClientName(task, recordsByCollection.clients);
@@ -267,7 +303,8 @@ export const processManagementTaskReminders = async () => {
                 taskNotes: task.notes || '',
                 clientName,
                 dueHuman,
-                taskUrl
+                taskUrl,
+                nagIntervalHours: env.compliance.nagIntervalHours
             };
 
             try {
@@ -286,6 +323,15 @@ export const processManagementTaskReminders = async () => {
                 const flags = stampFromAction(action);
                 await updateTaskFlags({ ...task, collectionName: config.collectionName }, flags);
                 Object.assign(task, flags);
+
+                const recipientEmails = new Set(recipients.map((item) => normalizeEmail(item.email)));
+                await sendUsersPush({
+                    userIds: users
+                        .filter((user) => user?.isActive !== false && recipientEmails.has(normalizeEmail(user.email)))
+                        .map((user) => user.id),
+                    ...buildReminderPush({ action, taskTitle: baseContext.taskTitle }),
+                    data: { taskId: task.id || '', link: taskUrl }
+                });
 
                 if (action.type === 'overdue') {
                     report.overdueSent += 1;

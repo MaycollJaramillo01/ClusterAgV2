@@ -80,6 +80,7 @@ export const buildManagementTaskEmail = ({
     variant,
     label,
     overdueHours,
+    nagIntervalHours = 24,
     taskTypeLabel = 'tarea',
     roomLabel = 'Cluster OS',
     doneLabel = 'completada',
@@ -112,8 +113,9 @@ export const buildManagementTaskEmail = ({
         if (recipientRole === 'assigner') {
             return `${hello}, una ${taskPhrase} que asignaste ${upcomingText}`;
         }
-        if (recipientRole === 'admin') {
-            return `${hello}, una ${taskPhrase} del equipo${assignedByBit} ${upcomingText}`;
+        if (recipientRole === 'admin' || recipientRole === 'supervisor') {
+            const ofAssignee = safeAssignee ? ` de <strong>${safeAssignee}</strong>` : '';
+            return `${hello}, una ${taskPhrase} del equipo${ofAssignee}${assignedByBit} ${upcomingText}`;
         }
         return `${hello}, tenes una ${taskPhrase}${assignedByBit} ${upcomingText}`;
     };
@@ -141,7 +143,7 @@ export const buildManagementTaskEmail = ({
     } else {
         subject = `[Cluster OS] Tarea vencida hace ${overdueHours || 0}h: ${taskTitle}`;
         heading = `Recordatorio: sigue vencida hace ${overdueHours || 0}h`;
-        lead = `${roleLead('todavia sigue pendiente.')} Te enviaremos un aviso cada 24 h hasta que se marque como ${escapeHtml(doneLabel)}.`;
+        lead = `${roleLead('todavia sigue pendiente.')} Te enviaremos un aviso cada ${Number(nagIntervalHours) || 24} h hasta que se marque como ${escapeHtml(doneLabel)}.`;
         accent = '#b91c1c';
     }
 
@@ -186,6 +188,111 @@ export const sendManagementTaskReminderEmail = async (context = {}) => {
         subject,
         html,
         logLabel: 'management-reminder'
+    });
+};
+
+const COMPLIANCE_SUBJECT_ROLE_LABEL = {
+    'editor-daily': 'Editor',
+    'account-pace': 'Account Manager'
+};
+
+export const buildComplianceEmail = ({
+    kind,
+    recipientRole = 'self',
+    recipientName = '',
+    subjectName = '',
+    metrics = {},
+    nagIntervalHours = 6,
+    appUrl = ''
+}) => {
+    const isSelf = recipientRole === 'self';
+    const roleLabel = COMPLIANCE_SUBJECT_ROLE_LABEL[kind] || 'Equipo';
+    const safeSubject = escapeHtml(subjectName || 'Un integrante del equipo');
+    const hello = `Hola${recipientName ? ` ${escapeHtml(recipientName)}` : ''}`;
+    const penalty = Math.max(0, Math.round(Number(metrics.penalty) || 0));
+    const penaltyRow = penalty > 0
+        ? [['Penalización en rendimiento', `<strong>-${penalty} pts</strong>`]]
+        : [];
+
+    let subject = '';
+    let heading = '';
+    let lead = '';
+    let rows = [];
+
+    if (kind === 'editor-daily') {
+        const completed = Number(metrics.completed) || 0;
+        const target = Number(metrics.target) || 0;
+        const meta = `${completed} de ${target} piezas nuevas`;
+        if (isSelf) {
+            subject = '[Cluster OS] No cumpliste con la meta diaria';
+            heading = 'Meta diaria no cumplida';
+            lead = `${hello}, no cumpliste con la meta diaria por lo cual eso está afectando tu rendimiento en el sistema.`;
+        } else {
+            subject = `[Cluster OS] ${subjectName || 'Un editor'} no cumplió la meta diaria`;
+            heading = 'Meta diaria no cumplida en tu equipo';
+            lead = `${hello}, <strong>${safeSubject}</strong> (${roleLabel}) no cumplió con la meta diaria, lo que está afectando su rendimiento en el sistema.`;
+        }
+        rows = [
+            ['Día evaluado', escapeHtml(metrics.day || '')],
+            ['Completadas', escapeHtml(meta)],
+            ...penaltyRow
+        ];
+    } else {
+        const elapsed = Number(metrics.elapsedPercent) || 0;
+        const progress = Number(metrics.progressPercent) || 0;
+        const detail = `${Number(metrics.completed) || 0} de ${Number(metrics.assigned) || 0} publicaciones`;
+        if (isSelf) {
+            subject = '[Cluster OS] Tu ritmo semanal está por debajo de lo esperado';
+            heading = 'Ritmo semanal por debajo de lo esperado';
+            lead = `${hello}, ha transcurrido el <strong>${elapsed}%</strong> de tu semana laborable y solo llevas el <strong>${progress}%</strong> de tus publicaciones. Esto está afectando tu rendimiento en el sistema. Te seguiremos avisando cada ${Number(nagIntervalHours) || 6} h mientras sigas por debajo.`;
+        } else {
+            subject = `[Cluster OS] ${subjectName || 'Un Account Manager'} va por debajo del ritmo semanal`;
+            heading = 'Ritmo semanal por debajo de lo esperado en tu equipo';
+            lead = `${hello}, de la semana laborable ha transcurrido el <strong>${elapsed}%</strong> y <strong>${safeSubject}</strong> (${roleLabel}) solo lleva el <strong>${progress}%</strong> de sus publicaciones.`;
+        }
+        rows = [
+            ['Semana transcurrida', `${elapsed}%`],
+            ['Avance de publicaciones', `${progress}%`],
+            ['Publicadas', escapeHtml(detail)],
+            ...penaltyRow
+        ];
+    }
+
+    const tableRows = rows.map(([key, value]) => (
+        `<tr><td style="padding:6px 12px;color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:.08em;">${key}</td>`
+        + `<td style="padding:6px 12px;color:#0f172a;font-size:14px;">${value}</td></tr>`
+    )).join('');
+    const link = appUrl
+        ? `<p style="margin:16px 0;"><a href="${escapeHtml(appUrl)}" style="background:#dc2626;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700;">Abrir Cluster OS</a></p>`
+        : '';
+
+    const html = `
+        <div style="font-family:Arial,sans-serif;background:#f8fafc;padding:24px;">
+            <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;border:1px solid #fecaca;">
+                <div style="background:#dc2626;color:#fff;padding:20px 24px;">
+                    <p style="margin:0;font-size:12px;letter-spacing:.15em;text-transform:uppercase;opacity:.85;">Cluster OS - Alerta de cumplimiento</p>
+                    <h2 style="margin:8px 0 0;font-size:22px;">${escapeHtml(heading)}</h2>
+                </div>
+                <div style="padding:24px;">
+                    <p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.5;">${lead}</p>
+                    <table style="width:100%;border-collapse:collapse;background:#f8fafc;border-radius:12px;">${tableRows}</table>
+                    ${link}
+                    <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">Este correo fue generado automaticamente por Cluster OS.</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    return { subject, html };
+};
+
+export const sendComplianceEmail = async (context = {}) => {
+    const { subject, html } = buildComplianceEmail(context);
+    return sendEmail({
+        to: context.to,
+        subject,
+        html,
+        logLabel: 'compliance-alert'
     });
 };
 

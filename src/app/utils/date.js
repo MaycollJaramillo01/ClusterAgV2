@@ -101,6 +101,32 @@ export const getLast24HoursRange = (now = new Date()) => {
     };
 };
 
+export const shiftDateOnlyString = (value = '', amount = 0) => {
+    const normalized = normalizeDateOnlyString(value);
+    const steps = Number(amount);
+    if (!normalized || !Number.isFinite(steps) || steps === 0) return normalized;
+    const [year, month, day] = normalized.split('-').map(Number);
+    const cursor = new Date(Date.UTC(year, month - 1, day));
+    cursor.setUTCDate(cursor.getUTCDate() + Math.trunc(steps));
+    return cursor.toISOString().slice(0, 10);
+};
+
+export const isWeekendDate = (value = '') => {
+    const normalized = normalizeDateOnlyString(value);
+    if (!normalized) return false;
+    const [year, month, day] = normalized.split('-').map(Number);
+    return WEEKEND_UTC_DAYS.has(new Date(Date.UTC(year, month - 1, day)).getUTCDay());
+};
+
+export const getWeekStartDate = (value = getHondurasTodayStr()) => {
+    const normalized = normalizeDateOnlyString(value) || getHondurasTodayStr();
+    const [year, month, day] = normalized.split('-').map(Number);
+    const cursor = new Date(Date.UTC(year, month - 1, day));
+    const mondayOffset = (cursor.getUTCDay() + 6) % 7;
+    cursor.setUTCDate(cursor.getUTCDate() - mondayOffset);
+    return cursor.toISOString().slice(0, 10);
+};
+
 export const addBusinessDays = (value = '', amount = 0) => {
     const normalized = normalizeDateOnlyString(value);
     const steps = Number(amount);

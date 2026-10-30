@@ -222,3 +222,73 @@ export const sendClientChatPush = async ({ message, clientName = 'Cliente' }) =>
         return { sent: 0, failed: recipients.length };
     }
 };
+
+export const buildUsersPush = ({ title = '', body = '', data = {} } = {}) => ({
+    title: String(title || 'Cluster OS'),
+    body: String(body || ''),
+    data: Object.fromEntries(Object.entries({ type: 'compliance', ...data })
+        .map(([key, value]) => [key, String(value ?? '')]))
+});
+
+/**
+ * Push a usuarios concretos (p. ej. alertas de cumplimiento). Es de mejor
+ * esfuerzo: nunca lanza, para no romper el cron si FCM no esta configurado.
+ */
+export const sendUsersPush = async ({ userIds = [], title, body, data = {} } = {}) => {
+    const ids = new Set((userIds || []).filter(Boolean).map(String));
+    if (ids.size === 0) return { sent: 0, skipped: true };
+    try {
+        const tokens = (await listRecords({ collectionName: PUSH_TOKEN_COLLECTION }))
+            .filter((entry) => entry?.token && ids.has(String(entry.userId || '')));
+        if (tokens.length === 0) return { sent: 0, skipped: true };
+        const push = buildUsersPush({ title, body, data });
+        const messaging = getMessaging(getFirebaseAdminApp());
+        const isWeb = (entry) => String(entry.platform || '').toLowerCase() === 'web';
+        const deliveries = [
+            { web: true, recipients: tokens.filter(isWeb) },
+            { web: false, recipients: tokens.filter((entry) => !isWeb(entry)) }
+        ].filter((delivery) => delivery.recipients.length > 0);
+        let sent = 0;
+        let failed = 0;
+        for (const delivery of deliveries) {
+            const tokenList = delivery.recipients.map((entry) => entry.token);
+            const response = await messaging.sendEachForMulticast(delivery.web
+                ? {
+                    tokens: tokenList,
+                    data: {
+                        ...push.data,
+                        title: push.title,
+                        body: push.body,
+                        link: String(env.appBaseUrl || '')
+                    },
+                    webpush: { headers: { Urgency: 'high' } }
+                }
+                : {
+                    tokens: tokenList,
+                    notification: { title: push.title, body: push.body },
+                    data: push.data,
+                    android: {
+                        priority: 'high',
+                        notification: { channelId: 'cluster-messages', sound: 'default' }
+                    },
+                    apns: {
+                        headers: { 'apns-priority': '10' },
+                        payload: { aps: { sound: 'default' } }
+                    }
+                });
+            sent += response.successCount;
+            failed += response.failureCount;
+            await Promise.all(response.responses.map(async (result, index) => {
+                if (result.success || !INVALID_TOKEN_CODES.has(result.error?.code)) return;
+                await deleteRecord({
+                    collectionName: PUSH_TOKEN_COLLECTION,
+                    recordId: delivery.recipients[index].id
+                });
+            }));
+        }
+        return { sent, failed };
+    } catch (error) {
+        console.warn('[push]', error?.message || error);
+        return { sent: 0, failed: ids.size };
+    }
+};

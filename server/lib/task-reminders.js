@@ -1,3 +1,4 @@
+import { getRolePriority, getSupervisorUsers } from '../../src/app/utils/compliance.js';
 import { normalizeEmail } from './text.js';
 
 export const HOUR_MS = 60 * 60 * 1000;
@@ -20,12 +21,46 @@ export const REMINDER_STAGES = [
     { key: 'reminder8hSentAt', hours: 8, label: '8 horas' }
 ];
 
-const ADMIN_ROLES = new Set(['super_admin', 'operations']);
+const KNOWN_ROLES = new Set(['super_admin', 'operations', 'management', 'manager', 'editor']);
+// Si no se puede determinar el rol del responsable se conserva el comportamiento
+// historico: avisan operations y super_admin (prioridad mayor a management).
+const LEGACY_SUPERVISION_ROLE = 'management';
+const HONDURAS_UTC_OFFSET_HOURS = -6;
+
+/**
+ * Los correos "continuos" solo salen dentro del horario laboral de Honduras
+ * [startHour, endHour).
+ */
+export const isWithinNagWindow = (nowMs, { startHour = 7, endHour = 19 } = {}) => {
+    if (!Number.isFinite(nowMs)) return false;
+    const hour = new Date(nowMs + (HONDURAS_UTC_OFFSET_HOURS * HOUR_MS)).getUTCHours();
+    return hour >= startHour && hour < endHour;
+};
+
+const resolveAssigneeRole = (assignee = {}, users = []) => {
+    if (KNOWN_ROLES.has(assignee?.role)) return assignee.role;
+    const email = normalizeEmail(assignee?.email);
+    const user = email ? users.find((item) => normalizeEmail(item?.email) === email) : null;
+    return KNOWN_ROLES.has(user?.role) ? user.role : '';
+};
+
+const highestRole = (roles = []) => roles
+    .filter(Boolean)
+    .reduce((best, role) => (!best || getRolePriority(role) > getRolePriority(best) ? role : best), '');
+
+const clientManagerKeys = (task = {}, clients = []) => {
+    const clientId = String(task?.clientId || '').trim();
+    const client = clientId
+        ? (Array.isArray(clients) ? clients : []).find((item) => String(item?.id) === clientId)
+        : null;
+    return new Set([client?.managerId, client?.managerUserId].filter(Boolean).map(String));
+};
 
 export const collectReminderRecipients = ({
     assignees = [],
     task = {},
-    users = []
+    users = [],
+    clients = []
 } = {}) => {
     const byEmail = new Map();
     const add = (person, role) => {
@@ -48,10 +83,15 @@ export const collectReminderRecipients = ({
         const assignerUser = users.find((user) => String(user?.id) === assignerId);
         if (assignerUser) add(assignerUser, 'assigner');
     }
-    for (const user of users) {
-        if (user?.isActive === false) continue;
-        if (ADMIN_ROLES.has(user?.role)) add(user, 'admin');
-    }
+
+    const assigneeRole = highestRole(assignees.map((assignee) => resolveAssigneeRole(assignee, users)))
+        || LEGACY_SUPERVISION_ROLE;
+    const supervisors = getSupervisorUsers({
+        role: assigneeRole,
+        users,
+        managerKeys: clientManagerKeys(task, clients)
+    });
+    for (const supervisor of supervisors) add(supervisor, 'supervisor');
 
     return [...byEmail.values()].map((item) => ({
         ...item,
@@ -59,7 +99,7 @@ export const collectReminderRecipients = ({
             ? 'assignee'
             : item.roles.includes('assigner')
                 ? 'assigner'
-                : 'admin'
+                : 'supervisor'
     }));
 };
 
@@ -68,7 +108,8 @@ export const selectReminderAction = ({
     dueMs,
     nowMs,
     upcomingNagMs = DAY_MS,
-    overdueNagMs = DAY_MS
+    overdueNagMs = DAY_MS,
+    nagAllowed = true
 } = {}) => {
     if (!Number.isFinite(dueMs) || !Number.isFinite(nowMs)) return null;
     const msUntilDue = dueMs - nowMs;
@@ -85,7 +126,7 @@ export const selectReminderAction = ({
             };
         }
         const firstSent = REMINDER_STAGES.map((stage) => task[stage.key]).find(Boolean);
-        if (!firstSent) return null;
+        if (!firstSent || !nagAllowed) return null;
         const lastNag = Date.parse(task.lastUpcomingNagAt || firstSent);
         if (Number.isFinite(lastNag) && (nowMs - lastNag) >= upcomingNagMs) {
             return {
@@ -105,6 +146,7 @@ export const selectReminderAction = ({
             stampKeys: ['overdueSentAt', 'lastOverdueNagAt']
         };
     }
+    if (!nagAllowed) return null;
     const lastNag = Date.parse(task.lastOverdueNagAt || task.overdueSentAt);
     if (Number.isFinite(lastNag) && (nowMs - lastNag) >= overdueNagMs) {
         return {

@@ -193,13 +193,14 @@ const sanitizeStoredAttachment = (attachment, index, { collectionName, recordId,
 
     const uploadedBy = String(attachment.uploadedBy || '').trim().slice(0, 120);
     const uploadedAt = String(attachment.uploadedAt || '').trim().slice(0, 40);
+    const storage = attachment.storage === 'database' ? 'database' : 'r2';
     return {
         id: String(attachment.id || parsed.attachmentId || `attachment-${index + 1}`).trim().slice(0, 120),
         name,
         type,
         size,
         key,
-        storage: 'r2',
+        storage,
         ...(uploadedBy ? { uploadedBy } : {}),
         ...(uploadedAt ? { uploadedAt } : {}),
         ...optionalDuration(attachment.duration)

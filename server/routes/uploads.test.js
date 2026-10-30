@@ -102,7 +102,13 @@ test('upload status requires a session', async () => {
     assert.equal(authed.payload.retentionDays, 0);
 });
 
-test('signing an upload without R2 stays unavailable', async () => {
+test('signing an upload without R2 creates an authenticated database upload session', async () => {
+    const bytes = Buffer.from('small test attachment');
+    await createRecord({
+        collectionName: 'editing',
+        recordId: 'task-1',
+        payload: { title: 'Tarea de edición', status: 'editar', attachments: [] }
+    });
     const response = await request('/api/uploads/sign', {
         token: editorToken,
         method: 'POST',
@@ -111,9 +117,60 @@ test('signing an upload without R2 stays unavailable', async () => {
             taskId: 'task-1',
             fileName: 'corte.mp4',
             contentType: 'video/mp4',
-            size: 1200
+            size: bytes.length
         }
     });
-    assert.equal(response.status, 503);
-    assert.equal(response.payload?.error?.code, 'uploads/not-configured');
+    assert.equal(response.status, 200);
+    assert.equal(response.payload.storage, 'database');
+    assert.match(response.payload.uploadUrl, /mode=chunked/);
+    assert.ok(response.payload.key.startsWith('tasks/editing/task-1/'));
+
+    const uploadUrl = new URL(response.payload.uploadUrl);
+    uploadUrl.searchParams.set('part', '0');
+    const uploaded = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+            cookie: `cluster_session=${editorToken}`,
+            'content-type': 'application/octet-stream'
+        },
+        body: bytes
+    });
+    assert.equal(uploaded.status, 200);
+    assert.equal((await uploaded.json()).complete, true);
+
+    const resolved = await request('/api/uploads/url', {
+        token: editorToken,
+        method: 'POST',
+        body: { key: response.payload.key, storage: 'database' }
+    });
+    assert.equal(resolved.status, 200);
+    const downloaded = await fetch(resolved.payload.url, {
+        headers: { cookie: `cluster_session=${editorToken}` }
+    });
+    assert.equal(downloaded.status, 200);
+    assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), bytes);
+});
+
+test('task activity records opens and field names for task updates', async () => {
+    const opened = await request('/api/activity/open', {
+        token: editorToken,
+        method: 'POST',
+        body: { collectionName: 'editing', taskId: 'task-1' }
+    });
+    assert.equal(opened.status, 201);
+
+    const updated = await request('/api/collections/editing/task-1', {
+        token: editorToken,
+        method: 'PATCH',
+        body: { data: { title: 'Tarea actualizada' } }
+    });
+    assert.equal(updated.status, 200);
+
+    const activity = await request('/api/activity?actorId=editor-uploads&limit=10', {
+        token: editorToken
+    });
+    assert.equal(activity.status, 200);
+    assert.deepEqual(activity.payload.events.map((event) => event.action), ['updated', 'opened']);
+    assert.deepEqual(activity.payload.events[0].fields, ['title']);
+    assert.ok(Number.isFinite(Date.parse(activity.payload.events[0].createdAt)));
 });

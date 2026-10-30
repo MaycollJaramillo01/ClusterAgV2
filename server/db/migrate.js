@@ -116,6 +116,88 @@ const ensureAuthSessionsTable = async (database) => {
     });
 };
 
+const ensureInternalActivityTables = async (database) => {
+    if (!await database.schema.hasTable('user_notifications')) {
+        await database.schema.createTable('user_notifications', (table) => {
+            table.string('id', 120).primary();
+            table.string('recipient_id', 120).notNullable();
+            table.string('actor_id', 120).notNullable();
+            table.string('actor_name', 180).notNullable();
+            table.string('type', 40).notNullable();
+            table.string('title', 180).notNullable();
+            table.text('body').notNullable();
+            table.string('entity_type', 40).nullable();
+            table.string('entity_id', 120).nullable();
+            table.string('entity_collection', 120).nullable();
+            table.string('created_at', 40).notNullable();
+            table.string('read_at', 40).nullable();
+            table.index(['recipient_id', 'created_at']);
+            table.index(['recipient_id', 'read_at']);
+        });
+    }
+
+    if (!await database.schema.hasTable('task_activity_events')) {
+        await database.schema.createTable('task_activity_events', (table) => {
+            table.string('id', 120).primary();
+            table.string('collection_name', 120).notNullable();
+            table.string('task_id', 120).notNullable();
+            table.string('task_title', 180).notNullable();
+            table.string('action', 30).notNullable();
+            table.text('fields_json').notNullable();
+            table.string('actor_id', 120).notNullable();
+            table.string('actor_name', 180).notNullable();
+            table.string('created_at', 40).notNullable();
+            table.index(['actor_id', 'created_at']);
+            table.index(['collection_name', 'task_id', 'created_at']);
+        });
+    }
+
+    if (!await database.schema.hasTable('attachment_blobs')) {
+        await database.schema.createTable('attachment_blobs', (table) => {
+            table.string('key', 500).primary();
+            table.string('collection_name', 120).notNullable();
+            table.string('parent_id', 120).notNullable();
+            table.string('attachment_id', 120).notNullable();
+            table.string('file_name', 180).notNullable();
+            table.string('content_type', 160).notNullable();
+            table.binary('file_data').notNullable();
+            table.bigInteger('file_size').notNullable();
+            table.string('uploaded_by', 120).notNullable();
+            table.string('created_at', 40).notNullable();
+            table.index(['collection_name', 'parent_id']);
+        });
+    }
+
+    if (!await database.schema.hasTable('attachment_upload_chunks')) {
+        await database.schema.createTable('attachment_upload_chunks', (table) => {
+            table.string('object_key', 500).notNullable();
+            table.integer('part_index').notNullable();
+            table.integer('total_parts').notNullable();
+            table.binary('chunk_data').notNullable();
+            table.string('uploaded_by', 120).notNullable();
+            table.string('created_at', 40).notNullable();
+            table.primary(['object_key', 'part_index']);
+            table.index(['created_at']);
+        });
+    }
+
+    if (!await database.schema.hasTable('attachment_upload_sessions')) {
+        await database.schema.createTable('attachment_upload_sessions', (table) => {
+            table.string('object_key', 500).primary();
+            table.string('collection_name', 120).notNullable();
+            table.string('parent_id', 120).notNullable();
+            table.string('attachment_id', 120).notNullable();
+            table.string('file_name', 180).notNullable();
+            table.string('content_type', 160).notNullable();
+            table.bigInteger('expected_size').notNullable();
+            table.integer('total_parts').notNullable();
+            table.string('uploaded_by', 120).notNullable();
+            table.string('created_at', 40).notNullable();
+            table.index(['created_at']);
+        });
+    }
+};
+
 const ensureOauthStatesTable = async (database) => {
     const exists = await database.schema.hasTable('auth_oauth_states');
     if (!exists) {
@@ -196,5 +278,6 @@ export const migrateDatabase = async () => {
         await runMigration(database, '003_auth_sessions', () => ensureAuthSessionsTable(database));
         await runMigration(database, '004_oauth_result_token', () => ensureOauthStatesTable(database));
         await runMigration(database, '005_unique_user_identity', () => ensureIdentityUniqueIndexes(database));
+        await runMigration(database, '006_internal_activity_and_attachments', () => ensureInternalActivityTables(database));
     });
 };

@@ -4542,6 +4542,17 @@ textarea:focus-visible,
     white-space: nowrap;
 }
 
+.performance-downloads .performance-visual-pdf {
+    border-color: #4f46e5;
+    background: #4f46e5;
+    color: #fff;
+}
+
+.performance-downloads .performance-visual-pdf:hover:not(:disabled) {
+    border-color: #4338ca;
+    background: #4338ca;
+}
+
 .performance-downloads button:hover:not(:disabled) {
     border-color: var(--focus);
 }

@@ -111,7 +111,7 @@ export const getKpiTaskMeta = (task = {}, kind) => {
       ? isEditorKpiCompleted(task)
       : kind === "management"
         ? task.status === "cerrado"
-        : ["aprobado_internamente", "publicado"].includes(task.status);
+      : ["aprobado_internamente", "publicado"].includes(task.status);
   const ownerAtCompletion = kind === "editor"
     ? task.editorOwnerAtCompletionId : task.ownerAtCompletionId;
   const assigneeAtCompletion = kind === "editor"
@@ -313,7 +313,7 @@ export const buildTeamKpiStats = ({
       published: entries.filter(({ task }) => task.status === "publicado").length,
       approved: entries.filter(({ task, meta }) => meta.kind === "editor"
         ? ["aprobado", "publicado"].includes(normalizeEditingWorkflowStatus(task.status))
-        : ["aprobado_internamente", "publicado"].includes(task.status),
+          : ["aprobado_internamente", "publicado"].includes(task.status),
       ).length,
     };
   });
@@ -350,9 +350,9 @@ export const buildManagerKpiStats = ({
   })).sort((left, right) =>
     Number(right.qualified) - Number(left.qualified) ||
     right.score - left.score || right.weightedCompleted - left.weightedCompleted ||
-    (right.onTimePercent ?? -1) - (left.onTimePercent ?? -1) ||
-    String(left.name || "").localeCompare(String(right.name || "")),
-  );
+        (right.onTimePercent ?? -1) - (left.onTimePercent ?? -1) ||
+        String(left.name || "").localeCompare(String(right.name || "")),
+    );
 };
 
 const EDITING_DUE_BUCKET = { overdue: 0, today: 1, tomorrow: 2, later: 3 };

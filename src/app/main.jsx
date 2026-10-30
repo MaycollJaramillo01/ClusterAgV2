@@ -94,6 +94,7 @@ import {
   BellSlash,
   ArrowsClockwise as RefreshCw,
   Camera,
+  Repeat,
 } from "@phosphor-icons/react";
 import {
   signInAnonymously,
@@ -149,6 +150,13 @@ import {
   resolveStoredTaskRoomDate,
 } from "./utils/date.js";
 import {
+  buildRecurrenceDates,
+  buildRecurrencePayload,
+  getRecurrenceMeta,
+  isRecurringTask,
+  RECURRENCE_FREQUENCIES,
+} from "./utils/recurrence.js";
+import {
   captureNodesPdf,
   downloadBytes,
 } from "./utils/capture-node.js";
@@ -169,6 +177,11 @@ import {
   rankPendingEditingTasks,
 } from "./utils/kpi.js";
 import {
+  buildComplianceSnapshot,
+  decorateKpiWithCompliance,
+  applyPerformancePenalty,
+} from "./utils/compliance.js";
+import {
   buildKanbanReorderIds,
   canReorderKanban,
   sortKanbanColumnTasks,
@@ -180,6 +193,7 @@ import {
   sendApiBeacon,
 } from "./lib/backend-api.js";
 import {
+  DEFAULT_TASK_UPLOAD_MAX_BYTES,
   MAX_TASK_ATTACHMENTS,
   TASK_UPLOAD_COLLECTIONS,
   deleteStoredAttachment,
@@ -322,6 +336,7 @@ const IconsMap = {
   BellSlash,
   RefreshCw,
   Camera,
+  Repeat,
 };
 
 const Icon = ({ name, size = 18, className = "", ...props }) => {
@@ -1923,6 +1938,331 @@ const normalizeThemePalette = (value) =>
     ? value
     : THEME_PALETTE_ALIASES[value] || "botanical";
 
+function ComplianceAlertBanner({
+  compliance,
+  onOpenDetails,
+  onOpenTask,
+  onNavigate,
+}) {
+  if (!compliance || !compliance.isAlerting) return null;
+  const { overdueCount, editorDaily, accountWeekly, quotaPenalty } = compliance;
+
+  const messages = [];
+  if (overdueCount > 0) {
+    messages.push(
+      overdueCount === 1 ? "1 tarea vencida" : `${overdueCount} tareas vencidas`,
+    );
+  }
+  if (editorDaily?.applies && editorDaily?.missed) {
+    messages.push(
+      `Meta diaria de edición: ${editorDaily.completed}/${editorDaily.target} hoy`,
+    );
+  }
+  if (accountWeekly?.applies && accountWeekly?.behind) {
+    messages.push(
+      `Ritmo semanal Account: ${accountWeekly.progressPercent}% entregas vs ${accountWeekly.elapsedPercent}% tiempo`,
+    );
+  }
+
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      className="sticky top-0 z-40 w-full border-b border-red-500/40 bg-red-950/95 text-red-100 px-4 py-2.5 shadow-md"
+    >
+      <div className="mx-auto flex max-w-[1360px] flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-600/30 text-red-300 ring-1 ring-red-400/40">
+            <Icon name="AlertTriangle" size={18} />
+          </span>
+          <div className="min-w-0 text-xs sm:text-sm">
+            <p className="font-semibold text-white">
+              Alerta de cumplimiento en el sistema
+              {quotaPenalty > 0 && (
+                <span className="ml-2 inline-flex items-center rounded bg-red-500/30 px-1.5 py-0.5 text-xs font-bold text-red-200">
+                  −{quotaPenalty} pts en KPI
+                </span>
+              )}
+            </p>
+            <p className="truncate text-red-200/90 text-xs">
+              {messages.join(" · ")}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {compliance.overdueTasks?.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                const first = compliance.overdueTasks[0];
+                if (first) onOpenTask?.(first, first._taskType || "editingTask");
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm transition hover:bg-red-500"
+            >
+              <Icon name="Timer" size={14} />
+              <span>Resolver tarea</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onOpenDetails}
+            className="inline-flex items-center gap-1 rounded-lg border border-red-400/30 bg-red-900/40 px-2.5 py-1 text-xs font-medium text-red-100 hover:bg-red-800/50"
+          >
+            <span>Ver detalles</span>
+            <Icon name="ArrowRight" size={13} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ComplianceAlertModal({
+  compliance,
+  onClose,
+  onOpenTask,
+  onNavigate,
+}) {
+  if (!compliance || !compliance.isAlerting || typeof document === "undefined")
+    return null;
+  const {
+    overdueCount,
+    overdueTasks = [],
+    editorDaily,
+    accountWeekly,
+    quotaPenalty,
+  } = compliance;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="compliance-alert-title"
+    >
+      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-red-500/40 bg-neutral-900 text-neutral-100 shadow-2xl">
+        <div className="flex items-start justify-between border-b border-red-500/30 bg-red-950/70 p-5">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-600/30 text-red-300 ring-1 ring-red-400/50">
+              <Icon name="AlertTriangle" size={24} />
+            </span>
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-red-400">
+                Aviso de Rendimiento y Cumplimiento
+              </span>
+              <h2
+                id="compliance-alert-title"
+                className="text-lg font-bold text-white"
+              >
+                Eventos de incumplimiento activos
+              </h2>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cerrar aviso"
+            className="rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-800 hover:text-white"
+          >
+            <Icon name="X" size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-4 overflow-y-auto p-5">
+          {quotaPenalty > 0 && (
+            <div className="rounded-xl border border-red-500/40 bg-red-950/40 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <strong className="text-sm font-bold text-red-300">
+                    Penalización activa en tu KPI
+                  </strong>
+                  <p className="mt-0.5 text-xs text-red-200/80">
+                    Este incumplimiento deduce puntos de tu calificación mensual
+                    mientras no se regularice.
+                  </p>
+                </div>
+                <span className="rounded-lg bg-red-600 px-3 py-1.5 text-base font-black text-white">
+                  −{quotaPenalty} pts
+                </span>
+              </div>
+            </div>
+          )}
+
+          {overdueCount > 0 && (
+            <div className="space-y-3 rounded-xl border border-neutral-700 bg-neutral-800/60 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Icon name="Timer" size={18} className="text-red-400" />
+                  <h3 className="text-sm font-bold text-white">
+                    Tareas vencidas ({overdueCount})
+                  </h3>
+                </div>
+                <span className="text-xs font-semibold text-red-400">
+                  Requiere entrega inmediata
+                </span>
+              </div>
+              <p className="text-xs text-neutral-300">
+                Las siguientes tareas asignadas han superado su fecha/hora límite sin haberse completado:
+              </p>
+
+              <div className="max-h-48 divide-y divide-neutral-700/60 overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-900/60">
+                {overdueTasks.map((task) => (
+                  <div
+                    key={`${task._taskType || "task"}-${task.id}`}
+                    className="flex items-center justify-between gap-2 p-3 hover:bg-neutral-800/50"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-white">
+                        {task.title || "Tarea sin título"}
+                      </p>
+                      <p className="text-xs text-red-300/80">
+                        Venció: {task.date || "Sin fecha"}{" "}
+                        {task.time ? `a las ${task.time}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose?.();
+                        onOpenTask?.(task, task._taskType || "editingTask");
+                      }}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md bg-neutral-700 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-red-600"
+                    >
+                      <span>Abrir</span>
+                      <Icon name="ExternalLink" size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {editorDaily?.applies && editorDaily?.missed && (
+            <div className="space-y-2 rounded-xl border border-neutral-700 bg-neutral-800/60 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Icon name="CheckSquare" size={18} className="text-amber-400" />
+                  <h3 className="text-sm font-bold text-white">
+                    Meta diaria por editor
+                  </h3>
+                </div>
+                <span className="text-xs font-bold text-amber-400">
+                  {editorDaily.completed} / {editorDaily.target} piezas
+                </span>
+              </div>
+              <p className="text-xs text-neutral-300">
+                No se está completando la cantidad de tareas diarias por editor ({editorDaily.target} piezas nuevas diarias fuera de correcciones).
+              </p>
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-700">
+                <div
+                  className="h-2.5 rounded-full bg-amber-500"
+                  style={{
+                    width: `${Math.min(100, Math.round((editorDaily.completed / editorDaily.target) * 100))}%`,
+                  }}
+                />
+              </div>
+              <div className="flex justify-between text-xs text-neutral-400">
+                <span>Déficit: {editorDaily.shortfall} piezas</span>
+                <span>Penalización: −{editorDaily.penalty} pts</span>
+              </div>
+            </div>
+          )}
+
+          {accountWeekly?.applies && accountWeekly?.behind && (
+            <div className="space-y-3 rounded-xl border border-neutral-700 bg-neutral-800/60 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Icon name="BarChart3" size={18} className="text-amber-400" />
+                  <h3 className="text-sm font-bold text-white">
+                    Ritmo semanal de Account Manager
+                  </h3>
+                </div>
+                <span className="text-xs font-bold text-amber-400">
+                  Retraso: {accountWeekly.penalty} pts
+                </span>
+              </div>
+              <p className="text-xs text-neutral-300">
+                La proporción del trabajo semanal está por debajo del porcentaje transcurrido de la semana laborable:
+              </p>
+              <div className="space-y-2">
+                <div>
+                  <div className="mb-1 flex justify-between text-xs">
+                    <span className="text-neutral-400">Tiempo de semana transcurrido</span>
+                    <span className="font-semibold text-neutral-200">
+                      {accountWeekly.elapsedPercent}%
+                    </span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-neutral-700">
+                    <div
+                      className="h-2 rounded-full bg-neutral-400"
+                      style={{ width: `${accountWeekly.elapsedPercent}%` }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1 flex justify-between text-xs">
+                    <span className="text-neutral-400">Publicaciones completadas</span>
+                    <span className="font-semibold text-amber-400">
+                      {accountWeekly.progressPercent}% ({accountWeekly.completed}/{accountWeekly.assigned})
+                    </span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-neutral-700">
+                    <div
+                      className="h-2 rounded-full bg-amber-500"
+                      style={{ width: `${accountWeekly.progressPercent}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-neutral-800 bg-neutral-900/80 px-5 py-3">
+          <p className="text-xs text-neutral-400">
+            Se envían avisos continuos al usuario y superiores hasta regularizar.
+          </p>
+          <div className="flex items-center gap-2">
+            {editorDaily?.applies && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose?.();
+                  onNavigate?.("editing");
+                }}
+                className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800"
+              >
+                Sala Edición
+              </button>
+            )}
+            {accountWeekly?.applies && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose?.();
+                  onNavigate?.("account");
+                }}
+                className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800"
+              >
+                Sala Accounts
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg bg-neutral-700 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-neutral-600"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // --- APP PRINCIPAL ---
 const AUTOMATIC_DATA_REPAIR_ENABLED = false;
 
@@ -1944,6 +2284,8 @@ function App() {
   const [performancePeriodPreset, setPerformancePeriodPreset] =
     useState("custom");
   const [dailyCaptureActive, setDailyCaptureActive] = useState(false);
+  const [complianceModalDismissed, setComplianceModalDismissed] = useState(false);
+  const [complianceModalOpen, setComplianceModalOpen] = useState(false);
   const dailyCaptureRef = useRef(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
@@ -1983,6 +2325,9 @@ function App() {
   const [chatReactions, setChatReactions] = useState([]);
   const [chatPins, setChatPins] = useState([]);
   const [chatStickers, setChatStickers] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [chatDirectory, setChatDirectory] = useState([]);
   const [chatGroupsByClient, setChatGroupsByClient] = useState({});
   const [chatGroupsLoaded, setChatGroupsLoaded] = useState(false);
@@ -2159,6 +2504,16 @@ function App() {
           isActive: true,
           isAnonymous: true,
         };
+  const currentUserCompliance = useMemo(() => {
+    if (!currentUserProfile || currentUserProfile.id === "anonymous") return null;
+    return buildComplianceSnapshot({
+      profile: currentUserProfile,
+      accountTasks,
+      editingTasks,
+      managementTasks,
+      today: getHondurasTodayStr(),
+    });
+  }, [currentUserProfile, accountTasks, editingTasks, managementTasks]);
   const currentRoleMeta = getRoleMeta(currentUserProfile?.role);
   const currentVerificationMeta = getVerificationMeta(currentUserProfile);
   const canManageChatMembers = ["manager", "super_admin"].includes(
@@ -4795,6 +5150,62 @@ function App() {
     editingTasks.length,
   ]);
 
+  const refreshNotifications = useCallback(async () => {
+    if (!currentUserProfile?.id) return;
+    try {
+      const payload = await apiFetch("/api/notifications");
+      setNotifications(Array.isArray(payload?.notifications) ? payload.notifications : []);
+      setNotificationUnreadCount(Number(payload?.unreadCount || 0));
+    } catch (error) {
+      console.warn("[notifications:inbox]", error.message);
+    }
+  }, [currentUserProfile?.id]);
+
+  useEffect(() => {
+    if (!currentUserProfile?.id) {
+      setNotifications([]);
+      setNotificationUnreadCount(0);
+      return undefined;
+    }
+    void refreshNotifications();
+    const intervalId = window.setInterval(refreshNotifications, 60_000);
+    window.addEventListener("focus", refreshNotifications);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshNotifications);
+    };
+  }, [currentUserProfile?.id, refreshNotifications]);
+
+  const markNotificationRead = async (item) => {
+    if (!item?.id || item.readAt) return;
+    const readAt = new Date().toISOString();
+    setNotifications((current) => current.map((entry) => (
+      entry.id === item.id ? { ...entry, readAt } : entry
+    )));
+    setNotificationUnreadCount((count) => Math.max(0, count - 1));
+    try {
+      await apiFetch(`/api/notifications/${encodeURIComponent(item.id)}/read`, {
+        method: "PATCH",
+        body: JSON.stringify({}),
+      });
+    } catch (error) {
+      console.warn("[notifications:read]", error.message);
+      void refreshNotifications();
+    }
+  };
+
+  const markAllNotificationsRead = async () => {
+    try {
+      await apiFetch("/api/notifications/read-all", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      await refreshNotifications();
+    } catch (error) {
+      console.warn("[notifications:read-all]", error.message);
+    }
+  };
+
   const handleNavigate = (newView) => {
     if (!canAccessView(currentUserProfile, newView) || profileBlocked) {
       ensurePermission(
@@ -4812,6 +5223,32 @@ function App() {
       entityId: newView,
       description: `Abre la vista ${newView}`,
     });
+  };
+  const handleNotificationSelect = async (item) => {
+    await markNotificationRead(item);
+    setIsNotificationsOpen(false);
+    if (item?.entityType === "task") {
+      const viewByCollection = {
+        account_tasks: "account-room",
+        editing: "editions",
+        management_tasks: "management-room",
+      };
+      const taskByCollection = {
+        account_tasks: accountTasks,
+        editing: editingTasks,
+        management_tasks: managementTasks,
+      };
+      const targetView = viewByCollection[item.entityCollection];
+      const task = taskByCollection[item.entityCollection]?.find(
+        (entry) => String(entry.id) === String(item.entityId),
+      );
+      if (targetView) handleNavigate(targetView);
+      if (task) openTaskDetail(task);
+    } else if (item?.entityType === "chat") {
+      handleNavigate("chat");
+    } else if (item?.entityType === "client") {
+      handleNavigate("clients");
+    }
   };
   const openDailyPerformanceReport = ({ capture = true } = {}) => {
     setPerformancePeriodPreset("last24h");
@@ -4868,6 +5305,13 @@ function App() {
     if (!["accountTask", "editingTask", "managementTask"].includes(resolvedType))
       return;
     setTaskDetailConfig({ isOpen: true, task, type: resolvedType });
+    const collectionName = TASK_UPLOAD_COLLECTIONS[resolvedType];
+    if (task?.id && collectionName) {
+      void apiFetch("/api/activity/open", {
+        method: "POST",
+        body: JSON.stringify({ collectionName, taskId: task.id }),
+      }).catch((error) => console.warn("[task-activity:open]", error.message));
+    }
   }, []);
   const handleAccountTaskClick = useCallback(
     (task) => openTaskDetail(task, "accountTask"),
@@ -5284,15 +5728,15 @@ function App() {
           (task) => task.clientId === client.id && !isAccountTaskDone(task),
         );
         if (userHasPermission(currentUserProfile, "assign_tasks")) {
-          await Promise.all(
-            tasksToMove.map((task) =>
-              updateDoc(dataDoc("account_tasks", task.id), {
-                contextId: newManager.id,
-                assigneeUserId: newManager.userId || "",
-                updatedAt: nowIso(),
-              }),
-            ),
-          );
+        await Promise.all(
+          tasksToMove.map((task) =>
+            updateDoc(dataDoc("account_tasks", task.id), {
+              contextId: newManager.id,
+              assigneeUserId: newManager.userId || "",
+              updatedAt: nowIso(),
+            }),
+          ),
+        );
         }
       },
       errorMessage: "Error al reasignar",
@@ -5430,32 +5874,52 @@ function App() {
   };
 
   const addAccountTask = async (data) => {
-    const { pendingFiles, onUploadProgress, ...taskData } = data || {};
+    const { pendingFiles, onUploadProgress, recurrence, ...taskData } = data || {};
     const assignee = accountTaskAssignees.find(
       (item) => item.id === taskData.contextId && item.isActive !== false,
     );
-    return await runMutation({
+    const series = buildRecurrencePayload({ date: taskData.date, recurrence });
+    const dates = series.dates.length ? series.dates : [taskData.date || ""];
+    let first = null;
+    for (let index = 0; index < dates.length; index += 1) {
+      const isLast = index === dates.length - 1;
+      const result = await runMutation({
       permission: "create_account_tasks",
       action: "create",
       entityType: "accountTask",
-      description: `Crea tarea de account ${taskData.title}`,
-      changes: taskData,
-      successMessage: "Agendado",
+        description: `Crea tarea de account ${taskData.title}`,
+        changes: { ...taskData, date: dates[index] },
+        successMessage: isLast
+          ? dates.length > 1
+            ? `Se crearon ${dates.length} tareas recurrentes`
+            : "Agendado"
+          : "",
       execute: () =>
         addDoc(dataCollection("account_tasks"), {
-          ...taskData,
-          assignees: Array.isArray(taskData.assignees)
-            ? taskData.assignees
-            : [taskData.contextId].filter(Boolean),
-          contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
+            ...taskData,
+            date: dates[index],
+            assignees: Array.isArray(taskData.assignees)
+              ? taskData.assignees
+              : [taskData.contextId].filter(Boolean),
+            contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
           assigneeUserId: assignee?.assigneeUserId || "",
-          notificationsEnabled: taskData.notificationsEnabled !== false,
+            notificationsEnabled: taskData.notificationsEnabled !== false,
           status: "por_disenar",
+            ...(series.recurrence
+              ? {
+                  recurrence: { ...series.recurrence, index },
+                  recurrenceSeriesId: series.recurrence.seriesId,
+                }
+              : {}),
           createdAt: nowIso(),
           updatedAt: nowIso(),
         }),
-      afterSuccess: pendingFiles?.length ? undefined : closeModal,
+        afterSuccess: isLast && !pendingFiles?.length ? closeModal : undefined,
     });
+      if (!result) return first;
+      if (!first) first = result;
+    }
+    return first;
   };
   const updateAccountTask = async (id, data) => {
     const { pendingFiles, onUploadProgress, ...taskData } = data || {};
@@ -5514,46 +5978,65 @@ function App() {
   };
 
   const addEditingTask = async (data) => {
-    const { pendingFiles, onUploadProgress, ...taskData } = data || {};
+    const { pendingFiles, onUploadProgress, recurrence, ...taskData } = data || {};
     const assignee = editingTaskAssignees.find(
       (item) => item.id === taskData.contextId && item.isActive !== false,
     );
-    const stamp = nowIso();
+    const series = buildRecurrencePayload({ date: taskData.date, recurrence });
+    const dates = series.dates.length ? series.dates : [taskData.date || ""];
     const initialStatus = taskData.status || "editar";
-    const initialTask = { ...taskData, status: initialStatus };
-    return await runMutation({
+    let first = null;
+    for (let index = 0; index < dates.length; index += 1) {
+      const isLast = index === dates.length - 1;
+    const stamp = nowIso();
+      const occurrence = { ...taskData, date: dates[index], status: initialStatus };
+      const result = await runMutation({
       permission: "create_editing_tasks",
       action: "create",
       entityType: "editingTask",
-      description: `Crea video ${taskData.title}`,
+        description: `Crea video ${taskData.title}`,
       changes: {
-        ...taskData,
-        hierarchy: taskData.hierarchy || getEditingHierarchyId(taskData),
-      },
-      successMessage: "Agendado",
+          ...occurrence,
+          hierarchy: taskData.hierarchy || getEditingHierarchyId(taskData),
+        },
+        successMessage: isLast
+          ? dates.length > 1
+            ? `Se crearon ${dates.length} tareas recurrentes`
+            : "Agendado"
+          : "",
       execute: () =>
         addDoc(dataCollection("editing"), {
-          ...taskData,
-          hierarchy: taskData.hierarchy || getEditingHierarchyId(taskData),
-          assignees: Array.isArray(taskData.assignees)
-            ? taskData.assignees
-            : [taskData.contextId].filter(Boolean),
-          contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
+            ...occurrence,
+            hierarchy: taskData.hierarchy || getEditingHierarchyId(taskData),
+            assignees: Array.isArray(taskData.assignees)
+              ? taskData.assignees
+              : [taskData.contextId].filter(Boolean),
+            contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
           assigneeUserId: assignee?.assigneeUserId || "",
-          notificationsEnabled: taskData.notificationsEnabled !== false,
+            notificationsEnabled: taskData.notificationsEnabled !== false,
           status: initialStatus,
           ...getStatusTimestampPatch(
-            initialTask,
+              occurrence,
             initialStatus,
             stamp,
             currentUserProfile?.id,
             "editing",
           ),
+            ...(series.recurrence
+              ? {
+                  recurrence: { ...series.recurrence, index },
+                  recurrenceSeriesId: series.recurrence.seriesId,
+                }
+              : {}),
           createdAt: stamp,
           updatedAt: stamp,
         }),
-      afterSuccess: pendingFiles?.length ? undefined : closeModal,
+        afterSuccess: isLast && !pendingFiles?.length ? closeModal : undefined,
     });
+      if (!result) return first;
+      if (!first) first = result;
+    }
+    return first;
   };
   const updateEditingTask = async (id, data) => {
     const { pendingFiles, onUploadProgress, ...taskData } = data || {};
@@ -5656,7 +6139,7 @@ function App() {
   };
 
   const addManagementTask = async (data) => {
-    const { pendingFiles, onUploadProgress, ...taskData } = data || {};
+    const { pendingFiles, onUploadProgress, recurrence, ...taskData } = data || {};
     const member = managementUsers.find((item) => item.id === taskData.contextId);
     const normalizedDate = normalizeDateOnlyString(taskData.date);
     const normalizedTime = normalizeTimeValue(taskData.time);
@@ -5671,29 +6154,48 @@ function App() {
       );
       return null;
     }
-    return await runMutation({
+    const series = buildRecurrencePayload({ date: normalizedDate, recurrence });
+    const dates = series.dates.length ? series.dates : [normalizedDate];
+    let first = null;
+    for (let index = 0; index < dates.length; index += 1) {
+      const isLast = index === dates.length - 1;
+      const result = await runMutation({
       permission: "create_management_tasks",
       action: "create",
       entityType: "managementTask",
-      description: `Crea tarea de gestion ${taskData.title}`,
-      changes: taskData,
-      successMessage: "Agendado",
+        description: `Crea tarea de gestion ${taskData.title}`,
+        changes: { ...taskData, date: dates[index], time: normalizedTime },
+        successMessage: isLast
+          ? dates.length > 1
+            ? `Se crearon ${dates.length} tareas recurrentes`
+            : "Agendado"
+          : "",
       execute: () =>
         addDoc(dataCollection("management_tasks"), {
-          ...taskData,
-          date: normalizedDate,
+            ...taskData,
+            date: dates[index],
           time: normalizedTime,
-          assignees: Array.isArray(taskData.assignees)
-            ? taskData.assignees
-            : [taskData.contextId].filter(Boolean),
-          contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
+            assignees: Array.isArray(taskData.assignees)
+              ? taskData.assignees
+              : [taskData.contextId].filter(Boolean),
+            contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
           assigneeUserId: member?.id || "",
           status: "pendiente",
+            ...(series.recurrence
+              ? {
+                  recurrence: { ...series.recurrence, index },
+                  recurrenceSeriesId: series.recurrence.seriesId,
+                }
+              : {}),
           createdAt: nowIso(),
           updatedAt: nowIso(),
         }),
-      afterSuccess: pendingFiles?.length ? undefined : closeModal,
+        afterSuccess: isLast && !pendingFiles?.length ? closeModal : undefined,
     });
+      if (!result) return first;
+      if (!first) first = result;
+    }
+    return first;
   };
   const updateManagementTask = async (id, data) => {
     const { pendingFiles, onUploadProgress, ...taskData } = data || {};
@@ -6688,73 +7190,47 @@ function App() {
       currentUserProfile?.name ||
       (authEmail ? authEmail.split("@")[0] : "Usuario");
     const status = await fetchUploadStatus();
-    const maxBytes = status.r2 ? Number(status.maxBytes) : EMBEDDED_UPLOAD_MAX_BYTES;
+    const maxBytes = Number(status.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES;
     if (file.size > maxBytes) {
       alert(`El archivo es demasiado grande (máx. ${formatUploadLimit(maxBytes)})`);
       return;
     }
-
-    let newAttachment;
-    if (status.r2) {
-      const signed = await signTaskUpload({
-        collectionName: col,
-        taskId: task.id,
-        file,
-      });
-      await putFileToSignedUrl(
-        signed.uploadUrl,
-        file,
-        signed.headers,
-        onProgress,
-      );
-      newAttachment = {
-        id: signed.attachmentId,
-        name: file.name,
-        type: contentType,
-        size: file.size,
-        key: signed.key,
-        storage: "r2",
-        uploadedBy,
-        uploadedAt: nowIso(),
-      };
-    } else {
-      if (type === "editingTask") {
-        alert(
-          "R2 no está configurado.",
-        );
-        return;
-      }
-      const base64 = await fileToDataUrl(file);
-      newAttachment = {
-        id: Math.random().toString(36).slice(2, 10),
-        name: file.name,
-        type: contentType || file.type,
-        size: file.size,
-        data: base64,
-        uploadedBy,
-        uploadedAt: nowIso(),
-      };
-    }
+    const signed = await signTaskUpload({
+      collectionName: col,
+      taskId: task.id,
+      file,
+    });
+    await putFileToSignedUrl(
+      signed.uploadUrl,
+      file,
+      signed.headers,
+      onProgress,
+    );
+    const newAttachment = {
+      id: signed.attachmentId,
+      name: file.name,
+      type: contentType,
+      size: file.size,
+      key: signed.key,
+      storage: signed.storage || (status.r2 ? "r2" : "database"),
+      uploadedBy,
+      uploadedAt: nowIso(),
+    };
 
     const currentSnap = await getDoc(dataDoc(col, task.id));
     const currentAttachments = currentSnap.data()?.attachments || [];
-    if (!status.r2) {
-      const currentSize = currentAttachments.reduce(
-        (total, attachment) => total + Number(attachment?.size || 0),
-        0,
-      );
-      if (currentSize + file.size > EMBEDDED_UPLOAD_MAX_BYTES) {
-        alert("Los adjuntos de la tarea no pueden superar 3 MB en total.");
-        return;
-      }
+    if (currentAttachments.length >= MAX_TASK_ATTACHMENTS) {
+      if (newAttachment.key) await deleteStoredAttachment(newAttachment.key, newAttachment.storage);
+      alert(`Una tarea admite hasta ${MAX_TASK_ATTACHMENTS} archivos.`);
+      return;
     }
     try {
-      await updateDoc(dataDoc(col, task.id), {
-        attachments: [...currentAttachments, newAttachment],
-        updatedAt: nowIso(),
-      });
+    await updateDoc(dataDoc(col, task.id), {
+      attachments: [...currentAttachments, newAttachment],
+      updatedAt: nowIso(),
+    });
     } catch (error) {
-      if (newAttachment.key) await deleteStoredAttachment(newAttachment.key);
+      if (newAttachment.key) await deleteStoredAttachment(newAttachment.key, newAttachment.storage);
       throw error;
     }
   };
@@ -6769,7 +7245,7 @@ function App() {
       attachments: currentAttachments.filter((a) => a.id !== attachmentId),
       updatedAt: nowIso(),
     });
-    if (removed?.key) await deleteStoredAttachment(removed.key);
+    if (removed?.key) await deleteStoredAttachment(removed.key, removed.storage);
   };
 
   const addEvent = async (data) => {
@@ -7320,6 +7796,16 @@ function App() {
           <div className="pt-4 pb-2 pl-4 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-2">
             Clientes & equipo
           </div>
+          {currentUserProfile && (
+            <SidebarItem
+              active={isNotificationsOpen}
+              onClick={() => setIsNotificationsOpen(true)}
+              icon="Bell"
+              label="Notificaciones"
+              color="amber"
+              badge={notificationUnreadCount > 0 ? notificationUnreadCount : null}
+            />
+          )}
           {canAccessView(currentUserProfile, "clients") && (
             <SidebarItem
               active={view === "clients" || view === "client-detail"}
@@ -7602,6 +8088,14 @@ function App() {
       <main
         className={`app-main min-h-0 flex-1 relative w-full ${view === "chat" ? "overflow-hidden" : "overflow-y-auto"}`}
       >
+        {currentUserCompliance?.isAlerting && (
+          <ComplianceAlertBanner
+            compliance={currentUserCompliance}
+            onOpenDetails={() => setComplianceModalOpen(true)}
+            onOpenTask={openTaskDetail}
+            onNavigate={handleNavigate}
+          />
+        )}
         <div
           className={
             view === "chat"
@@ -8264,6 +8758,16 @@ function App() {
         />
       )}
 
+      <NotificationCenter
+        isOpen={isNotificationsOpen}
+        notifications={notifications}
+        unreadCount={notificationUnreadCount}
+        onClose={() => setIsNotificationsOpen(false)}
+        onSelect={handleNotificationSelect}
+        onMarkAllRead={markAllNotificationsRead}
+        onRefresh={refreshNotifications}
+      />
+
       <div
         aria-live="polite"
         aria-atomic="true"
@@ -8271,6 +8775,18 @@ function App() {
       >
         {toast && <Toast message={toast.message} type={toast.type} />}
       </div>
+      {((currentUserCompliance?.isAlerting && !complianceModalDismissed) ||
+        complianceModalOpen) && (
+        <ComplianceAlertModal
+          compliance={currentUserCompliance}
+          onClose={() => {
+            setComplianceModalDismissed(true);
+            setComplianceModalOpen(false);
+          }}
+          onOpenTask={openTaskDetail}
+          onNavigate={handleNavigate}
+        />
+      )}
       {modalConfig.isOpen &&
         ["accountTask", "editingTask", "managementTask"].includes(
           modalConfig.type,
@@ -9421,11 +9937,22 @@ const DashboardView = ({
     managementTasks,
   });
 
-  const personalKpi = buildPersonalKpiSnapshot(
+  const personalCompliance = buildComplianceSnapshot({
+    profile: currentUserProfile,
+    accountTasks,
+    editingTasks: tasks,
+    managementTasks,
+    today: todayStr,
+  });
+  const rawPersonalKpi = buildPersonalKpiSnapshot(
     companyTasks,
     dashboardPeriod,
     currentUserProfile,
     todayStr,
+  );
+  const personalKpi = decorateKpiWithCompliance(
+    rawPersonalKpi,
+    personalCompliance,
   );
   const monthlyPersonalTasks = personalKpi.monthlyTasks;
   const openPersonalTasks = personalTasks.filter((task) => !task._done);
@@ -9567,9 +10094,20 @@ const DashboardView = ({
   const currentUserEmail = normalizeEmail(currentUserProfile?.email);
   const userKpiCandidates = teamProfiles
     .map((profile) => {
-      const snapshot = buildPersonalKpiSnapshot(
-        companyTasks, dashboardPeriod, profile, todayStr,
+      const rawSnapshot = buildPersonalKpiSnapshot(
+        companyTasks,
+        dashboardPeriod,
+        profile,
+        todayStr,
       );
+      const compliance = buildComplianceSnapshot({
+        profile,
+        accountTasks,
+        editingTasks: tasks,
+        managementTasks,
+        today: todayStr,
+      });
+      const snapshot = decorateKpiWithCompliance(rawSnapshot, compliance);
       const isCurrent =
         profile.id === currentUserProfile?.id ||
         Boolean(
@@ -9598,6 +10136,8 @@ const DashboardView = ({
         initials,
         role: resolvedRole,
         score: snapshot.score,
+        baseScore: snapshot.baseScore,
+        quotaPenalty: snapshot.quotaPenalty,
         completed: snapshot.completedTasks.length,
         assigned: snapshot.monthlyTasks.length,
         onTimePercent: snapshot.onTimePercent,
@@ -9818,6 +10358,11 @@ const DashboardView = ({
                 {completionPercent}% avance ·{" "}
                 {onTimePercent === null ? "N/D" : `${onTimePercent}%`} puntualidad
               </small>
+              {personalCompliance?.quotaPenalty > 0 && (
+                <small className="font-semibold text-red-400">
+                  −{personalCompliance.quotaPenalty} pts sanción (base {personalKpi.baseScore || personalKpi.score}%)
+                </small>
+              )}
               {!personalKpi.qualified && (
                 <small>Provisional · {personalKpi.provisionalReason}</small>
               )}
@@ -9981,11 +10526,16 @@ const DashboardView = ({
                   <span className="pd-user-kpi-score">
                     <strong>{item.score}%</strong>
                     <small>
+                      {item.quotaPenalty > 0 ? (
+                        <span className="font-semibold text-red-400">
+                          −{item.quotaPenalty} pts ·{" "}
+                        </span>
+                      ) : null}
                       {!item.qualified
                         ? `Provisional · ${item.provisionalReason}`
                         : item.onTimePercent === null
-                          ? "Puntualidad N/D"
-                          : `${item.onTimePercent}% puntualidad`}
+                        ? "Puntualidad N/D"
+                        : `${item.onTimePercent}% puntualidad`}
                     </small>
                   </span>
                   <span className="pd-user-kpi-track" aria-hidden="true">
@@ -12040,14 +12590,20 @@ const AccountRoomView = ({
         isOverdue={isOverdue}
         client={client?.name}
         title={task.title}
-        badges={
-          task.priority
+        badges={[
+          ...(task.priority
             ? [{
                 label: task.priority,
                 tone: task.priority === "urgente" ? "red" : task.priority === "recurrente" ? "emerald" : "amber",
               }]
-            : []
-        }
+            : []),
+          ...(isRecurringTask(task)
+            ? [{
+                label: getRecurrenceMeta(task.recurrence?.frequency).label,
+                tone: "emerald",
+              }]
+            : []),
+        ]}
         due={{
           label: formatShortDate(task.date) + (isOverdue ? " · atrasada" : ""),
           tone: isOverdue ? "red" : "slate",
@@ -12272,7 +12828,7 @@ const EditionsRoomView = ({
     e.preventDefault();
     e.currentTarget.classList.remove("drag-over");
     if (!draggedTaskId) return;
-    const task = tasks.find((t) => t.id === draggedTaskId);
+      const task = tasks.find((t) => t.id === draggedTaskId);
     if (!task) return;
     const currentStatus = normalizeEditingWorkflowStatus(task.status);
     if (currentStatus !== targetStatus) onChangeStatus(task, targetStatus);
@@ -12414,6 +12970,12 @@ const EditionsRoomView = ({
         badges={[
           { label: hierarchyId.toUpperCase(), tone: hierarchyTone },
           { label: task.priority || "Normal", tone: priorityTone },
+          ...(isRecurringTask(task)
+            ? [{
+                label: getRecurrenceMeta(task.recurrence?.frequency).label,
+                tone: "emerald",
+              }]
+            : []),
         ]}
         due={{
           label: formatShortDate(task.date) + (isOverdue ? " · atrasada" : ""),
@@ -12698,6 +13260,11 @@ const ManagementRoomView = ({
       });
     if (dueBadge && stage.id !== "cerrado")
       badges.push({ label: dueBadge.label, tone: dueBadge.tone });
+    if (isRecurringTask(task))
+      badges.push({
+        label: getRecurrenceMeta(task.recurrence?.frequency).label,
+        tone: "emerald",
+      });
     const menuItems = [];
     if (next)
       menuItems.push({
@@ -13303,9 +13870,9 @@ const UsersAccessView = ({
   const [searchTerm, setSearchTerm] = useState("");
   const filteredUsers = [...users]
     .filter((item) =>
-      `${item.name || ""} ${item.email || ""} ${item.role || ""}`
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()),
+    `${item.name || ""} ${item.email || ""} ${item.role || ""}`
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase()),
     )
     .sort((left, right) => {
       const leftInactive = left.isActive === false ? 1 : 0;
@@ -13820,14 +14387,14 @@ const ClientsView = ({
   ];
   const filteredClients = clients
     .filter((c) => {
-      const term = searchTerm.toLowerCase();
-      const matchesSearch =
-        c.name.toLowerCase().includes(term) ||
-        (c.niche || "").toLowerCase().includes(term);
-      if (!matchesSearch) return false;
-      if (statusFilter !== "all" && (c.status || "Activo") !== statusFilter)
-        return false;
-      return true;
+    const term = searchTerm.toLowerCase();
+    const matchesSearch =
+      c.name.toLowerCase().includes(term) ||
+      (c.niche || "").toLowerCase().includes(term);
+    if (!matchesSearch) return false;
+    if (statusFilter !== "all" && (c.status || "Activo") !== statusFilter)
+      return false;
+    return true;
     })
     .sort(compareClientsByPriority);
   const priorityGroups = groupClientsByPriority(filteredClients);
@@ -13882,7 +14449,7 @@ const ClientsView = ({
                 </h3>
                 <span className="text-xs text-slate-400">{groupClients.length}</span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {groupClients.map((c) => {
             const status = getClientStatus(c);
             const manager = managers.find((m) => m.id === c.managerId) || null;
@@ -13908,13 +14475,13 @@ const ClientsView = ({
                     <div className="flex shrink-0 flex-col items-end gap-2">
                     {onChangePriority && (
                       <ClientPriorityFlag client={c} onChange={onChangePriority} />
-                    )}
-                    <span
+                  )}
+                  <span
                       className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full ${status.bg} ${status.text}`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-                      {status.label}
-                    </span>
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
+                    {status.label}
+                  </span>
                     {inactive && onDelete && (
                       <button
                         type="button"
@@ -18380,7 +18947,7 @@ const TaskDetailModal = ({
   const [statusOpen, setStatusOpen] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadStatus, setUploadStatus] = useState({ r2: false, maxBytes: EMBEDDED_UPLOAD_MAX_BYTES });
+  const [uploadStatus, setUploadStatus] = useState({ r2: false, maxBytes: DEFAULT_TASK_UPLOAD_MAX_BYTES });
   const [attachmentUrls, setAttachmentUrls] = useState({});
   const [fileOver, setFileOver] = useState(false);
   const fileInputRef = useRef(null);
@@ -19356,7 +19923,7 @@ const TaskDetailModal = ({
                   if (bytes < 1024 * 1024)
                     return (bytes / 1024).toFixed(1) + " KB";
                   if (bytes < 1024 * 1024 * 1024)
-                    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+                  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
                   return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
                 };
                 const openAttachment = async (att, download = false) => {
@@ -19385,10 +19952,10 @@ const TaskDetailModal = ({
                   }
                   setLightboxIndex(nextIndex);
                 };
-                const limitLabel = formatUploadLimit(uploadStatus.maxBytes || EMBEDDED_UPLOAD_MAX_BYTES);
+                const limitLabel = formatUploadLimit(uploadStatus.maxBytes || DEFAULT_TASK_UPLOAD_MAX_BYTES);
                 const retentionLabel = uploadStatus.r2
-                  ? ` · se borran a los ${uploadStatus.retentionDays || 5} días`
-                  : "";
+                  ? ` · retención ${uploadStatus.retentionDays || 5} días`
+                  : " · almacenamiento del sistema";
                 return (
                   <section
                     id="task-files"
@@ -19534,11 +20101,6 @@ const TaskDetailModal = ({
                         ))}
                       </div>
                     )}
-                    {uploadStatus.r2 && attachments.length > 0 && (
-                      <p className="mt-3 text-[11px] text-slate-500">
-                        Se borran a los {uploadStatus.retentionDays || 5} días.
-                      </p>
-                    )}
                     {attachments.length === 0 && (
                       <button
                         onClick={() =>
@@ -19554,9 +20116,7 @@ const TaskDetailModal = ({
                             Selecciona o suelta un archivo
                           </strong>
                           <span className="mt-0.5 block text-xs text-slate-500">
-                            {uploadStatus.r2
-                              ? `Hasta ${limitLabel} por archivo${retentionLabel}`
-                              : `Máx. ${limitLabel}`}
+                            Hasta {limitLabel} por archivo{retentionLabel}
                           </span>
                         </span>
                       </button>
@@ -20430,12 +20990,16 @@ const CreateTaskModal = ({
   const [clientSearch, setClientSearch] = useState("");
   const [priorityOpen, setPriorityOpen] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState("none");
+  const [recurrenceUntil, setRecurrenceUntil] = useState("");
+  const [recurrenceOpen, setRecurrenceOpen] = useState(false);
+  const [recurrenceError, setRecurrenceError] = useState("");
   const [confirmNoDate, setConfirmNoDate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pendingFiles, setPendingFiles] = useState([]);
   const [uploadStatus, setUploadStatus] = useState({
     r2: false,
-    maxBytes: EMBEDDED_UPLOAD_MAX_BYTES,
+    maxBytes: DEFAULT_TASK_UPLOAD_MAX_BYTES,
     retentionDays: 0,
   });
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -20491,6 +21055,16 @@ const CreateTaskModal = ({
         setCategory("seguimiento");
         setStatus("editar");
       }
+      setRecurrenceFrequency(
+        config.isEdit && data?.recurrence?.frequency
+          ? data.recurrence.frequency
+          : "none",
+      );
+      setRecurrenceUntil(
+        config.isEdit && data?.recurrence?.until ? data.recurrence.until : "",
+      );
+      setRecurrenceOpen(false);
+      setRecurrenceError("");
       setAssigneeOpen(false);
       setClientOpen(false);
       setPriorityOpen(false);
@@ -20510,7 +21084,10 @@ const CreateTaskModal = ({
     if (!config.isOpen) return undefined;
     let cancelled = false;
     fetchUploadStatus().then((status) => {
-      if (!cancelled) setUploadStatus(status);
+      if (!cancelled) setUploadStatus({
+        ...status,
+        maxBytes: status.r2 ? status.maxBytes : (status.embeddedMaxBytes || EMBEDDED_UPLOAD_MAX_BYTES),
+      });
     });
     return () => {
       cancelled = true;
@@ -20519,17 +21096,18 @@ const CreateTaskModal = ({
 
   // Close dropdowns on outside click
   useEffect(() => {
-    if (!assigneeOpen && !clientOpen && !priorityOpen) return;
+    if (!assigneeOpen && !clientOpen && !priorityOpen && !recurrenceOpen) return;
     const h = (e) => {
       if (!e.target.closest("[data-ctdrop]")) {
         setAssigneeOpen(false);
         setClientOpen(false);
         setPriorityOpen(false);
+        setRecurrenceOpen(false);
       }
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
-  }, [assigneeOpen, clientOpen, priorityOpen]);
+  }, [assigneeOpen, clientOpen, priorityOpen, recurrenceOpen]);
 
   if (!isTaskDialogOpen) return null;
 
@@ -20594,6 +21172,12 @@ const CreateTaskModal = ({
     },
   ];
   const curPriority = TASK_PRIORITIES.find((p) => p.id === priority);
+  const recurrenceMeta = getRecurrenceMeta(recurrenceFrequency);
+  const recurrenceDates = buildRecurrenceDates({
+    startDate: date,
+    frequency: recurrenceFrequency,
+    until: recurrenceUntil,
+  });
 
   const FlagIcon = ({ color, filled, size = 12 }) => (
     <svg
@@ -20636,13 +21220,11 @@ const CreateTaskModal = ({
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
-  const limitLabel = formatUploadLimit(uploadStatus.maxBytes || EMBEDDED_UPLOAD_MAX_BYTES);
+  const limitLabel = formatUploadLimit(uploadStatus.maxBytes || DEFAULT_TASK_UPLOAD_MAX_BYTES);
   const queueCreateFiles = (fileList) => {
     const incoming = Array.from(fileList || []).filter(Boolean);
     if (!incoming.length) return;
-    const maxBytes = uploadStatus.r2
-      ? Number(uploadStatus.maxBytes)
-      : EMBEDDED_UPLOAD_MAX_BYTES;
+    const maxBytes = Number(uploadStatus.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES;
     setPendingFiles((current) => {
       const next = [...current];
       for (const file of incoming) {
@@ -20653,12 +21235,6 @@ const CreateTaskModal = ({
         if (file.size > maxBytes) {
           alert(`El archivo es demasiado grande (máx. ${formatUploadLimit(maxBytes)})`);
           continue;
-        }
-        if (type === "editingTask" && !uploadStatus.r2) {
-          alert(
-            "R2 no está configurado.",
-          );
-          break;
         }
         next.push({
           id: Math.random().toString(36).slice(2, 10),
@@ -20747,6 +21323,7 @@ const CreateTaskModal = ({
             clientId,
             notes,
             priority,
+            recurrence: { frequency: recurrenceFrequency, until: recurrenceUntil },
             ...payload,
           });
         if (type === "editingTask")
@@ -20760,6 +21337,7 @@ const CreateTaskModal = ({
             contextId: assigneeIds[0] || assigneeId || "",
             assignees: assigneeIds,
             clientId,
+            recurrence: { frequency: recurrenceFrequency, until: recurrenceUntil },
             ...payload,
           });
         if (type === "managementTask")
@@ -20774,6 +21352,7 @@ const CreateTaskModal = ({
             notes,
             priority,
             notificationsEnabled: true,
+            recurrence: { frequency: recurrenceFrequency, until: recurrenceUntil },
             ...payload,
           });
       }
@@ -20805,6 +21384,10 @@ const CreateTaskModal = ({
 
   const handleSubmit = async () => {
     if (!title.trim() || submitting) return;
+    if (recurrenceFrequency !== "none" && !date && !config.isEdit) {
+      setRecurrenceError("La recurrencia necesita una fecha de inicio");
+      return;
+    }
     if (!date && !config.isEdit) {
       setConfirmNoDate(true);
       return;
@@ -21106,6 +21689,7 @@ const CreateTaskModal = ({
                   value={date}
                   onChange={(e) => {
                     setDate(e.target.value);
+                    setRecurrenceError("");
                     setDatePickerOpen(false);
                   }}
                   className="text-sm bg-transparent outline-none text-slate-700 dark:text-slate-200 cursor-pointer"
@@ -21113,6 +21697,77 @@ const CreateTaskModal = ({
               </div>
             )}
           </div>
+
+          {/* Recurrencia */}
+          <div className="relative" data-ctdrop>
+            <Chip
+              icon="Repeat"
+              active={recurrenceFrequency !== "none"}
+              onClick={() => {
+                if (config.isEdit) return;
+                setRecurrenceOpen((open) => !open);
+              }}
+            >
+              {recurrenceFrequency === "none"
+                ? "Repetir"
+                : recurrenceMeta.label}
+            </Chip>
+            {recurrenceOpen && !config.isEdit && (
+              <div
+                className="absolute left-0 top-full mt-1 w-64 rounded-xl border border-slate-200 bg-white py-2 shadow-xl z-30 dark:border-slate-700 dark:bg-slate-800"
+                data-ctdrop
+              >
+                <p className="px-4 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  Recurrencia
+                </p>
+                {RECURRENCE_FREQUENCIES.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => {
+                      setRecurrenceFrequency(option.id);
+                      setRecurrenceError("");
+                      if (option.id === "none") setRecurrenceUntil("");
+                    }}
+                    className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 ${
+                      recurrenceFrequency === option.id
+                        ? "text-purple-600 dark:text-purple-400"
+                        : "text-slate-700 dark:text-slate-200"
+                    }`}
+                  >
+                    {option.label}
+                    {recurrenceFrequency === option.id && (
+                      <Icon name="Check" size={12} className="text-slate-500" />
+                    )}
+                  </button>
+                ))}
+                {recurrenceFrequency !== "none" && (
+                  <div className="mt-1 border-t border-slate-100 px-4 pt-3 dark:border-slate-700">
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Hasta
+                    </label>
+                    <input
+                      type="date"
+                      value={recurrenceUntil}
+                      min={date || undefined}
+                      onChange={(event) => setRecurrenceUntil(event.target.value)}
+                      className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-700 outline-none dark:text-slate-200"
+                    />
+                    <p className="mt-2 text-xs font-semibold text-slate-500">
+                      {date
+                        ? `Se crearán ${recurrenceDates.length} tarea${recurrenceDates.length === 1 ? "" : "s"}`
+                        : "Elige primero la fecha de inicio"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {recurrenceError ? (
+            <p className="w-full text-xs font-semibold text-red-600">
+              {recurrenceError}
+            </p>
+          ) : null}
 
           {/* Prioridad */}
           <div className="relative" data-ctdrop>
@@ -21300,7 +21955,7 @@ const CreateTaskModal = ({
               {MANAGEMENT_CATEGORIES.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.label}
-                </option>
+                  </option>
               ))}
             </select>
           )}
@@ -22057,7 +22712,7 @@ const Modal = ({
                   defaultValue={data?.notes}
                   className={textareaClassName}
                 ></textarea>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
                   Los recordatorios por correo se envian siempre al admin, a
                   quien asigno y al asignado.
                 </p>
@@ -23203,7 +23858,7 @@ const UnifiedModuleKanbanView = ({
               }}
               menuItems={[
                 moduleKey !== "production" &&
-                  laneStatus !== "start" && {
+                laneStatus !== "start" && {
                   key: "move-start",
                   label: "Mover a Por iniciar",
                   icon: "ChevronLeft",
@@ -23778,9 +24433,9 @@ const ReportsView = ({
     <div className={`space-y-6 fade-in ${expandAllSections ? "is-capturing-reports" : ""}`}>
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-2xl font-black text-slate-800 dark:text-white">
-            Reportes
-          </h2>
+        <h2 className="text-2xl font-black text-slate-800 dark:text-white">
+          Reportes
+        </h2>
           {expandAllSections && (
             <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
               Informe completo · {fromDate} → {toDate}
@@ -24047,9 +24702,9 @@ const ReportsView = ({
                   {filteredEditingTasks.length}
                 </span>
               </div>
+              </div>
             </div>
           </div>
-        </div>
         </div>
       )}
 
@@ -24438,7 +25093,7 @@ const ReportsView = ({
               icon="CheckCircle2"
             />
           </div>
-        </div>
+          </div>
         </div>
       )}
     </div>
@@ -24466,9 +25121,16 @@ const PerformanceView = ({
   const [personGroupFilter, setPersonGroupFilter] = useState("all");
   const [downloadingPdf, setDownloadingPdf] = useState("");
   const [pdfError, setPdfError] = useState("");
+  const performanceCaptureRef = useRef(null);
   const [periodMode, setPeriodMode] = useState(
     periodPreset === "last24h" ? "last24h" : "custom",
   );
+  const [activityPerson, setActivityPerson] = useState(null);
+  const [taskActivityEvents, setTaskActivityEvents] = useState([]);
+  const [taskActivityLoading, setTaskActivityLoading] = useState(false);
+  const [taskActivityError, setTaskActivityError] = useState("");
+  const taskActivityDialogRef = useDialogA11y(Boolean(activityPerson), () => setActivityPerson(null));
+  const taskActivityTitleId = useId();
   const [last24hRange, setLast24hRange] = useState(
     () => initialLast24h || getLast24HoursRange(),
   );
@@ -24505,21 +25167,39 @@ const PerformanceView = ({
   const userByEditorId = useMemo(
     () =>
       new Map(
-        users
-          .filter((item) => item.linkedEditorId)
-          .map((item) => [item.linkedEditorId, item]),
+    users
+      .filter((item) => item.linkedEditorId)
+      .map((item) => [item.linkedEditorId, item]),
       ),
     [users],
   );
   const userByManagerId = useMemo(
     () =>
       new Map(
-        users
-          .filter((item) => item.linkedManagerId)
-          .map((item) => [item.linkedManagerId, item]),
+    users
+      .filter((item) => item.linkedManagerId)
+      .map((item) => [item.linkedManagerId, item]),
       ),
     [users],
   );
+
+  useEffect(() => {
+    if (!activityPerson?.actorId) return undefined;
+    let active = true;
+    setTaskActivityLoading(true);
+    setTaskActivityError("");
+    apiFetch(`/api/activity?actorId=${encodeURIComponent(activityPerson.actorId)}&limit=50`)
+      .then((payload) => {
+        if (active) setTaskActivityEvents(Array.isArray(payload?.events) ? payload.events : []);
+      })
+      .catch((error) => {
+        if (active) setTaskActivityError(error.message || "No se pudo cargar el registro.");
+      })
+      .finally(() => {
+        if (active) setTaskActivityLoading(false);
+      });
+    return () => { active = false; };
+  }, [activityPerson?.actorId]);
 
   const getPersonAccessRecency = (personType, personId, personUserId = "") => {
     const personUser =
@@ -24555,16 +25235,49 @@ const PerformanceView = ({
         today: todayStr,
       })
         .filter((editor) => editor.total > 0)
-        .map((editor) => ({
-          ...editor,
-          overallPerformance: editor.score,
-          lastDisconnectedAt: getPersonAccessRecency(
-            "editor",
-            editor.id,
-            editor.userId,
-          ).lastDisconnectedAt,
-        })),
-    [editors, performanceTasks, kpiPeriod, todayStr, userByEditorId, userById],
+        .map((editor) => {
+          const profile = {
+            id: editor.userId || editor.id,
+            role: "editor",
+            linkedEditorId: editor.id,
+            email: editor.email,
+          };
+          const compliance = buildComplianceSnapshot({
+            profile,
+            accountTasks,
+            editingTasks,
+            managementTasks,
+            today: todayStr,
+          });
+          const penalizedScore = applyPerformancePenalty(
+            editor.score,
+            compliance.quotaPenalty,
+          );
+          return {
+            ...editor,
+            basePerformance: editor.score,
+            overallPerformance: penalizedScore,
+            score: penalizedScore,
+            compliance,
+            quotaPenalty: compliance.quotaPenalty,
+            lastDisconnectedAt: getPersonAccessRecency(
+              "editor",
+              editor.id,
+              editor.userId,
+            ).lastDisconnectedAt,
+          };
+        }),
+    [
+      editors,
+      performanceTasks,
+      accountTasks,
+      editingTasks,
+      managementTasks,
+      kpiPeriod,
+      todayStr,
+      userByEditorId,
+      userById,
+    ],
   );
 
   const managerStats = useMemo(
@@ -24581,16 +25294,49 @@ const PerformanceView = ({
         today: todayStr,
       })
         .filter((manager) => manager.total > 0)
-        .map((manager) => ({
-          ...manager,
-          overallPerformance: manager.score,
-          lastDisconnectedAt: getPersonAccessRecency(
-            "manager",
-            manager.id,
-            manager.userId,
-          ).lastDisconnectedAt,
-        })),
-    [managers, performanceTasks, kpiPeriod, todayStr, userByManagerId, userById],
+        .map((manager) => {
+          const profile = {
+            id: manager.userId || manager.id,
+            role: "manager",
+            linkedManagerId: manager.id,
+            email: manager.email,
+          };
+          const compliance = buildComplianceSnapshot({
+            profile,
+            accountTasks,
+            editingTasks,
+            managementTasks,
+            today: todayStr,
+          });
+          const penalizedScore = applyPerformancePenalty(
+            manager.score,
+            compliance.quotaPenalty,
+          );
+          return {
+            ...manager,
+            basePerformance: manager.score,
+            overallPerformance: penalizedScore,
+            score: penalizedScore,
+            compliance,
+            quotaPenalty: compliance.quotaPenalty,
+            lastDisconnectedAt: getPersonAccessRecency(
+              "manager",
+              manager.id,
+              manager.userId,
+            ).lastDisconnectedAt,
+          };
+        }),
+    [
+      managers,
+      performanceTasks,
+      accountTasks,
+      editingTasks,
+      managementTasks,
+      kpiPeriod,
+      todayStr,
+      userByManagerId,
+      userById,
+    ],
   );
 
   const developerStats = users
@@ -24729,8 +25475,28 @@ const PerformanceView = ({
     }
   };
 
+  const downloadPerformanceViewPdf = async () => {
+    if (!performanceCaptureRef.current || downloadingPdf) return;
+    setPdfError("");
+    setDownloadingPdf("visual");
+    try {
+      const reportSections = [...performanceCaptureRef.current.children];
+      const pdfBytes = await captureNodesPdf(
+        reportSections.length ? reportSections : [performanceCaptureRef.current],
+        { backgroundColor: "#ffffff" },
+      );
+      const safeRange = `${fromDate || "inicio"}-${toDate || "hoy"}`;
+      downloadBytes(pdfBytes, `rendimiento-${safeRange}.pdf`);
+    } catch (error) {
+      setPdfError(error.message || "No se pudo generar el PDF visual");
+    } finally {
+      setDownloadingPdf("");
+    }
+  };
+
   return (
     <section
+      ref={performanceCaptureRef}
       className={`performance-dashboard fade-in ${capturing ? "is-capturing" : ""}`}
     >
       <header className="performance-header">
@@ -24748,7 +25514,7 @@ const PerformanceView = ({
         </div>
 
         <div className="performance-header-tools">
-          <div className="performance-period" aria-label="Rango del reporte">
+        <div className="performance-period" aria-label="Rango del reporte">
             <button
               type="button"
               className={periodMode === "last24h" ? "is-active" : ""}
@@ -24756,31 +25522,31 @@ const PerformanceView = ({
             >
               Últimas 24h
             </button>
-            <label>
-              <span>Desde</span>
-              <input
-                type="date"
-                value={fromDate}
+          <label>
+            <span>Desde</span>
+            <input
+              type="date"
+              value={fromDate}
                 onChange={(event) => {
                   setPeriodMode("custom");
                   onPeriodPresetChange?.("custom");
                   setFromDate(event.target.value);
                 }}
-              />
-            </label>
-            <span aria-hidden="true">→</span>
-            <label>
-              <span>Hasta</span>
-              <input
-                type="date"
-                value={toDate}
+            />
+          </label>
+          <span aria-hidden="true">→</span>
+          <label>
+            <span>Hasta</span>
+            <input
+              type="date"
+              value={toDate}
                 onChange={(event) => {
                   setPeriodMode("custom");
                   onPeriodPresetChange?.("custom");
                   setToDate(event.target.value);
                 }}
-              />
-            </label>
+            />
+          </label>
           </div>
           <div
             className="performance-downloads"
@@ -24791,6 +25557,19 @@ const PerformanceView = ({
               Descargar informes
             </p>
             <div>
+              <button
+                type="button"
+                onClick={downloadPerformanceViewPdf}
+                disabled={Boolean(downloadingPdf) || capturing}
+                className="performance-visual-pdf"
+              >
+                {downloadingPdf === "visual" ? (
+                  <Icon name="Loader2" size={13} className="animate-spin" />
+                ) : (
+                  <Icon name="FileText" size={13} />
+                )}
+                PDF estilo pantalla
+              </button>
               <button
                 type="button"
                 onClick={() => onRequestDailyCapture?.()}
@@ -24975,6 +25754,10 @@ const PerformanceView = ({
               const activityLabel = formatLastDisconnect(
                 person.lastDisconnectedAt,
               );
+              const activityActorId = person.userId
+                || userByManagerId.get(person.managerId || person.id)?.id
+                || userByEditorId.get(person.editorId || person.id)?.id
+                || person.id;
               const scoreTone =
                 person.overallPerformance >= 80
                   ? "is-strong"
@@ -25016,19 +25799,24 @@ const PerformanceView = ({
                       </span>
                     ) : (
                       <>
-                        <span>
-                          <strong>{person.overallPerformance}%</strong>
+                    <span>
+                      <strong>{person.overallPerformance}%</strong>
                           <small>
+                            {person.quotaPenalty > 0 ? (
+                              <span className="block font-semibold text-red-400">
+                                −{person.quotaPenalty} pts sanción (base {person.basePerformance}%)
+                              </span>
+                            ) : null}
                             {person.qualified
                               ? `${person.deliveryPerformance}% cumplimiento`
                               : `Provisional · ${person.provisionalReason}`}
                           </small>
-                        </span>
-                        <span className="performance-kpi-track" aria-hidden="true">
-                          <span
-                            style={{ width: `${person.overallPerformance}%` }}
-                          />
-                        </span>
+                    </span>
+                    <span className="performance-kpi-track" aria-hidden="true">
+                      <span
+                        style={{ width: `${person.overallPerformance}%` }}
+                      />
+                    </span>
                       </>
                     )}
                   </div>
@@ -25038,12 +25826,12 @@ const PerformanceView = ({
                       <><strong>—</strong><small>sin tareas editoriales</small></>
                     ) : (
                       <>
-                        <strong>
+                    <strong>
                           {person.measuredCompletionCount > 0 &&
                           person.onTimePercent !== null
                             ? `${person.onTimePercent}%`
                             : "N/D"}
-                        </strong>
+                    </strong>
                         <small>
                           {person.measuredCompletionCount}/{person.completed} entregas con fecha
                         </small>
@@ -25058,15 +25846,25 @@ const PerformanceView = ({
                       <><strong>—</strong><small>no aplica</small></>
                     ) : (
                       <>
-                        <strong>{person.pending}</strong>
+                    <strong>{person.pending}</strong>
                         <small>{person.overdueTasks} vencidas</small>
                       </>
                     )}
                   </div>
 
                   <div className="performance-person-activity">
-                    <strong>{activityLabel}</strong>
-                    <small>última desconexión</small>
+                    <strong>Última desconexión</strong>
+                    <small>{activityLabel}</small>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTaskActivityEvents([]);
+                        setActivityPerson({ actorId: activityActorId, name: person.name });
+                      }}
+                      className="mt-1 text-xs font-black text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-300"
+                    >
+                      Ver actividad
+                    </button>
                   </div>
                 </article>
               );
@@ -25074,7 +25872,155 @@ const PerformanceView = ({
           </div>
         )}
       </section>
+      {activityPerson && (
+        <div
+          className="fixed inset-0 z-[135] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setActivityPerson(null);
+          }}
+        >
+          <section
+            ref={taskActivityDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={taskActivityTitleId}
+            tabIndex={-1}
+            className="w-full max-w-2xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+          >
+            <header className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-indigo-500">Registro de tareas</p>
+                <h2 id={taskActivityTitleId} className="mt-1 text-xl font-black text-slate-900 dark:text-white">{activityPerson.name}</h2>
+                <p className="mt-1 text-sm text-slate-500">Aperturas y cambios recientes, con hora de Honduras.</p>
+              </div>
+              <button type="button" onClick={() => setActivityPerson(null)} aria-label="Cerrar actividad" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <Icon name="X" />
+              </button>
+            </header>
+            <div className="max-h-[min(70vh,620px)] overflow-y-auto p-5">
+              {taskActivityLoading ? (
+                <div className="py-12 text-center text-sm font-bold text-slate-500">Cargando actividad…</div>
+              ) : taskActivityError ? (
+                <div role="alert" className="rounded-2xl bg-red-50 p-4 text-sm font-semibold text-red-700 dark:bg-red-500/10 dark:text-red-300">{taskActivityError}</div>
+              ) : taskActivityEvents.length === 0 ? (
+                <div className="py-12 text-center text-sm font-semibold text-slate-500">No hay aperturas o cambios registrados todavía.</div>
+              ) : (
+                <ol className="space-y-3">
+                  {taskActivityEvents.map((event) => {
+                    const actionLabel = ({ opened: "Abrió", created: "Creó", updated: "Modificó", deleted: "Eliminó" })[event.action] || "Actualizó";
+                    const date = new Date(event.createdAt || "");
+                    const timestamp = Number.isNaN(date.getTime()) ? "Fecha no disponible" : new Intl.DateTimeFormat("es-HN", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Tegucigalpa" }).format(date);
+                    return (
+                      <li key={event.id} className="flex gap-3 rounded-2xl border border-slate-100 p-4 dark:border-slate-800">
+                        <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${event.action === "opened" ? "bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300" : "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300"}`}>
+                          <Icon name={event.action === "opened" ? "Eye" : "Pencil"} size={16} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <strong className="text-sm font-black text-slate-800 dark:text-white">{actionLabel}: {event.taskTitle}</strong>
+                          {event.fields?.length > 0 && (
+                            <small className="mt-1 block text-slate-500">Campos: {event.fields.join(", ")}</small>
+                          )}
+                          <time dateTime={event.createdAt} className="mt-2 block text-xs font-semibold text-slate-400">{timestamp}</time>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
     </section>
+  );
+};
+
+const NotificationCenter = ({
+  isOpen,
+  notifications = [],
+  unreadCount = 0,
+  onClose,
+  onSelect,
+  onMarkAllRead,
+  onRefresh,
+}) => {
+  const dialogRef = useDialogA11y(isOpen, onClose);
+  const titleId = useId();
+  useEffect(() => {
+    if (isOpen) void onRefresh?.();
+  }, [isOpen, onRefresh]);
+  if (!isOpen) return null;
+
+  const formatCreatedAt = (value) => {
+    const date = new Date(value || "");
+    if (Number.isNaN(date.getTime())) return "Fecha no disponible";
+    return new Intl.DateTimeFormat("es-HN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "America/Tegucigalpa",
+    }).format(date);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="w-full max-w-xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+      >
+        <header className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-amber-500">Centro interno</p>
+            <h2 id={titleId} className="mt-1 text-xl font-black text-slate-900 dark:text-white">Notificaciones</h2>
+            <p className="mt-1 text-sm text-slate-500">{unreadCount} sin leer</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {unreadCount > 0 && (
+              <button type="button" onClick={onMarkAllRead} className="rounded-xl px-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10">
+                Marcar todas leídas
+              </button>
+            )}
+            <button type="button" onClick={onClose} aria-label="Cerrar notificaciones" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <Icon name="X" />
+            </button>
+          </div>
+        </header>
+        <div className="max-h-[min(70vh,620px)] overflow-y-auto p-3">
+          {notifications.length === 0 ? (
+            <div className="px-6 py-16 text-center">
+              <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-500 dark:bg-slate-800"><Icon name="Bell" size={22} /></span>
+              <strong className="mt-4 block text-slate-800 dark:text-white">Aún no tienes notificaciones</strong>
+              <p className="mt-1 text-sm text-slate-500">Las asignaciones, menciones y cambios aparecerán aquí.</p>
+            </div>
+          ) : notifications.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onSelect?.(item)}
+              className={`flex w-full gap-3 rounded-2xl p-4 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/70 ${item.readAt ? "opacity-75" : "bg-amber-50/70 dark:bg-amber-500/5"}`}
+            >
+              <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${item.readAt ? "bg-slate-300 dark:bg-slate-600" : "bg-amber-500"}`} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-start justify-between gap-3">
+                  <strong className="text-sm font-black text-slate-800 dark:text-white">{item.title}</strong>
+                  <small className="shrink-0 text-[11px] text-slate-400">{formatCreatedAt(item.createdAt)}</small>
+                </span>
+                <span className="mt-1 block text-sm leading-5 text-slate-600 dark:text-slate-300">{item.body}</span>
+                <small className="mt-2 block text-xs font-semibold text-slate-400">{item.actorName}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 };
 

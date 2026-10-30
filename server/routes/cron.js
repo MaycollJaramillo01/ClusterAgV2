@@ -2,6 +2,7 @@ import express from 'express';
 import { env } from '../config/env.js';
 import { asyncHandler, createHttpError } from '../lib/http.js';
 import { processManagementTaskReminders } from '../lib/management-notifications.js';
+import { processComplianceEvents } from '../lib/compliance-events.js';
 import { sendDailyRoleReports } from '../lib/daily-reports.js';
 import { sendWeeklyModuleReports } from '../lib/weekly-module-reports.js';
 import { purgeExpiredStoredAttachments } from '../lib/r2-retention.js';
@@ -46,6 +47,7 @@ const managementTaskReminders = jobHandler(
     'management-task-reminders',
     processManagementTaskReminders
 );
+const complianceEvents = jobHandler('compliance-events', () => processComplianceEvents());
 const dailyRoleReports = jobHandler('daily-role-reports', () => sendDailyRoleReports({
     to: dailyReportRecipient()
 }));
@@ -58,6 +60,7 @@ const purgeExpiredR2Attachments = jobHandler(
 );
 
 router.route('/management-task-reminders').get(managementTaskReminders).post(managementTaskReminders);
+router.route('/compliance-events').get(complianceEvents).post(complianceEvents);
 router.route('/daily-role-reports').get(dailyRoleReports).post(dailyRoleReports);
 router.route('/weekly-module-reports').get(weeklyModuleReports).post(weeklyModuleReports);
 router.route('/purge-expired-r2-attachments').get(purgeExpiredR2Attachments).post(purgeExpiredR2Attachments);

@@ -11,11 +11,13 @@ const IDLE_AFTER_MS = 240000;
 const TASK_COLLECTIONS = TASK_WINDOW_COLLECTIONS;
 const STATIC_COLLECTIONS = new Set(['clients', 'events', 'managers', 'editors', 'users', 'client_chats', 'chat_reads', 'chat_mutes', 'chat_hidden', 'chat_reactions', 'chat_pins', 'chat_stickers', 'team_groups']);
 const LIVE_COLLECTION_BY_VIEW = {
-    'account-room': 'account_tasks',
-    editions: 'editing',
-    'management-room': 'management_tasks',
-    'control-center': 'audit_logs',
-    chat: 'client_chats'
+    'account-room': ['account_tasks'],
+    editions: ['editing'],
+    'management-room': ['management_tasks'],
+    'control-center': ['audit_logs'],
+    chat: ['client_chats'],
+    reports: ['account_tasks', 'editing', 'management_tasks', 'users', 'managers', 'editors'],
+    performance: ['account_tasks', 'editing', 'management_tasks', 'users', 'managers', 'editors']
 };
 
 const syncCursors = new Map();
@@ -179,10 +181,13 @@ const hasCollectionListeners = (collectionName) => [...registry.values()].some(
     (entry) => entry.listeners.size > 0 && getCollectionName(entry.ref) === collectionName
 );
 
+const getLiveCollectionsForView = (view, hasListeners = hasCollectionListeners) => (
+    (LIVE_COLLECTION_BY_VIEW[view] || []).filter(hasListeners)
+);
+
 const getLiveCollections = () => {
     if (typeof window === 'undefined') return [];
-    const collectionName = LIVE_COLLECTION_BY_VIEW[window.__cluster_active_view || ''];
-    return collectionName && hasCollectionListeners(collectionName) ? [collectionName] : [];
+    return getLiveCollectionsForView(window.__cluster_active_view || '');
 };
 
 const shouldPollNow = () => typeof document !== 'undefined' && isPollingAllowed({
@@ -513,4 +518,10 @@ export const writeBatch = () => {
     };
 };
 
-export const _pollingInternals = { isPollingAllowed, mergeEntryChanges, recordMatchesRef, getBaseTaskWindow };
+export const _pollingInternals = {
+    isPollingAllowed,
+    mergeEntryChanges,
+    recordMatchesRef,
+    getBaseTaskWindow,
+    getLiveCollectionsForView
+};

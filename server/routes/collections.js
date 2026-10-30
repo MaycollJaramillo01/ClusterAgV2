@@ -20,6 +20,7 @@ import { sendClientChatPush } from '../lib/push-notifications.js';
 import { buildChatGroups, canManageChatGroups } from '../lib/chat-groups.js';
 import { nowIso } from '../lib/time.js';
 import { writeAuditLog } from '../lib/audit.js';
+import { recordTaskActivity } from '../lib/task-activity.js';
 import { MAX_ATTACHMENT_COUNT, sanitizeAttachments } from '../lib/attachments.js';
 import { normalizeClientPriority } from '../lib/client-priority.js';
 import { normalizeTaskAssignees } from '../lib/task-assignees.js';
@@ -82,6 +83,13 @@ const resolveListLimit = (collectionName, requested) => {
     if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
     return Math.min(Math.floor(parsed), fallback);
 };
+
+const getChangedFields = (existing = {}, updated = {}, incoming = {}) => (
+    Object.keys(incoming).filter((field) => (
+        field !== 'updatedAt'
+        && JSON.stringify(existing[field]) !== JSON.stringify(updated[field])
+    ))
+);
 
 const assertRecordId = (value) => {
     const recordId = String(value || '').trim();
@@ -762,6 +770,7 @@ router.post('/_batch', asyncHandler(async (req, res) => {
                     trx
                 });
                 await writeAuditLog({ actor, action: 'delete', collectionName, recordId, trx });
+                await recordTaskActivity({ actor, collectionName, task: existing, action: 'deleted', trx });
                 continue;
             }
 
@@ -788,17 +797,18 @@ router.post('/_batch', asyncHandler(async (req, res) => {
             await validateReferences({ collectionName, existing, payload, trx });
 
             if (action === 'create' || (action === 'set' && !existing)) {
-                await createRecord({
+                const created = await createRecord({
                     collectionName,
                     recordId,
                     payload,
                     trx
                 });
                 await writeAuditLog({ actor, action: 'create', collectionName, recordId, trx });
+                await recordTaskActivity({ actor, collectionName, task: created, action: 'created', trx });
                 continue;
             }
 
-            await upsertRecord({
+            const updated = await upsertRecord({
                 collectionName,
                 recordId,
                 payload,
@@ -806,6 +816,14 @@ router.post('/_batch', asyncHandler(async (req, res) => {
                 trx
             });
             await writeAuditLog({ actor, action: 'update', collectionName, recordId, trx });
+            await recordTaskActivity({
+                actor,
+                collectionName,
+                task: updated,
+                action: 'updated',
+                fields: getChangedFields(existing, updated, incoming),
+                trx
+            });
         }
     });
 
@@ -970,6 +988,7 @@ router.post('/:collectionName', asyncHandler(async (req, res) => {
             recordId: created.id,
             trx
         });
+        await recordTaskActivity({ actor: userRecord, collectionName, task: created, action: 'created', trx });
         return created;
     });
     if (collectionName === 'client_chats') {
@@ -1033,6 +1052,14 @@ router.put('/:collectionName/:recordId', asyncHandler(async (req, res) => {
             trx
         });
         await writeAuditLog({ actor: userRecord, action: 'update', collectionName, recordId, trx });
+        await recordTaskActivity({
+            actor: userRecord,
+            collectionName,
+            task: updated,
+            action: 'updated',
+            fields: getChangedFields(existing, updated, rawPayload),
+            trx
+        });
         return updated;
     });
     res.json({ record });
@@ -1083,6 +1110,14 @@ router.patch('/:collectionName/:recordId', asyncHandler(async (req, res) => {
             trx
         });
         await writeAuditLog({ actor: userRecord, action: 'update', collectionName, recordId, trx });
+        await recordTaskActivity({
+            actor: userRecord,
+            collectionName,
+            task: updated,
+            action: 'updated',
+            fields: getChangedFields(existing, updated, rawPayload),
+            trx
+        });
         return updated;
     });
     res.json({ record });
@@ -1147,6 +1182,7 @@ router.delete('/:collectionName/:recordId', asyncHandler(async (req, res) => {
             throw createHttpError(404, 'El documento no existe.', 'document/not-found');
         }
         await writeAuditLog({ actor: userRecord, action: 'delete', collectionName, recordId, trx });
+        await recordTaskActivity({ actor: userRecord, collectionName, task: existing, action: 'deleted', trx });
     });
     res.json({ ok: true });
 }));

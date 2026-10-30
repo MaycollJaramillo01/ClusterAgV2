@@ -115,8 +115,18 @@ export const env = {
     magicLinkTtlMinutes: parseNumber(process.env.MAGIC_LINK_TTL_MINUTES, 30),
     cronSecret: process.env.CRON_SECRET || '',
     dailyReportEmail: process.env.DAILY_REPORT_EMAIL || '',
+    // Correos continuos de incumplimiento: cada N horas dentro del horario
+    // laboral de Honduras [windowStartHour, windowEndHour).
+    compliance: {
+        nagIntervalHours: Math.max(1, parseNumber(process.env.COMPLIANCE_NAG_INTERVAL_HOURS, 6)),
+        windowStartHour: parseNumber(process.env.COMPLIANCE_WINDOW_START_HOUR, 7),
+        windowEndHour: parseNumber(process.env.COMPLIANCE_WINDOW_END_HOUR, 19)
+    },
     runBootstrapOnStart: parseBoolean(process.env.RUN_BOOTSTRAP_ON_START, !isVercelRuntime),
     sqliteSeedOnEmpty: parseBoolean(process.env.SQLITE_SEED_ON_EMPTY, false),
+    uploads: {
+        maxFileBytes: Math.max(3 * 1024 * 1024, parseNumber(process.env.UPLOAD_MAX_BYTES, 100 * 1024 * 1024))
+    },
     seedSuperAdminEmails: parseCsv(process.env.SEED_SUPER_ADMIN_EMAILS, DEFAULT_SUPER_ADMIN_EMAILS),
     seedManagementTeam: parseJson(process.env.SEED_MANAGEMENT_TEAM_JSON, DEFAULT_MANAGEMENT_TEAM),
     seedEditorsTeam: parseJson(process.env.SEED_EDITOR_TEAM_JSON, DEFAULT_EDITORS_TEAM),

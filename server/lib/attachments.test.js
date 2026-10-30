@@ -50,6 +50,18 @@ test('stored attachments keep metadata without embedded bytes', () => {
     assert.equal(attachment.size, 12_000_000);
 });
 
+test('database-backed task attachments retain their database storage provider', () => {
+    const [attachment] = sanitizeAttachments([{
+        id: 'att-db',
+        name: 'brief.pdf',
+        type: 'application/pdf',
+        size: 12_000_000,
+        key: 'tasks/editing/task-1/att-db/brief.pdf',
+        storage: 'database'
+    }], { collectionName: 'editing', recordId: 'task-1' });
+    assert.equal(attachment.storage, 'database');
+});
+
 test('stored attachments cannot jump to another task or collection', () => {
     assert.throws(
         () => sanitizeAttachments([{

@@ -3,12 +3,21 @@ import { _pollingInternals } from '../src/app/lib/firebase-firestore-compat.js';
 
 const {
     isPollingAllowed,
-    mergeEntryChanges
+    mergeEntryChanges,
+    getLiveCollectionsForView
 } = _pollingInternals;
 
 assert.equal(isPollingAllowed({ visibilityState: 'visible', lastActivity: 0, now: 100, idleAfter: 200 }), true);
 assert.equal(isPollingAllowed({ visibilityState: 'hidden', lastActivity: 0, now: 100, idleAfter: 200 }), false);
 assert.equal(isPollingAllowed({ visibilityState: 'visible', lastActivity: 0, now: 200, idleAfter: 200 }), false);
+assert.deepEqual(
+    getLiveCollectionsForView('reports', () => true),
+    ['account_tasks', 'editing', 'management_tasks']
+);
+assert.deepEqual(
+    getLiveCollectionsForView('performance', (collection) => collection !== 'editing'),
+    ['account_tasks', 'management_tasks']
+);
 
 const auditRef = {
     __kind: 'query',

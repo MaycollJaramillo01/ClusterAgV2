@@ -42,13 +42,53 @@ la tarea; reasignarla o editarla despues no transfiere el credito historico.
 
 La limpieza real del historial exige `--apply --backup-confirmed`. No se debe ejecutar contra produccion sin una copia verificada.
 
+## Control de Eventos y Cumplimiento (Compliance)
+
+El sistema vigila de forma continua el cumplimiento operativo en tareas y penaliza el KPI mensual:
+
+1. **Tareas vencidas**:
+   - Monitoreo continuo de tareas abiertas cuya fecha/hora límite ha expirado.
+   - Envío recurrente de notificaciones y correos al responsable y a sus superiores jerárquicos cada `COMPLIANCE_NAG_INTERVAL_HOURS` horas (por defecto 6h), dentro de la jornada laboral de Honduras (`07:00` a `19:00`, lunes a viernes).
+   - Para Editores (`role: editor`), se escala a los Account Managers (`role: manager`) asignados al cliente de la tarea y a niveles superiores (`management`, `operations`, `super_admin`).
+   - Para Account Managers, se escala directamente a Dirección y Administración (`management`, `operations`, `super_admin`).
+
+2. **Meta diaria de editores**:
+   - Meta estándar: **5 piezas nuevas diarias** fuera de correcciones/revisiones.
+   - Evaluado al finalizar o iniciar la siguiente jornada hábil (el lunes evalúa el viernes previo).
+   - Notificación de incumplimiento: *"No cumpliste con la meta diaria por lo cual eso está afectando tu rendimiento en el sistema"*, con copia a superiores.
+   - Penalización en KPI: `(piezas faltantes / 5) * 20` pts (máximo 20 pts de penalización).
+
+3. **Ritmo semanal de Account Managers**:
+   - Semana laboral de Honduras: lunes 00:00 a viernes 18:00 (114 horas).
+   - Se compara el porcentaje de tiempo transcurrido contra el porcentaje de publicaciones completadas de su cuota semanal.
+   - Ejemplo: si ha transcurrido el 35% del tiempo de la semana y solo lleva el 30% de sus entregas, se activa la alerta de ritmo atrasado.
+   - Penalización en KPI: `min(30, % tiempo transcurrido - % avance entregado)` pts (máximo 30 pts).
+
+4. **Penalización acumulada y KPI**:
+   - El tope de penalización por cuotas/ritmo es de 40 puntos.
+   - Se deduce directamente de la calificación mensual `70/30` calculada en el sistema.
+   - Si la persona subsana sus pendientes o incrementa su ritmo, la penalización se actualiza en tiempo real.
+
+5. **Banner y Pantalla Roja de Alerta**:
+   - Un banner rojo persistente (`ComplianceAlertBanner`) y un diálogo interactivo (`ComplianceAlertModal`) se activan en la interfaz de la persona afectada cuando tiene tareas vencidas, incumplimiento de meta diaria o atraso en el ritmo semanal.
+   - Incluye acceso directo para abrir y completar cada tarea vencida inmediatamente.
+
+6. **Endpoints Cron**:
+   - `/api/cron/task-reminders`: Recordatorios de 24h, 8h y seguimiento recurrente por vencimiento.
+   - `/api/cron/compliance-events`: Evaluación y despacho de alertas de cuota diaria de edición y ritmo semanal de accounts.
+
 ## Arquitectura
 
 - `server/routes/auth.js`: OAuth, intercambio nativo de un solo uso y sesiones opacas revocables.
 - `server/routes/collections.js`: autorizacion, validacion, integridad referencial y mutaciones SQL.
+- `server/routes/cron.js`: tareas programadas protegidas con `CRON_SECRET` y locks distribuidos.
+- `server/lib/compliance-events.js`: motor de evaluación y despacho de eventos de cumplimiento.
+- `server/lib/task-reminders.js`: cálculo y despacho de recordatorios y escalación jerárquica.
+- `src/app/utils/compliance.js`: reglas compartidas de metas, ritmo laboral, escalación y deducción de KPI.
 - `server/lib/audit.js`: auditoria inmutable generada por el servidor.
 - `server/db/migrate.js`: migraciones versionadas y serializadas en PostgreSQL.
 - `src/app/lib/firebase-*-compat.js`: adaptadores del frontend hacia la API y Firebase Auth.
 - `src/app/main.jsx`: interfaz principal; las reparaciones automaticas de datos estan desactivadas.
 
 Firestore y Firebase Hosting no exponen datos: las reglas deniegan todo y el backend sirve unicamente `public/`.
+
