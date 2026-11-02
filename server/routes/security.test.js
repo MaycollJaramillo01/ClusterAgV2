@@ -685,6 +685,61 @@ test('chat groups derive members and enforce manager and superadmin rules', asyn
     })).status, 201);
 });
 
+test('kanban task moves persist column and vertical order for the shared board', async () => {
+    const tasks = [
+        { id: 'kanban-a', status: 'por_disenar', boardOrder: 10 },
+        { id: 'kanban-b', status: 'por_disenar', boardOrder: 20 },
+        { id: 'kanban-c', status: 'aprobacion_interna', boardOrder: 10 }
+    ];
+    for (const task of tasks) {
+        await createRecord({
+            collectionName: 'account_tasks',
+            recordId: task.id,
+            payload: { title: task.id, date: '2026-11-02', ...task }
+        });
+    }
+
+    const vertical = await request('/api/collections/_kanban/move', {
+        token: managerToken,
+        method: 'POST',
+        body: {
+            collectionName: 'account_tasks',
+            taskId: 'kanban-b',
+            targetStatus: 'por_disenar',
+            beforeId: 'kanban-a'
+        }
+    });
+    assert.equal(vertical.status, 200);
+    assert.equal((await getRecord({ collectionName: 'account_tasks', recordId: 'kanban-b' })).boardOrder, 10);
+    assert.equal((await getRecord({ collectionName: 'account_tasks', recordId: 'kanban-a' })).boardOrder, 20);
+
+    const horizontal = await request('/api/collections/_kanban/move', {
+        token: managerToken,
+        method: 'POST',
+        body: {
+            collectionName: 'account_tasks',
+            taskId: 'kanban-b',
+            targetStatus: 'publicado',
+            statusPatch: { publishedAt: nowIso(), completedAt: nowIso() }
+        }
+    });
+    assert.equal(horizontal.status, 200);
+    const moved = await getRecord({ collectionName: 'account_tasks', recordId: 'kanban-b' });
+    assert.equal(moved.status, 'publicado');
+    assert.equal(moved.boardOrder, 10);
+
+    const forbidden = await request('/api/collections/_kanban/move', {
+        token: viewerToken,
+        method: 'POST',
+        body: {
+            collectionName: 'account_tasks',
+            taskId: 'kanban-a',
+            targetStatus: 'publicado'
+        }
+    });
+    assert.equal(forbidden.status, 403);
+});
+
 test('notifications require a session and a known active recipient', async () => {
     assert.equal((await request('/api/notifications/send', {
         method: 'POST',

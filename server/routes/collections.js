@@ -54,6 +54,20 @@ const CHAT_CONTEXT_COLLECTIONS = new Set([
     'chat_pins'
 ]);
 const TASK_COLLECTIONS = new Set(['account_tasks', 'editing', 'management_tasks']);
+const KANBAN_STATUSES = {
+    account_tasks: new Set(['por_disenar', 'aprobacion_interna', 'aprobado_internamente', 'publicado']),
+    editing: new Set(['editar', 'correccion', 'en_edicion', 'revision_interna', 'aprobado', 'publicado']),
+    management_tasks: new Set(['pendiente', 'en_proceso', 'en_espera', 'cerrado'])
+};
+const KANBAN_STATUS_PATCH_FIELDS = new Set([
+    'lastStatusChangedAt', 'statusTimestamps', 'completedAt', 'completedByUserId',
+    'ownerAtCompletionId', 'assigneeUserAtCompletionId', 'assigneesAtCompletion',
+    'dueDateAtCompletion', 'publishedAt', 'approvedAt', 'internallyApprovedAt',
+    'closedAt', 'editorCompletedAt', 'editorCompletedByUserId',
+    'editorOwnerAtCompletionId', 'editorAssigneeUserAtCompletionId',
+    'editorAssigneesAtCompletion', 'editorDueDateAtCompletion',
+    'editorReworkCount', 'lastEditorReworkAt'
+]);
 const BATCH_COLLECTIONS = new Set([
     'clients',
     'events',
@@ -90,6 +104,23 @@ const getChangedFields = (existing = {}, updated = {}, incoming = {}) => (
         && JSON.stringify(existing[field]) !== JSON.stringify(updated[field])
     ))
 );
+
+const getKanbanStatus = (collectionName, task = {}) => (
+    collectionName === 'editing' && task.status === 'correccion'
+        ? 'en_edicion'
+        : String(task.status || '')
+);
+
+const compareKanbanOrder = (left, right) => {
+    const leftOrder = Number(left.boardOrder);
+    const rightOrder = Number(right.boardOrder);
+    const leftHasOrder = Number.isFinite(leftOrder);
+    const rightHasOrder = Number.isFinite(rightOrder);
+    if (leftHasOrder && rightHasOrder && leftOrder !== rightOrder) return leftOrder - rightOrder;
+    if (leftHasOrder !== rightHasOrder) return leftHasOrder ? -1 : 1;
+    return String(left.createdAt || '').localeCompare(String(right.createdAt || ''))
+        || String(left.id).localeCompare(String(right.id));
+};
 
 const assertRecordId = (value) => {
     const recordId = String(value || '').trim();
@@ -828,6 +859,94 @@ router.post('/_batch', asyncHandler(async (req, res) => {
     });
 
     res.json({ ok: true, operations: operations.length });
+}));
+
+router.post('/_kanban/move', asyncHandler(async (req, res) => {
+    const actor = requireAuthenticatedUser(req);
+    const collectionName = String(req.body?.collectionName || '').trim();
+    const taskId = assertRecordId(req.body?.taskId);
+    const targetStatus = String(req.body?.targetStatus || '').trim();
+    const beforeId = req.body?.beforeId ? assertRecordId(req.body.beforeId) : '';
+    const statusPatch = req.body?.statusPatch && typeof req.body.statusPatch === 'object'
+        && !Array.isArray(req.body.statusPatch) ? req.body.statusPatch : {};
+    if (!TASK_COLLECTIONS.has(collectionName) || !KANBAN_STATUSES[collectionName]?.has(targetStatus)) {
+        throw createHttpError(400, 'La columna de destino no es válida.', 'kanban/invalid-column');
+    }
+    if (Object.keys(statusPatch).some((field) => !KANBAN_STATUS_PATCH_FIELDS.has(field))) {
+        throw createHttpError(400, 'Los datos del cambio de estado no son válidos.', 'kanban/invalid-status-data');
+    }
+    if (statusPatch.status && statusPatch.status !== targetStatus) {
+        throw createHttpError(400, 'El estado no coincide con la columna de destino.', 'kanban/status-mismatch');
+    }
+    const permission = getCollectionPermission(collectionName, 'update');
+    if (!permission || !hasPermission(actor, permission)) {
+        throw createHttpError(403, 'No tienes permiso para mover esta tarea.', 'auth/insufficient-permission');
+    }
+
+    const result = await db.transaction(async (trx) => {
+        const allTasks = await listRecords({ collectionName, trx });
+        const movingTask = allTasks.find((item) => String(item.id) === taskId);
+        if (!movingTask) throw createHttpError(404, 'La tarea no existe.', 'document/not-found');
+        const sourceStatus = getKanbanStatus(collectionName, movingTask);
+        if (!KANBAN_STATUSES[collectionName].has(sourceStatus)) {
+            throw createHttpError(409, 'El estado actual de la tarea no pertenece al tablero.', 'kanban/invalid-source');
+        }
+
+        const orderedByStatus = (status) => allTasks
+            .filter((item) => String(item.id) !== taskId && getKanbanStatus(collectionName, item) === status)
+            .sort(compareKanbanOrder);
+        const targetTasks = orderedByStatus(targetStatus);
+        const insertIndex = beforeId
+            ? targetTasks.findIndex((item) => String(item.id) === beforeId)
+            : targetTasks.length;
+        if (beforeId && insertIndex < 0) {
+            throw createHttpError(409, 'La tarjeta de destino ya no está en esa columna.', 'kanban/stale-target');
+        }
+        targetTasks.splice(insertIndex, 0, movingTask);
+
+        const sequences = new Map([[targetStatus, targetTasks]]);
+        if (sourceStatus !== targetStatus) sequences.set(sourceStatus, orderedByStatus(sourceStatus));
+        const stamp = nowIso();
+        const updatedRecords = new Map();
+
+        for (const [status, sequence] of sequences) {
+            for (let index = 0; index < sequence.length; index += 1) {
+                const item = sequence[index];
+                const boardOrder = (index + 1) * 10;
+                const isMovingTask = String(item.id) === taskId;
+                const statusChanged = isMovingTask && sourceStatus !== targetStatus;
+                if (!statusChanged && Number(item.boardOrder) === boardOrder) continue;
+
+                const incoming = isMovingTask
+                    ? { ...statusPatch, ...(statusChanged ? { status: targetStatus } : {}), boardOrder, updatedAt: stamp }
+                    : { boardOrder, updatedAt: stamp };
+                const payload = isMovingTask
+                    ? prepareCollectionPayload({ collectionName, payload: incoming, existing: movingTask, actor, recordId: taskId })
+                    : { ...item, ...incoming, id: item.id };
+                if (isMovingTask) {
+                    assertTaskPrivilegedFields({ collectionName, existing: movingTask, incoming, actor });
+                }
+                const updated = await upsertRecord({ collectionName, recordId: item.id, payload, trx });
+                updatedRecords.set(String(item.id), updated);
+            }
+        }
+
+        const movedRecord = updatedRecords.get(taskId) || movingTask;
+        if (sourceStatus !== targetStatus) {
+            await writeAuditLog({ actor, action: 'status_change', collectionName, recordId: taskId, trx });
+            await recordTaskActivity({
+                actor,
+                collectionName,
+                task: movedRecord,
+                action: 'updated',
+                fields: ['status'],
+                trx
+            });
+        }
+        return { records: [...updatedRecords.values()], task: movedRecord };
+    });
+
+    res.json(result);
 }));
 
 router.get('/_sync', asyncHandler(async (req, res) => {

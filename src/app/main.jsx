@@ -123,6 +123,7 @@ import {
   getDoc,
   loadAllTaskHistory,
   refreshReportData,
+  moveKanbanTask,
 } from "./lib/firebase-firestore-compat.js";
 import { auth, db, appId } from "./config/firebase.js";
 import {
@@ -182,10 +183,7 @@ import {
   applyPerformancePenalty,
 } from "./utils/compliance.js";
 import {
-  buildKanbanReorderIds,
-  canReorderKanban,
   sortKanbanColumnTasks,
-  toBoardOrderValue,
 } from "./utils/kanban-order.js";
 import {
   apiFetch,
@@ -6383,29 +6381,37 @@ function App() {
       });
     }
   };
-  const reorderEditingTasks = async (orderedIds = []) => {
-    const ids = (orderedIds || []).map(String).filter(Boolean);
-    if (!ids.length || !canReorderKanban(currentUserProfile)) return;
-    if (
-      !(await ensurePermission(
-        "manage_editing_tasks",
-        "Reordena prioridad de edicion",
-      ))
-    )
-      return;
+  const moveTaskInKanban = async (type, task, targetStatus, beforeId = "") => {
+    const configByType = {
+      accountTask: { collectionName: "account_tasks", permission: "manage_account_tasks", workflow: "account" },
+      editingTask: { collectionName: "editing", permission: "manage_editing_tasks", workflow: "editing" },
+      managementTask: { collectionName: "management_tasks", permission: "manage_management_tasks", workflow: "management" },
+    };
+    const config = configByType[type];
+    if (!config || !task?.id || !targetStatus) return;
+    if (!(await ensurePermission(config.permission, `Mueve tarea ${task.title || ""} en el tablero`))) return;
+
+    const currentStatus = type === "editingTask"
+      ? normalizeEditingWorkflowStatus(task.status)
+      : String(task.status || "");
+    const statusChanged = currentStatus !== targetStatus;
     const stamp = nowIso();
+    const statusPatch = statusChanged
+      ? getStatusTimestampPatch(task, targetStatus, stamp, currentUserProfile?.id, config.workflow)
+      : {};
     try {
-      await Promise.all(
-        ids.map((id, index) =>
-          updateDoc(dataDoc("editing", id), {
-            boardOrder: toBoardOrderValue(index),
-            updatedAt: stamp,
-          }),
-        ),
-      );
+      await moveKanbanTask({
+        collectionName: config.collectionName,
+        taskId: task.id,
+        targetStatus,
+        beforeId,
+        statusPatch,
+      });
+      if (type === "accountTask" && targetStatus === "publicado") triggerConfetti();
+      if (type === "editingTask" && ["aprobado", "publicado"].includes(targetStatus)) triggerConfetti();
     } catch (error) {
       console.error(error);
-      showToast("No se pudo guardar el orden del tablero", "error");
+      showToast(error?.message || "No se pudo mover la tarjeta", "error");
     }
   };
 
@@ -8669,6 +8675,7 @@ function App() {
                 })
               }
               onChangeStatus={changeAccountTaskStatus}
+              onMoveTask={moveTaskInKanban}
               onDelete={(id) =>
                 setDeleteConfirm({
                   isOpen: true,
@@ -8710,7 +8717,7 @@ function App() {
                 })
               }
               onChangeStatus={changeEditingTaskStatus}
-              onReorder={reorderEditingTasks}
+              onMoveTask={moveTaskInKanban}
               onDelete={(id) =>
                 setDeleteConfirm({
                   isOpen: true,
@@ -8751,6 +8758,7 @@ function App() {
                 })
               }
               onChangeStatus={changeManagementTaskStatus}
+              onMoveTask={moveTaskInKanban}
               onDelete={(id) =>
                 setDeleteConfirm({
                   isOpen: true,
@@ -12667,6 +12675,7 @@ const AccountRoomView = ({
   onAdd,
   onEdit,
   onChangeStatus,
+  onMoveTask,
   onDelete,
   onTaskClick,
   onAttachFiles,
@@ -12744,6 +12753,10 @@ const AccountRoomView = ({
     return isDateWithinPeriod(t.date, currentMonthPeriod)
       || isUpcomingOrUndatedOpenTask(t, currentMonthPeriod);
   });
+  const canReorder = userHasPermission(currentUserProfile, "manage_account_tasks");
+  const tasksForStatus = (statusId) => sortKanbanColumnTasks(
+    filteredTasks.filter((task) => task.status === statusId),
+  );
   const handleAddTask = (dateStr) => {
     const nextDate = normalizeDateOnlyString(dateStr) || todayStr;
     setCurrentDate(nextDate);
@@ -12799,11 +12812,14 @@ const AccountRoomView = ({
   const handleDrop = (e, targetStatus) => {
     e.preventDefault();
     e.currentTarget.classList.remove("drag-over");
-    if (draggedTaskId) {
-      const task = tasks.find((t) => t.id === draggedTaskId);
-      if (task && task.status !== targetStatus)
-        onChangeStatus(task, targetStatus);
-    }
+    if (!canReorder || !draggedTaskId) return;
+    const task = tasks.find((item) => item.id === draggedTaskId);
+    if (task) onMoveTask?.("accountTask", task, targetStatus);
+  };
+  const handleCardDrop = (targetTask, targetStatus) => {
+    if (!canReorder || !draggedTaskId || !targetTask?.id || draggedTaskId === targetTask.id) return;
+    const task = tasks.find((item) => item.id === draggedTaskId);
+    if (task) onMoveTask?.("accountTask", task, targetStatus, targetTask.id);
   };
 
   const defaultAddDate =
@@ -12818,14 +12834,14 @@ const AccountRoomView = ({
       title: "Por iniciar",
       subtitle: "Tareas pendientes de comenzar",
       color: "slate",
-      stages: [{ ...columns[0], tasks: filteredTasks.filter((task) => task.status === columns[0].id) }],
+      stages: [{ ...columns[0], tasks: tasksForStatus(columns[0].id) }],
     },
     {
       id: "production",
       title: "En producción",
       subtitle: "Validación y aprobación interna",
       color: "blue",
-      stages: [{ ...columns[1], tasks: filteredTasks.filter((task) => task.status === columns[1].id) }],
+      stages: [{ ...columns[1], tasks: tasksForStatus(columns[1].id) }],
     },
     {
       id: "ready",
@@ -12834,7 +12850,7 @@ const AccountRoomView = ({
       color: "emerald",
       stages: columns.slice(2).map((column) => ({
         ...column,
-        tasks: filteredTasks.filter((task) => task.status === column.id),
+        tasks: tasksForStatus(column.id),
         collapsible: column.id === "publicado",
         collapsedLimit: 3,
       })),
@@ -12874,7 +12890,9 @@ const AccountRoomView = ({
         key={task.id}
         onClick={() => onTaskClick(task)}
         onDropFiles={onAttachFiles ? (files) => onAttachFiles(task, files) : undefined}
-        draggable
+        draggable={canReorder}
+        onCardDragOver={canReorder ? () => {} : undefined}
+        onCardDrop={canReorder ? () => handleCardDrop(task, task.status) : undefined}
         onDragStart={(event) => handleDragStart(event, task.id)}
         onDragEnd={(event) => handleDragEnd(event, task.id)}
         accentTone={stage.color}
@@ -12956,8 +12974,8 @@ const EditionsRoomView = ({
   onAdd,
   onEdit,
   onChangeStatus,
+  onMoveTask,
   onDelete,
-  onReorder,
   onTaskClick,
   onAttachFiles,
   onLoadHistory,
@@ -13055,7 +13073,7 @@ const EditionsRoomView = ({
     (acc, task, index) => ({ ...acc, [task.id]: index + 1 }),
     {},
   );
-  const canReorder = canReorderKanban(currentUserProfile);
+  const canReorder = userHasPermission(currentUserProfile, "manage_editing_tasks");
   const tasksForStatus = (statusId) =>
     sortKanbanColumnTasks(
       displayTasks.filter(
@@ -13118,38 +13136,16 @@ const EditionsRoomView = ({
   const handleDrop = (e, targetStatus) => {
     e.preventDefault();
     e.currentTarget.classList.remove("drag-over");
-    if (!draggedTaskId) return;
-      const task = tasks.find((t) => t.id === draggedTaskId);
-    if (!task) return;
-    const currentStatus = normalizeEditingWorkflowStatus(task.status);
-    if (currentStatus !== targetStatus) onChangeStatus(task, targetStatus);
-    if (canReorder && onReorder) {
-      const columnTasks = tasksForStatus(targetStatus);
-      const orderedIds = buildKanbanReorderIds({
-        columnTasks: columnTasks.some((item) => item.id === task.id)
-          ? columnTasks
-          : [...columnTasks, task],
-        draggedId: draggedTaskId,
-      });
-      onReorder(orderedIds);
-    }
-  };
-  const handleCardDrop = (targetTask, targetStatus) => {
-    if (!draggedTaskId || !targetTask?.id || draggedTaskId === targetTask.id) return;
+    if (!canReorder || !draggedTaskId) return;
     const task = tasks.find((t) => t.id === draggedTaskId);
     if (!task) return;
-    const currentStatus = normalizeEditingWorkflowStatus(task.status);
-    if (currentStatus !== targetStatus) onChangeStatus(task, targetStatus);
-    if (!canReorder || !onReorder) return;
-    const columnTasks = tasksForStatus(targetStatus);
-    const orderedIds = buildKanbanReorderIds({
-      columnTasks: columnTasks.some((item) => item.id === task.id)
-        ? columnTasks
-        : [...columnTasks, task],
-      draggedId: draggedTaskId,
-      beforeId: targetTask.id,
-    });
-    onReorder(orderedIds);
+    onMoveTask?.("editingTask", task, targetStatus);
+  };
+  const handleCardDrop = (targetTask, targetStatus) => {
+    if (!canReorder || !draggedTaskId || !targetTask?.id || draggedTaskId === targetTask.id) return;
+    const task = tasks.find((t) => t.id === draggedTaskId);
+    if (!task) return;
+    onMoveTask?.("editingTask", task, targetStatus, targetTask.id);
   };
 
   const defaultAddDate = filterMode === "date" ? currentDate : todayStr;
@@ -13249,7 +13245,7 @@ const EditionsRoomView = ({
             : undefined
         }
         reorderable={canReorder}
-        draggable
+        draggable={canReorder}
         onDragStart={(event) => handleDragStart(event, task.id)}
         onDragEnd={(event) => handleDragEnd(event, task.id)}
         accentTone={hierarchyTone}
@@ -13392,6 +13388,7 @@ const ManagementRoomView = ({
   onAdd,
   onEdit,
   onChangeStatus,
+  onMoveTask,
   onDelete,
   onTaskClick,
   onAttachFiles,
@@ -13451,6 +13448,10 @@ const ManagementRoomView = ({
     return isDateWithinPeriod(task.date, currentMonthPeriod)
       || isUpcomingOrUndatedOpenTask(task, currentMonthPeriod);
   });
+  const canReorder = userHasPermission(currentUserProfile, "manage_management_tasks");
+  const tasksForStatus = (statusId) => sortKanbanColumnTasks(
+    filteredTasks.filter((task) => task.status === statusId),
+  );
 
   const handleAddTask = (dateStr) => {
     const nextDate = normalizeDateOnlyString(dateStr) || todayStr;
@@ -13473,11 +13474,14 @@ const ManagementRoomView = ({
   const handleDrop = (e, targetStatus) => {
     e.preventDefault();
     e.currentTarget.classList.remove("drag-over");
-    if (draggedTaskId) {
-      const task = tasks.find((t) => t.id === draggedTaskId);
-      if (task && task.status !== targetStatus)
-        onChangeStatus(task, targetStatus);
-    }
+    if (!canReorder || !draggedTaskId) return;
+    const task = tasks.find((item) => item.id === draggedTaskId);
+    if (task) onMoveTask?.("managementTask", task, targetStatus);
+  };
+  const handleCardDrop = (targetTask, targetStatus) => {
+    if (!canReorder || !draggedTaskId || !targetTask?.id || draggedTaskId === targetTask.id) return;
+    const task = tasks.find((item) => item.id === draggedTaskId);
+    if (task) onMoveTask?.("managementTask", task, targetStatus, targetTask.id);
   };
 
   const membersWithAlert = members.filter((m) => !normalizeEmail(m.email));
@@ -13502,7 +13506,7 @@ const ManagementRoomView = ({
       title: "Por iniciar",
       subtitle: "Tareas pendientes de comenzar",
       color: "slate",
-      stages: [{ ...columns[0], tasks: filteredTasks.filter((task) => task.status === columns[0].id) }],
+      stages: [{ ...columns[0], tasks: tasksForStatus(columns[0].id) }],
     },
     {
       id: "production",
@@ -13511,7 +13515,7 @@ const ManagementRoomView = ({
       color: "violet",
       stages: columns.slice(1, 3).map((column) => ({
         ...column,
-        tasks: filteredTasks.filter((task) => task.status === column.id),
+        tasks: tasksForStatus(column.id),
       })),
     },
     {
@@ -13521,7 +13525,7 @@ const ManagementRoomView = ({
       color: "emerald",
       stages: [{
         ...columns[3],
-        tasks: filteredTasks.filter((task) => task.status === columns[3].id),
+        tasks: tasksForStatus(columns[3].id),
         collapsible: true,
         collapsedLimit: 3,
       }],
@@ -13581,7 +13585,9 @@ const ManagementRoomView = ({
         key={task.id}
         onClick={() => onTaskClick(task)}
         onDropFiles={onAttachFiles ? (files) => onAttachFiles(task, files) : undefined}
-        draggable
+        draggable={canReorder}
+        onCardDragOver={canReorder ? () => {} : undefined}
+        onCardDrop={canReorder ? () => handleCardDrop(task, task.status) : undefined}
         onDragStart={(event) => handleDragStart(event, task.id)}
         onDragEnd={handleDragEnd}
         accentTone={stage.color}

@@ -441,6 +441,23 @@ export const updateDoc = async (docRef, data) => {
     return payload.record;
 };
 
+export const moveKanbanTask = async ({
+    collectionName,
+    taskId,
+    targetStatus,
+    beforeId = '',
+    statusPatch = {}
+} = {}) => {
+    const payload = await apiFetch('/api/collections/_kanban/move', {
+        method: 'POST',
+        body: JSON.stringify({ collectionName, taskId, targetStatus, beforeId, statusPatch })
+    });
+    (Array.isArray(payload?.records) ? payload.records : []).forEach((record) => {
+        applyLocalChange(collectionName, record.id, 'upsert', record);
+    });
+    return payload?.task || null;
+};
+
 export const deleteDoc = async (docRef) => {
     const collectionName = getCollectionName(docRef);
     const recordId = getRecordId(docRef);
