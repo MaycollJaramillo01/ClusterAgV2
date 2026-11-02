@@ -198,6 +198,23 @@ const ensureInternalActivityTables = async (database) => {
     }
 };
 
+const ensurePolicyAcceptanceTable = async (database) => {
+    if (await database.schema.hasTable('policy_acceptances')) return;
+    await database.schema.createTable('policy_acceptances', (table) => {
+        table.string('policy_key', 100).notNullable();
+        table.string('policy_version', 40).notNullable();
+        table.string('user_id', 120).notNullable();
+        table.string('user_name', 180).notNullable();
+        table.string('user_email', 255).notNullable();
+        table.string('user_role', 80).notNullable();
+        table.string('decision', 20).notNullable();
+        table.string('responded_at', 40).notNullable();
+        table.primary(['policy_key', 'policy_version', 'user_id']);
+        table.index(['policy_key', 'policy_version', 'decision']);
+        table.index(['user_id', 'policy_key', 'policy_version']);
+    });
+};
+
 const ensureOauthStatesTable = async (database) => {
     const exists = await database.schema.hasTable('auth_oauth_states');
     if (!exists) {
@@ -279,5 +296,6 @@ export const migrateDatabase = async () => {
         await runMigration(database, '004_oauth_result_token', () => ensureOauthStatesTable(database));
         await runMigration(database, '005_unique_user_identity', () => ensureIdentityUniqueIndexes(database));
         await runMigration(database, '006_internal_activity_and_attachments', () => ensureInternalActivityTables(database));
+        await runMigration(database, '007_policy_acceptances', () => ensurePolicyAcceptanceTable(database));
     });
 };

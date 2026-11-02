@@ -17,6 +17,7 @@ import reportsRouter from './routes/reports.js';
 import chatGroupRoutes from './routes/chat-groups.js';
 import uploadRoutes from './routes/uploads.js';
 import taskActivityRoutes from './routes/task-activity.js';
+import policyRoutes from './routes/policies.js';
 import { applySecurityHeaders, isTrustedRequestOrigin, requireTrustedOrigin } from './lib/security.js';
 import { rateLimit } from './lib/rate-limit.js';
 
@@ -123,6 +124,7 @@ export const createApp = async () => {
     app.use('/api/cron', cronRoutes);
     app.use('/api/notifications', rateLimit({ windowMs: 10 * 60_000, max: 30, keyPrefix: 'notifications' }), notificationRoutes);
     app.use('/api/activity', rateLimit({ windowMs: 60_000, max: 180, keyPrefix: 'task-activity' }), taskActivityRoutes);
+    app.use('/api/policies', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'policies' }), policyRoutes);
     app.use('/api/directory', directoryRoutes);
     app.use('/api/calls', rateLimit({ windowMs: 10 * 60_000, max: 30, keyPrefix: 'calls' }), callsRoutes);
     app.use('/api/chat-groups', chatGroupRoutes);

@@ -2264,6 +2264,201 @@ function ComplianceAlertModal({
 }
 
 // --- APP PRINCIPAL ---
+// Diálogo de políticas laborales: obligatorio para todos los usuarios, con tabla de respuestas para supervisores.
+const WorkPolicyModal = ({
+  isOpen,
+  required = false,
+  state = {},
+  users = [],
+  saving = false,
+  onDecision,
+  onRetry,
+  onClose,
+}) => {
+  const dialogRef = useDialogA11y(isOpen, required ? () => {} : onClose);
+  const titleId = useId();
+  if (!isOpen) return null;
+
+  const sections = [
+    {
+      title: "1. Horarios y puntualidad",
+      items: [
+        "Cada colaborador deberá cumplir el horario de trabajo establecido.",
+        "Las llegadas tarde, salidas anticipadas y ausencias se deben comunicar al supervisor.",
+        "Las horas perdidas por tardanzas injustificadas podrán reponerse al final de la jornada, previa coordinación y conforme a la legislación aplicable.",
+        "Los cambios de horario requieren autorización previa. El trabajo remoto exige la misma puntualidad, responsabilidad y disponibilidad que el presencial.",
+      ],
+    },
+    {
+      title: "2. Ausencias y comunicación",
+      items: [
+        "Durante la jornada, cada colaborador deberá mantenerse disponible.",
+        "Las ausencias y los periodos sin respuesta deberán comunicarse y registrarse.",
+        "Las horas no trabajadas sin justificación podrán descontarse cuando legalmente corresponda.",
+      ],
+    },
+    {
+      title: "3. Enfermedades e incapacidades",
+      items: [
+        "Las ausencias por enfermedad deberán notificarse lo antes posible.",
+        "Se deberá presentar constancia médica dentro de las 48 horas posteriores a la atención, salvo imposibilidad justificada.",
+        "Las incapacidades deberán estar certificadas por un profesional de salud e indicar los días de reposo.",
+        "La documentación se evaluará respetando las excepciones previstas por la ley.",
+      ],
+    },
+    {
+      title: "4. Consultas y emergencias médicas",
+      items: [
+        "Las consultas programadas se informarán con al menos 24 horas de anticipación y se respaldarán con constancia médica.",
+        "Se reconocerá el tiempo razonable para la consulta y el desplazamiento. Las emergencias se comunicarán tan pronto como sea posible.",
+        "Se podrán otorgar hasta dos permisos administrativos extraordinarios por emergencias médicas al año. Los casos adicionales se evaluarán individualmente.",
+        "Este límite no aplica a incapacidades certificadas ni a derechos laborales obligatorios.",
+      ],
+    },
+    {
+      title: "5. Permisos personales",
+      items: [
+        "Los permisos deberán solicitarse previamente al supervisor. La solicitud no significa que esté aprobada.",
+        "La autorización dependerá de las necesidades operativas.",
+        "El tiempo no trabajado por asuntos personales no será remunerado, salvo autorización o disposición legal aplicable.",
+      ],
+    },
+    {
+      title: "7. Incumplimientos",
+      items: [
+        "Las faltas injustificadas o reiteradas podrán dar lugar a medidas progresivas, según la gravedad y las circunstancias:",
+        "Primera incidencia: advertencia documentada. Segunda: amonestación escrita. Tercera: advertencia final. Si hay reincidencia, se evaluará la continuidad de la relación contractual.",
+        "Toda medida respetará las disposiciones legales aplicables.",
+      ],
+    },
+    {
+      title: "8. Disposiciones generales",
+      items: [
+        "Los feriados no se usarán para compensar ausencias injustificadas.",
+        "Toda excepción requiere autorización de la dirección.",
+        "La aplicación de estas políticas respetará los derechos laborales y las condiciones contractuales de cada colaborador.",
+      ],
+    },
+  ];
+  const holidays = [
+    ["1 de enero", "Día completo"],
+    ["Miércoles Santo", "Desde mediodía"],
+    ["Jueves, Viernes y Sábado Santo", "Día completo"],
+    ["1 de mayo", "Día completo"],
+    ["4 de julio", "Día completo"],
+    ["Thanksgiving", "Día completo"],
+    ["24 de diciembre", "Desde mediodía"],
+    ["25 de diciembre", "Día completo"],
+    ["31 de diciembre", "Desde mediodía"],
+  ];
+  const responseByUser = new Map((state.responses || []).map((item) => [String(item.userId), item]));
+  const activeUsers = users.filter((item) => item.isActive !== false && item.id !== "anonymous");
+  const decisionLabel = (decision) => decision === "accepted" ? "Aceptó" : decision === "rejected" ? "Rechazó" : "Pendiente";
+  const formatResponseDate = (value) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return new Intl.DateTimeFormat("es-HN", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Tegucigalpa" }).format(date);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm sm:p-6">
+      <section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={`${titleId}-description`}
+        tabIndex={-1}
+        className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+      >
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800 sm:px-7">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-600 dark:text-indigo-300">Cluster Media</p>
+            <h1 id={titleId} className="mt-1 text-xl font-black text-slate-900 dark:text-white sm:text-2xl">Políticas de asistencia, horarios y permisos</h1>
+            <p id={`${titleId}-description`} className="mt-1 text-sm text-slate-600 dark:text-slate-300">Lee las políticas vigentes y registra tu respuesta.</p>
+          </div>
+          {!required && (
+            <button type="button" onClick={onClose} aria-label="Cerrar políticas" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <Icon name="X" />
+            </button>
+          )}
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+          <p className="mb-5 text-sm leading-6 text-slate-700 dark:text-slate-300">
+            En Cluster Media buscamos mantener un ambiente de trabajo organizado, responsable y respetuoso. Estas políticas describen las pautas de asistencia, puntualidad, permisos y días de descanso para el equipo.
+          </p>
+          <div className="space-y-5">
+            {sections.slice(0, 5).map((section) => (
+              <section key={section.title}>
+                <h2 className="text-sm font-extrabold text-slate-900 dark:text-white">{section.title}</h2>
+                <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-6 text-slate-700 dark:text-slate-300">
+                  {section.items.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              </section>
+            ))}
+            <section>
+              <h2 className="text-sm font-extrabold text-slate-900 dark:text-white">6. Feriados generales</h2>
+              <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">Estos descansos forman parte del calendario corporativo:</p>
+              <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-300"><tr><th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Descanso</th></tr></thead>
+                  <tbody>{holidays.map(([date, rest]) => <tr key={date} className="border-t border-slate-100 dark:border-slate-800"><td className="px-3 py-2 font-semibold text-slate-800 dark:text-slate-200">{date}</td><td className="px-3 py-2 text-slate-700 dark:text-slate-300">{rest}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-sm font-semibold text-slate-800 dark:text-slate-200">Feriado adicional por país</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-700 dark:text-slate-300">
+                <li>Honduras y Nicaragua: 15 de septiembre.</li><li>Venezuela: 5 de julio.</li><li>Perú: 28 de julio.</li><li>Argentina: 9 de julio.</li>
+              </ul>
+              <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Estos descansos no sustituyen otros feriados obligatorios establecidos por la legislación aplicable.</p>
+            </section>
+            {sections.slice(5).map((section) => (
+              <section key={section.title}>
+                <h2 className="text-sm font-extrabold text-slate-900 dark:text-white">{section.title}</h2>
+                <ol className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-6 text-slate-700 dark:text-slate-300">
+                  {section.items.map((item) => <li key={item}>{item}</li>)}
+                </ol>
+              </section>
+            ))}
+          </div>
+
+          {state.canReview && (
+            <section className="mt-8 border-t border-slate-200 pt-5 dark:border-slate-800">
+              <h2 className="text-base font-black text-slate-900 dark:text-white">Respuestas del equipo</h2>
+              <p className="mt-1 text-sm text-slate-500">Visible solo para usuarios con permisos de supervisión.</p>
+              <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full min-w-[620px] text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase text-slate-500 dark:bg-slate-800 dark:text-slate-300"><tr><th className="px-3 py-2">Colaborador</th><th className="px-3 py-2">Cargo</th><th className="px-3 py-2">Respuesta</th><th className="px-3 py-2">Fecha</th></tr></thead>
+                  <tbody>{activeUsers.map((person) => {
+                    const response = responseByUser.get(String(person.id));
+                    const decision = response?.decision || "pending";
+                    return <tr key={person.id} className="border-t border-slate-100 dark:border-slate-800"><td className="px-3 py-2"><span className="block font-semibold text-slate-800 dark:text-slate-200">{person.name || "Sin nombre"}</span><span className="text-xs text-slate-500">{person.email}</span></td><td className="px-3 py-2 text-slate-600 dark:text-slate-300">{getRoleMeta(person.role).label}</td><td className={`px-3 py-2 font-bold ${decision === "accepted" ? "text-emerald-700 dark:text-emerald-300" : decision === "rejected" ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300"}`}>{decisionLabel(decision)}</td><td className="px-3 py-2 text-slate-500">{formatResponseDate(response?.respondedAt)}</td></tr>;
+                  })}</tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </div>
+
+        <footer className="shrink-0 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950 sm:px-7">
+          {state.status === "loading" || state.status === "idle" ? (
+            <p role="status" className="text-sm font-semibold text-slate-600 dark:text-slate-300">Consultando la política vigente…</p>
+          ) : state.status === "error" ? (
+            <div className="flex flex-wrap items-center justify-between gap-3"><p role="alert" className="text-sm font-semibold text-red-700 dark:text-red-300">{state.error}</p><button type="button" onClick={onRetry} className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-bold text-white dark:bg-white dark:text-slate-900">Reintentar</button></div>
+          ) : state.decision === "rejected" && required ? (
+            <div className="space-y-3"><p role="alert" className="text-sm font-semibold text-red-700 dark:text-red-300">Registramos que no aceptas estas políticas. Para continuar en la plataforma, revisa el documento y selecciona “Acepto”.</p><div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={saving} onClick={() => onDecision("accepted")} className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50">{saving ? "Guardando…" : "Acepto las políticas"}</button></div></div>
+          ) : required && state.required ? (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="max-w-xl text-xs leading-5 text-slate-600 dark:text-slate-400">Registra tu respuesta para continuar. Quedará asociada a tu usuario y a esta versión del documento.</p><div className="flex shrink-0 justify-end gap-2"><button type="button" disabled={saving || state.status !== "ready"} onClick={() => onDecision("rejected")} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">No acepto</button><button type="button" disabled={saving || state.status !== "ready"} onClick={() => onDecision("accepted")} className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50">{saving ? "Guardando…" : "Acepto las políticas"}</button></div></div>
+          ) : (
+            <div className="flex items-center justify-between gap-3"><p className="text-xs text-slate-500">Versión {state.policy?.version || "actual"} · Tu respuesta: {decisionLabel(state.decision)}</p><button type="button" onClick={onClose} className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-bold text-white dark:bg-white dark:text-slate-900">Cerrar</button></div>
+          )}
+        </footer>
+      </section>
+    </div>
+  );
+};
+
 const AUTOMATIC_DATA_REPAIR_ENABLED = false;
 
 function App() {
@@ -2328,6 +2523,9 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [workPolicyState, setWorkPolicyState] = useState({ status: "idle" });
+  const [workPolicySaving, setWorkPolicySaving] = useState(false);
+  const [workPolicyReviewOpen, setWorkPolicyReviewOpen] = useState(false);
   const [chatDirectory, setChatDirectory] = useState([]);
   const [chatGroupsByClient, setChatGroupsByClient] = useState({});
   const [chatGroupsLoaded, setChatGroupsLoaded] = useState(false);
@@ -2523,6 +2721,47 @@ function App() {
   const canLeaveChatGroup = currentUserProfile?.role === "super_admin";
   const profileBlocked = Boolean(
     currentUserProfile && currentUserProfile.isActive === false,
+  );
+
+  const loadWorkPolicyState = useCallback(async () => {
+    if (!currentUserProfile?.id || currentUserProfile.pending || currentUserProfile.isAnonymous) return;
+    setWorkPolicyState((current) => ({ ...current, status: "loading", error: "" }));
+    try {
+      const state = await apiFetch("/api/policies/attendance");
+      setWorkPolicyState({ status: "ready", ...state });
+    } catch (error) {
+      setWorkPolicyState({ status: "error", error: error.message || "No se pudo consultar la política." });
+    }
+  }, [currentUserProfile?.id, currentUserProfile?.pending, currentUserProfile?.isAnonymous]);
+
+  useEffect(() => {
+    if (!usersLoaded || !currentUserProfile?.id || currentUserProfile.pending || currentUserProfile.isAnonymous) {
+      setWorkPolicyState({ status: "idle" });
+      return;
+    }
+    void loadWorkPolicyState();
+  }, [usersLoaded, currentUserProfile?.id, currentUserProfile?.pending, currentUserProfile?.isAnonymous, loadWorkPolicyState]);
+
+  const submitWorkPolicyDecision = async (decision) => {
+    setWorkPolicySaving(true);
+    try {
+      const result = await apiFetch("/api/policies/attendance/decision", {
+        method: "POST",
+        body: JSON.stringify({ decision }),
+      });
+      setWorkPolicyState((current) => ({ ...current, ...result, status: "ready" }));
+      if (decision === "accepted") showToast("Política aceptada", "success");
+    } catch (error) {
+      showToast(error.message || "No se pudo guardar la respuesta", "error");
+      await loadWorkPolicyState();
+    } finally {
+      setWorkPolicySaving(false);
+    }
+  };
+  const workPolicyRequired = Boolean(
+    usersLoaded && currentUserProfile?.id && !currentUserProfile.pending
+    && !currentUserProfile.isAnonymous && !profileBlocked
+    && (workPolicyState.status !== "ready" || workPolicyState.decision !== "accepted"),
   );
 
   useEffect(() => {
@@ -8004,6 +8243,15 @@ function App() {
                 label="Mi Perfil"
                 color="purple"
               />
+              {userHasPermission(currentUserProfile, "view_users") && (
+                <SidebarItem
+                  active={workPolicyReviewOpen}
+                  onClick={() => setWorkPolicyReviewOpen(true)}
+                  icon="FileText"
+                  label="Políticas del equipo"
+                  color="indigo"
+                />
+              )}
               {isAdminConfigVisible &&
                 canAccessView(currentUserProfile, "control-center") && (
                   <SidebarItem
@@ -8798,6 +9046,17 @@ function App() {
         onSelect={handleNotificationSelect}
         onMarkAllRead={markAllNotificationsRead}
         onRefresh={refreshNotifications}
+      />
+
+      <WorkPolicyModal
+        isOpen={workPolicyRequired || workPolicyReviewOpen}
+        required={workPolicyRequired}
+        state={workPolicyState}
+        users={appUsers}
+        saving={workPolicySaving}
+        onDecision={submitWorkPolicyDecision}
+        onRetry={loadWorkPolicyState}
+        onClose={() => setWorkPolicyReviewOpen(false)}
       />
 
       <div
