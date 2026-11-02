@@ -7461,7 +7461,7 @@ function App() {
       currentUserProfile?.name ||
       (authEmail ? authEmail.split("@")[0] : "Usuario");
     const status = await fetchUploadStatus();
-    const maxBytes = Number(status.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES;
+    const maxBytes = Number(status.taskMaxBytes || status.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES;
     if (file.size > maxBytes) {
       alert(`El archivo es demasiado grande (máx. ${formatUploadLimit(maxBytes)})`);
       return;
@@ -20243,7 +20243,7 @@ const TaskDetailModal = ({
                   }
                   setLightboxIndex(nextIndex);
                 };
-                const limitLabel = formatUploadLimit(uploadStatus.maxBytes || DEFAULT_TASK_UPLOAD_MAX_BYTES);
+                const limitLabel = formatUploadLimit(uploadStatus.taskMaxBytes || uploadStatus.maxBytes || DEFAULT_TASK_UPLOAD_MAX_BYTES);
                 const retentionLabel = uploadStatus.r2
                   ? ` · retención ${uploadStatus.retentionDays || 5} días`
                   : " · almacenamiento del sistema";
@@ -21377,7 +21377,7 @@ const CreateTaskModal = ({
     fetchUploadStatus().then((status) => {
       if (!cancelled) setUploadStatus({
         ...status,
-        maxBytes: Number(status.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES,
+        maxBytes: Number(status.taskMaxBytes || status.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES,
       });
     });
     return () => {
@@ -21511,11 +21511,11 @@ const CreateTaskModal = ({
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
-  const limitLabel = formatUploadLimit(uploadStatus.maxBytes || DEFAULT_TASK_UPLOAD_MAX_BYTES);
+  const limitLabel = formatUploadLimit(uploadStatus.taskMaxBytes || uploadStatus.maxBytes || DEFAULT_TASK_UPLOAD_MAX_BYTES);
   const queueCreateFiles = (fileList) => {
     const incoming = Array.from(fileList || []).filter(Boolean);
     if (!incoming.length) return;
-    const maxBytes = Number(uploadStatus.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES;
+    const maxBytes = Number(uploadStatus.taskMaxBytes || uploadStatus.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES;
     setPendingFiles((current) => {
       const next = [...current];
       for (const file of incoming) {

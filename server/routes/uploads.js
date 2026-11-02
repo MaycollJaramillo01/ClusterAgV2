@@ -7,6 +7,7 @@ import {
     CHAT_ATTACHMENT_COLLECTION,
     TASK_ATTACHMENT_COLLECTIONS,
     MAX_EMBEDDED_ATTACHMENT_BYTES,
+    MAX_TASK_ATTACHMENT_UPLOAD_BYTES,
     buildObjectKey,
     inferContentType,
     parseObjectKey
@@ -63,12 +64,20 @@ const resolveParentId = (collectionName, body = {}) => {
     return String(body.taskId || body.parentId || '').trim();
 };
 
+const getMaxUploadBytes = (collectionName) => {
+    const providerLimit = isR2Configured() ? getR2MaxFileBytes() : env.uploads.maxFileBytes;
+    return TASK_ATTACHMENT_COLLECTIONS.has(collectionName)
+        ? Math.min(providerLimit, MAX_TASK_ATTACHMENT_UPLOAD_BYTES)
+        : providerLimit;
+};
+
 router.get('/status', asyncHandler(async (req, res) => {
     requireAuthenticatedUser(req);
     res.json({
         r2: isR2Configured(),
         storage: isR2Configured() ? 'r2' : 'database',
         maxBytes: isR2Configured() ? getR2MaxFileBytes() : env.uploads.maxFileBytes,
+        taskMaxBytes: getMaxUploadBytes('editing'),
         embeddedMaxBytes: MAX_EMBEDDED_ATTACHMENT_BYTES,
         retentionDays: isR2Configured() ? env.r2.retentionDays : 0
     });
@@ -82,7 +91,7 @@ router.post('/sign', asyncHandler(async (req, res) => {
     const fileName = String(req.body?.fileName || '').trim();
     const contentType = inferContentType(req.body?.fileName, req.body?.contentType);
     const size = Number(req.body?.size);
-    const maxFileBytes = isR2Configured() ? getR2MaxFileBytes() : env.uploads.maxFileBytes;
+    const maxFileBytes = getMaxUploadBytes(collectionName);
 
     if (!parentId || !fileName) {
         throw createHttpError(400, 'Faltan datos del archivo.', 'uploads/invalid-request');
@@ -208,7 +217,8 @@ router.put('/blob', express.raw({ type: 'application/octet-stream', limit: DATAB
             throw createHttpError(400, 'Faltan fragmentos del archivo.', 'uploads/missing-parts');
         }
         const fileData = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.chunk_data)));
-        if (fileData.length !== Number(session.expected_size) || fileData.length > env.uploads.maxFileBytes) {
+        if (fileData.length !== Number(session.expected_size)
+            || fileData.length > getMaxUploadBytes(session.collection_name)) {
             throw createHttpError(413, 'El archivo no coincide con el tamaño permitido.', 'attachment/too-large');
         }
         await trx('attachment_blobs').insert({

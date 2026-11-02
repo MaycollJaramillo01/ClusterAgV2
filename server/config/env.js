@@ -125,7 +125,7 @@ export const env = {
     runBootstrapOnStart: parseBoolean(process.env.RUN_BOOTSTRAP_ON_START, !isVercelRuntime),
     sqliteSeedOnEmpty: parseBoolean(process.env.SQLITE_SEED_ON_EMPTY, false),
     uploads: {
-        maxFileBytes: Math.max(3 * 1024 * 1024, parseNumber(process.env.UPLOAD_MAX_BYTES, 100 * 1024 * 1024))
+        maxFileBytes: Math.min(1_000_000_000, Math.max(3 * 1024 * 1024, parseNumber(process.env.UPLOAD_MAX_BYTES, 1_000_000_000)))
     },
     seedSuperAdminEmails: parseCsv(process.env.SEED_SUPER_ADMIN_EMAILS, DEFAULT_SUPER_ADMIN_EMAILS),
     seedManagementTeam: parseJson(process.env.SEED_MANAGEMENT_TEAM_JSON, DEFAULT_MANAGEMENT_TEAM),
@@ -168,7 +168,7 @@ export const env = {
         bucket: process.env.R2_BUCKET || '',
         endpoint: resolveR2Endpoint(process.env.R2_ACCOUNT_ID, process.env.R2_ENDPOINT),
         publicBaseUrl: resolveR2PublicBaseUrl(process.env.R2_PUBLIC_BASE_URL),
-        maxFileBytes: parseNumber(process.env.R2_MAX_UPLOAD_BYTES, 10 * 1024 * 1024 * 1024),
+        maxFileBytes: parseNumber(process.env.R2_MAX_UPLOAD_BYTES, 1_000_000_000),
         retentionDays: parseNumber(process.env.R2_RETENTION_DAYS, 5),
         signTtlSeconds: parseNumber(process.env.R2_SIGN_TTL_SECONDS, 15 * 60),
         downloadTtlSeconds: parseNumber(process.env.R2_DOWNLOAD_TTL_SECONDS, 60 * 60)

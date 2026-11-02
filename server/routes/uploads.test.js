@@ -99,7 +99,40 @@ test('upload status requires a session', async () => {
     const authed = await request('/api/uploads/status', { token: editorToken });
     assert.equal(authed.status, 200);
     assert.equal(authed.payload.r2, false);
+    assert.equal(authed.payload.taskMaxBytes, 1_000_000_000);
+    assert.equal(authed.payload.maxBytes, 1_000_000_000);
     assert.equal(authed.payload.retentionDays, 0);
+});
+
+test('task uploads accept a 1 GB limit and reject files above it', async () => {
+    const tooLarge = await request('/api/uploads/sign', {
+        token: editorToken,
+        method: 'POST',
+        body: {
+            collectionName: 'editing',
+            taskId: 'task-1',
+            fileName: 'corte.mp4',
+            contentType: 'video/mp4',
+            size: 1_000_000_001
+        }
+    });
+    assert.equal(tooLarge.status, 413);
+    assert.equal(tooLarge.payload?.error?.code, 'attachment/too-large');
+
+    const withinLimit = await request('/api/uploads/sign', {
+        token: editorToken,
+        method: 'POST',
+        body: {
+            collectionName: 'editing',
+            taskId: 'task-1',
+            fileName: 'corte.mp4',
+            contentType: 'video/mp4',
+            size: 1_000_000_000
+        }
+    });
+    // The limit check passes; this test task is intentionally absent.
+    assert.equal(withinLimit.status, 404);
+    assert.equal(withinLimit.payload?.error?.code, 'document/not-found');
 });
 
 test('signing an upload without R2 creates an authenticated database upload session', async () => {

@@ -1,7 +1,7 @@
 import { apiFetch, buildApiUrl } from './backend-api.js';
 
 const EMBEDDED_UPLOAD_MAX_BYTES = 3 * 1024 * 1024;
-export const DEFAULT_TASK_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+export const DEFAULT_TASK_UPLOAD_MAX_BYTES = 1_000_000_000;
 const DATABASE_UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024;
 
 export const TASK_UPLOAD_COLLECTIONS = {
@@ -54,7 +54,7 @@ export const fetchUploadStatus = async () => {
         cachedStatus = await apiFetch('/api/uploads/status');
         return cachedStatus;
     } catch {
-        cachedStatus = { r2: false, storage: 'database', maxBytes: DEFAULT_TASK_UPLOAD_MAX_BYTES, embeddedMaxBytes: EMBEDDED_UPLOAD_MAX_BYTES, retentionDays: 0 };
+        cachedStatus = { r2: false, storage: 'database', maxBytes: DEFAULT_TASK_UPLOAD_MAX_BYTES, taskMaxBytes: DEFAULT_TASK_UPLOAD_MAX_BYTES, embeddedMaxBytes: EMBEDDED_UPLOAD_MAX_BYTES, retentionDays: 0 };
         return cachedStatus;
     }
 };
@@ -62,9 +62,9 @@ export const fetchUploadStatus = async () => {
 export const formatUploadLimit = (bytes) => {
     const value = Number(bytes);
     if (!Number.isFinite(value) || value <= 0) return '';
-    const giga = value / (1024 * 1024 * 1024);
+    const giga = value / 1_000_000_000;
     if (giga >= 1) return `${giga % 1 === 0 ? giga : giga.toFixed(1)} GB`;
-    const mega = value / (1024 * 1024);
+    const mega = value / 1_000_000;
     if (mega >= 10) return `${Math.round(mega)} MB`;
     return `${mega.toFixed(1)} MB`;
 };
