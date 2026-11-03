@@ -13,7 +13,7 @@ import {
     listRecords,
     upsertRecord
 } from '../lib/records.js';
-import { prepareManagementTaskPayload } from '../lib/management-tasks.js';
+import { DEFAULT_TASK_DUE_TIME, prepareManagementTaskPayload } from '../lib/management-tasks.js';
 import { requireAuthenticatedUser } from '../lib/sessions.js';
 import { normalizeEmail } from '../lib/text.js';
 import { sendClientChatPush } from '../lib/push-notifications.js';
@@ -569,6 +569,9 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         return {
             ...safePayload,
             ...normalizeTaskAssignees(safePayload, existing),
+            ...(isCreate && String(safePayload.date || '').trim() && !String(safePayload.time || '').trim()
+                ? { time: DEFAULT_TASK_DUE_TIME }
+                : {}),
             ...(shouldStampAssigner ? {
                 assignedByUserId: actor?.id || existing?.assignedByUserId || '',
                 assignedByName: assignerName || 'Sistema',

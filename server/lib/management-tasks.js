@@ -5,6 +5,7 @@ import { normalizeEmail } from './text.js';
 
 const DATE_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
 const TIME_RE = /^(\d{1,2}):(\d{2})$/;
+export const DEFAULT_TASK_DUE_TIME = '17:00';
 
 const normalizeText = (value = '') => (typeof value === 'string' ? value.trim() : '');
 
@@ -65,7 +66,8 @@ export const prepareManagementTaskPayload = ({
 
     const hasDueInput = 'date' in nextPayload || 'time' in nextPayload || isCreate;
     const normalizedDate = normalizeManagementTaskDate(hasDueInput ? nextPayload.date : existing?.date);
-    const normalizedTime = normalizeManagementTaskTime(hasDueInput ? nextPayload.time : existing?.time);
+    const normalizedTime = normalizeManagementTaskTime(hasDueInput ? nextPayload.time : existing?.time)
+        || (normalizedDate ? DEFAULT_TASK_DUE_TIME : '');
     const shouldRequireDue = hasDueInput || ('notificationsEnabled' in nextPayload && nextPayload.notificationsEnabled !== false);
 
     if (shouldRequireDue && (!normalizedDate || !normalizedTime)) {

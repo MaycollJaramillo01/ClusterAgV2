@@ -222,6 +222,7 @@ import { registerFirebaseWebPush } from "./lib/firebase-web-push.js";
 import { createPortal } from "react-dom";
 
 const EMBEDDED_UPLOAD_MAX_BYTES = 3 * 1024 * 1024;
+const DEFAULT_TASK_DUE_TIME = "17:00";
 const CHAT_MUTE_FOREVER = "forever";
 const CHAT_MUTE_DURATION_MS = {
   "8h": 8 * 60 * 60 * 1000,
@@ -5953,7 +5954,7 @@ function App() {
     } else if (taskType === "managementTask") {
       result = await addManagementTask({
         ...payload,
-        time: "18:00",
+        time: DEFAULT_TASK_DUE_TIME,
         category: "seguimiento",
         notificationsEnabled: false,
       });
@@ -6144,6 +6145,9 @@ function App() {
 
   const addAccountTask = async (data) => {
     const { pendingFiles, onUploadProgress, recurrence, ...taskData } = data || {};
+    const defaultedTime = taskData.date
+      ? String(taskData.time || "").trim() || DEFAULT_TASK_DUE_TIME
+      : String(taskData.time || "").trim();
     const assignee = accountTaskAssignees.find(
       (item) => item.id === taskData.contextId && item.isActive !== false,
     );
@@ -6167,6 +6171,7 @@ function App() {
         addDoc(dataCollection("account_tasks"), {
             ...taskData,
             date: dates[index],
+            time: defaultedTime,
             assignees: Array.isArray(taskData.assignees)
               ? taskData.assignees
               : [taskData.contextId].filter(Boolean),
@@ -6248,6 +6253,9 @@ function App() {
 
   const addEditingTask = async (data) => {
     const { pendingFiles, onUploadProgress, recurrence, ...taskData } = data || {};
+    const defaultedTime = taskData.date
+      ? String(taskData.time || "").trim() || DEFAULT_TASK_DUE_TIME
+      : String(taskData.time || "").trim();
     const assignee = editingTaskAssignees.find(
       (item) => item.id === taskData.contextId && item.isActive !== false,
     );
@@ -6258,7 +6266,7 @@ function App() {
     for (let index = 0; index < dates.length; index += 1) {
       const isLast = index === dates.length - 1;
     const stamp = nowIso();
-      const occurrence = { ...taskData, date: dates[index], status: initialStatus };
+      const occurrence = { ...taskData, date: dates[index], time: defaultedTime, status: initialStatus };
       const result = await runMutation({
       permission: "create_editing_tasks",
       action: "create",
@@ -6419,7 +6427,8 @@ function App() {
     const { pendingFiles, onUploadProgress, recurrence, ...taskData } = data || {};
     const member = managementUsers.find((item) => item.id === taskData.contextId);
     const normalizedDate = normalizeDateOnlyString(taskData.date);
-    const normalizedTime = normalizeTimeValue(taskData.time);
+    const normalizedTime = normalizeTimeValue(taskData.time)
+      || (normalizedDate ? DEFAULT_TASK_DUE_TIME : "");
     if (!normalizedDate || !normalizedTime) {
       showToast("La tarea de gestion requiere fecha y hora limite.", "error");
       return null;
@@ -21330,7 +21339,7 @@ const CreateTaskModal = ({
         setClientId(data.clientId || "");
         setDate(data.date || "");
         setPriority(data.priority || "");
-        setTime(data.time || "");
+        setTime(data.time || (data.date ? DEFAULT_TASK_DUE_TIME : ""));
         setHierarchy(data.hierarchy || data.editingHierarchy || "p2");
         setCategory(data.category || "seguimiento");
         setStatus(
@@ -21347,7 +21356,7 @@ const CreateTaskModal = ({
         setClientId(data?.clientId || "");
         setDate(data?.date || "");
         setPriority("");
-        setTime("");
+        setTime(data?.date ? DEFAULT_TASK_DUE_TIME : "");
         setHierarchy("p2");
         setCategory("seguimiento");
         setStatus("editar");
@@ -21569,11 +21578,10 @@ const CreateTaskModal = ({
             assignees: assigneeIds,
           }
         : {};
-      const duePatch = canEditDue
-        ? type === "editingTask"
-          ? { date }
-          : { date, time }
-        : {};
+      const dueTime = date
+        ? String(time || "").trim() || DEFAULT_TASK_DUE_TIME
+        : String(time || "").trim();
+      const duePatch = canEditDue ? { date, time: dueTime } : {};
       if (config.isEdit && data?.id) {
         if (type === "accountTask")
           result = await actions.updateAccountTask(data.id, {
@@ -21581,6 +21589,7 @@ const CreateTaskModal = ({
             clientId,
             notes,
             priority,
+            time: dueTime,
             ...duePatch,
             ...assignmentPatch,
             ...payload,
@@ -21593,6 +21602,7 @@ const CreateTaskModal = ({
             status,
             notes,
             clientId,
+            time: dueTime,
             ...duePatch,
             ...assignmentPatch,
             ...payload,
@@ -21605,6 +21615,7 @@ const CreateTaskModal = ({
             notes,
             priority,
             notificationsEnabled: true,
+            time: dueTime,
             ...duePatch,
             ...assignmentPatch,
             ...payload,
@@ -21614,7 +21625,7 @@ const CreateTaskModal = ({
           result = await actions.addAccountTask({
             date,
             title: title.trim(),
-            time,
+            time: dueTime,
             contextId: assigneeIds[0] || assigneeId || "",
             assignees: assigneeIds,
             clientId,
@@ -21626,6 +21637,7 @@ const CreateTaskModal = ({
         if (type === "editingTask")
           result = await actions.addEditingTask({
             date,
+            time: dueTime,
             title: title.trim(),
             priority: priority || "normal",
             hierarchy,
@@ -21641,7 +21653,7 @@ const CreateTaskModal = ({
           result = await actions.addManagementTask({
             date,
             title: title.trim(),
-            time,
+            time: dueTime,
             contextId: assigneeIds[0] || assigneeId || "",
             assignees: assigneeIds,
             clientId,
@@ -21681,6 +21693,7 @@ const CreateTaskModal = ({
 
   const handleSubmit = async () => {
     if (!title.trim() || submitting) return;
+    if (date && !time) setTime(DEFAULT_TASK_DUE_TIME);
     if (recurrenceFrequency !== "none" && !date && !config.isEdit) {
       setRecurrenceError("La recurrencia necesita una fecha de inicio");
       return;
@@ -21986,6 +21999,7 @@ const CreateTaskModal = ({
                   value={date}
                   onChange={(e) => {
                     setDate(e.target.value);
+                    if (e.target.value && !time) setTime(DEFAULT_TASK_DUE_TIME);
                     setRecurrenceError("");
                     setDatePickerOpen(false);
                   }}
@@ -22257,8 +22271,8 @@ const CreateTaskModal = ({
             </select>
           )}
 
-          {/* Hora — account & management */}
-          {(type === "accountTask" || type === "managementTask") && (
+          {/* Hora límite — se usa 17:00 cuando no se especifica otra */}
+          {(type === "accountTask" || type === "editingTask" || type === "managementTask") && (
             <div className="relative">
               <input
                 type="time"

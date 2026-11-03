@@ -540,6 +540,32 @@ test('management tasks reject an empty title', async () => {
     assert.equal(response.payload?.error?.code, 'management_tasks/title-required');
 });
 
+test('task creation defaults missing due time to 17:00 Honduras and preserves explicit time', async () => {
+    for (const [collectionName, id, data] of [
+        ['account_tasks', 'account-default-time', { title: 'Account con fecha', date: '2026-11-03' }],
+        ['editing', 'editing-default-time', { title: 'Edición con fecha', date: '2026-11-03' }],
+        ['management_tasks', 'management-default-time', {
+            title: 'Gestión con fecha', date: '2026-11-03', contextId: 'viewer', notificationsEnabled: false
+        }]
+    ]) {
+        const response = await request(`/api/collections/${collectionName}`, {
+            token: operationsToken,
+            method: 'POST',
+            body: { id, data }
+        });
+        assert.equal(response.status, 201, `${collectionName}: ${JSON.stringify(response.payload)}`);
+        assert.equal(response.payload.record.time, '17:00');
+    }
+
+    const explicit = await request('/api/collections/account_tasks', {
+        token: operationsToken,
+        method: 'POST',
+        body: { id: 'account-explicit-time', data: { title: 'Hora específica', date: '2026-11-03', time: '14:30' } }
+    });
+    assert.equal(explicit.status, 201);
+    assert.equal(explicit.payload.record.time, '14:30');
+});
+
 test('chat members of every chat role can add participants without removing others', async () => {
     await createRecord({
         collectionName: 'users',
