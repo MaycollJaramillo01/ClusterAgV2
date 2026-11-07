@@ -143,12 +143,18 @@ import {
 import {
   compareDateOnlyStrings,
   addBusinessDays,
+  formatTaskDueLabel,
   getDateOnlyDiffDays,
   getHondurasTodayStr,
   getLast24HoursRange,
+  getViewerTimeZoneLabel,
+  getViewerTodayStr,
   isDateBeforeDateString,
   normalizeDateOnlyString,
+  parseBusinessDueMs,
   resolveStoredTaskRoomDate,
+  storedDueToViewer,
+  viewerDueToStored,
 } from "./utils/date.js";
 import {
   buildRecurrenceDates,
@@ -2116,8 +2122,12 @@ function ComplianceAlertModal({
                         {task.title || "Tarea sin título"}
                       </p>
                       <p className="text-xs text-red-300/80">
-                        Venció: {task.date || "Sin fecha"}{" "}
-                        {task.time ? `a las ${task.time}` : ""}
+                        Venció:{" "}
+                        {formatTaskDueLabel({
+                          date: task.date,
+                          time: task.time || "",
+                          includeTimeZone: Boolean(task.time),
+                        }) || task.date || "Sin fecha"}
                       </p>
                     </div>
                     <button
@@ -4432,11 +4442,14 @@ function App() {
             : `Tarea de ${config.label} vencida hace mas de 24h`;
       const body = [
         task.title,
-        task.time
-          ? `Hora limite: ${task.time}`
-          : config.defaultTime
-            ? `Hora limite: ${config.defaultTime}`
-            : "",
+        (() => {
+          const due = formatTaskDueLabel({
+            date: task.date,
+            time: task.time || config.defaultTime || "",
+            includeTimeZone: true,
+          });
+          return due ? `Vence: ${due}` : "";
+        })(),
         client ? `Cliente: ${client.name}` : "",
       ]
         .filter(Boolean)
@@ -4478,7 +4491,7 @@ function App() {
             ? task.time
             : config.defaultTime;
           if (!dueTime) continue;
-          const dueMs = Date.parse(`${task.date}T${dueTime}:00-06:00`);
+          const dueMs = parseBusinessDueMs(task.date, dueTime);
           if (!Number.isFinite(dueMs)) continue;
           const diff = dueMs - now;
           const stateKey = `${config.collectionType}:${task.id}`;
@@ -8381,7 +8394,7 @@ function App() {
 
       {/* Vistas Principales */}
       <main
-        className={`app-main min-h-0 flex-1 relative w-full ${view === "chat" ? "overflow-hidden" : "overflow-y-auto"}`}
+        className={`app-main min-h-0 flex-1 relative w-full ${view === "chat" ? "flex flex-col overflow-hidden" : "overflow-y-auto"}`}
       >
         {currentUserCompliance?.isAlerting && (
           <ComplianceAlertBanner
@@ -8394,7 +8407,7 @@ function App() {
         <div
           className={
             view === "chat"
-              ? "h-full"
+              ? "flex min-h-0 flex-1 flex-col"
               : view === "production"
                 ? "h-full min-h-0 w-full p-3 pb-mobile-nav md:p-5 md:pb-5"
               : "p-4 md:p-8 max-w-[1360px] mx-auto min-h-full pb-mobile-nav md:pb-20"
@@ -11372,8 +11385,9 @@ const SHORT_MONTHS_ES = [
   "dic",
 ];
 
-const formatShortDate = (dateStr) => {
+const formatShortDate = (dateStr, timeStr = "") => {
   if (!dateStr) return "";
+  if (timeStr) return formatTaskDueLabel({ date: dateStr, time: timeStr });
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr));
   if (!m) return String(dateStr);
   const month = SHORT_MONTHS_ES[parseInt(m[2], 10) - 1] || "";
@@ -12118,7 +12132,7 @@ const TaskRoomInspector = ({
             <p className="mb-2 text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">Vencimiento</p>
             <p className={`inline-flex items-center gap-1.5 text-xs font-semibold ${isOverdue ? "text-red-500" : "text-slate-700 dark:text-slate-200"}`}>
               <Icon name="CalendarDays" size={14} />
-              {formatShortDate(task.date)}{isOverdue ? " · atrasada" : ""}
+              {formatShortDate(task.date, task.time)}{isOverdue ? " · atrasada" : ""}
             </p>
           </div>
         </div>
@@ -12923,7 +12937,7 @@ const AccountRoomView = ({
             : []),
         ]}
         due={{
-          label: formatShortDate(task.date) + (isOverdue ? " · atrasada" : ""),
+          label: formatShortDate(task.date, task.time) + (isOverdue ? " · atrasada" : ""),
           tone: isOverdue ? "red" : "slate",
         }}
         assignee={buildAssignee(manager, legacyColorMap)}
@@ -13274,7 +13288,7 @@ const EditionsRoomView = ({
             : []),
         ]}
         due={{
-          label: formatShortDate(task.date) + (isOverdue ? " · atrasada" : ""),
+          label: formatShortDate(task.date, task.time) + (isOverdue ? " · atrasada" : ""),
           tone: isOverdue ? "red" : "slate",
         }}
         assignee={buildAssignee(editor)}
@@ -13331,8 +13345,7 @@ const EditionsRoomView = ({
 const computeManagementDueBadge = (task) => {
   if (!task?.date || !task?.time || !/^\d{2}:\d{2}$/.test(task.time))
     return null;
-  const iso = `${task.date}T${task.time}:00-06:00`;
-  const ms = Date.parse(iso);
+  const ms = parseBusinessDueMs(task.date, task.time);
   if (!Number.isFinite(ms)) return null;
   const diffMs = ms - Date.now();
   const absHours = Math.abs(diffMs) / 3600000;
@@ -13607,8 +13620,7 @@ const ManagementRoomView = ({
         badges={badges}
         due={{
           label:
-            formatShortDate(task.date) +
-            (task.time ? ` · ${task.time}` : "") +
+            formatShortDate(task.date, task.time) +
             (isOverdue ? " · vencida" : ""),
           tone: isOverdue ? "red" : "slate",
         }}
@@ -16347,10 +16359,10 @@ const ClientChatView = ({
   };
 
   return (
-    <div className="chat-shell flex h-full min-h-0 overflow-hidden">
+    <div className="chat-shell flex h-full min-h-0 w-full flex-1 overflow-hidden">
       {/* Lista de clientes (canales) */}
       <aside
-        className={`chat-list-pane ${activeClient ? "hidden md:flex" : "flex"} min-h-0 w-full shrink-0 flex-col md:w-[21rem] lg:w-[23rem]`}
+        className={`chat-list-pane ${activeClient ? "is-covered" : ""} flex min-h-0 w-full shrink-0 flex-col`}
       >
         <div className="chat-list-header">
           <div className="chat-inbox-heading flex items-center gap-3">
@@ -16595,7 +16607,7 @@ const ClientChatView = ({
 
       {/* Hilo del cliente */}
       <section
-        className={`chat-conversation-pane ${activeClient ? "flex" : "hidden md:flex"} min-h-0 min-w-0 flex-1 flex-col`}
+        className={`chat-conversation-pane ${activeClient ? "is-active" : ""} flex min-h-0 min-w-0 flex-1 flex-col`}
       >
         {!activeClient ? (
           <div className="chat-welcome flex flex-1 flex-col items-center justify-center p-8 text-center">
@@ -16622,7 +16634,7 @@ const ClientChatView = ({
               <button
                 onClick={() => onSelectClient(null)}
                 aria-label="Volver a la lista"
-                className="chat-header-button chat-back-button md:hidden"
+                className="chat-header-button chat-back-button"
               >
                 <Icon name="ChevronLeft" size={20} />
               </button>
@@ -21337,9 +21349,18 @@ const CreateTaskModal = ({
               : [],
         );
         setClientId(data.clientId || "");
-        setDate(data.date || "");
+        {
+          const localDue = storedDueToViewer({
+            date: data.date || "",
+            time: data.time || (data.date ? DEFAULT_TASK_DUE_TIME : ""),
+          });
+          setDate(localDue.date || "");
+          setTime(
+            localDue.time ||
+              (localDue.date || data.date ? DEFAULT_TASK_DUE_TIME : ""),
+          );
+        }
         setPriority(data.priority || "");
-        setTime(data.time || (data.date ? DEFAULT_TASK_DUE_TIME : ""));
         setHierarchy(data.hierarchy || data.editingHierarchy || "p2");
         setCategory(data.category || "seguimiento");
         setStatus(
@@ -21354,9 +21375,21 @@ const CreateTaskModal = ({
         setAssigneeId(data?.contextId || "");
         setAssigneeIds(data?.contextId ? [data.contextId] : []);
         setClientId(data?.clientId || "");
-        setDate(data?.date || "");
+        {
+          const seedDate = data?.date || "";
+          const localDue = seedDate
+            ? storedDueToViewer({
+                date: seedDate,
+                time: data?.time || DEFAULT_TASK_DUE_TIME,
+              })
+            : { date: "", time: "" };
+          setDate(localDue.date || "");
+          setTime(
+            localDue.time ||
+              (localDue.date || seedDate ? DEFAULT_TASK_DUE_TIME : ""),
+          );
+        }
         setPriority("");
-        setTime(data?.date ? DEFAULT_TASK_DUE_TIME : "");
         setHierarchy("p2");
         setCategory("seguimiento");
         setStatus("editar");
@@ -21367,7 +21400,12 @@ const CreateTaskModal = ({
           : "none",
       );
       setRecurrenceUntil(
-        config.isEdit && data?.recurrence?.until ? data.recurrence.until : "",
+        config.isEdit && data?.recurrence?.until
+          ? storedDueToViewer({
+              date: data.recurrence.until,
+              time: data.time || DEFAULT_TASK_DUE_TIME,
+            }).date || data.recurrence.until
+          : "",
       );
       setRecurrenceOpen(false);
       setRecurrenceError("");
@@ -21578,10 +21616,16 @@ const CreateTaskModal = ({
             assignees: assigneeIds,
           }
         : {};
-      const dueTime = date
+      const localDueTime = date
         ? String(time || "").trim() || DEFAULT_TASK_DUE_TIME
         : String(time || "").trim();
-      const duePatch = canEditDue ? { date, time: dueTime } : {};
+      const storedDue = canEditDue
+        ? viewerDueToStored({ date, time: localDueTime })
+        : { date: "", time: "" };
+      const dueTime = storedDue.time || localDueTime;
+      const duePatch = canEditDue
+        ? { date: storedDue.date || date, time: dueTime }
+        : {};
       if (config.isEdit && data?.id) {
         if (type === "accountTask")
           result = await actions.updateAccountTask(data.id, {
@@ -21621,23 +21665,34 @@ const CreateTaskModal = ({
             ...payload,
           });
       } else {
+        const createDate = storedDue.date || date;
+        const createTime = dueTime;
+        const recurrenceUntilStored = recurrenceUntil
+          ? viewerDueToStored({
+              date: recurrenceUntil,
+              time: createTime || DEFAULT_TASK_DUE_TIME,
+            }).date || recurrenceUntil
+          : "";
         if (type === "accountTask")
           result = await actions.addAccountTask({
-            date,
+            date: createDate,
             title: title.trim(),
-            time: dueTime,
+            time: createTime,
             contextId: assigneeIds[0] || assigneeId || "",
             assignees: assigneeIds,
             clientId,
             notes,
             priority,
-            recurrence: { frequency: recurrenceFrequency, until: recurrenceUntil },
+            recurrence: {
+              frequency: recurrenceFrequency,
+              until: recurrenceUntilStored,
+            },
             ...payload,
           });
         if (type === "editingTask")
           result = await actions.addEditingTask({
-            date,
-            time: dueTime,
+            date: createDate,
+            time: createTime,
             title: title.trim(),
             priority: priority || "normal",
             hierarchy,
@@ -21646,14 +21701,17 @@ const CreateTaskModal = ({
             contextId: assigneeIds[0] || assigneeId || "",
             assignees: assigneeIds,
             clientId,
-            recurrence: { frequency: recurrenceFrequency, until: recurrenceUntil },
+            recurrence: {
+              frequency: recurrenceFrequency,
+              until: recurrenceUntilStored,
+            },
             ...payload,
           });
         if (type === "managementTask")
           result = await actions.addManagementTask({
-            date,
+            date: createDate,
             title: title.trim(),
-            time: dueTime,
+            time: createTime,
             contextId: assigneeIds[0] || assigneeId || "",
             assignees: assigneeIds,
             clientId,
@@ -21661,7 +21719,10 @@ const CreateTaskModal = ({
             notes,
             priority,
             notificationsEnabled: true,
-            recurrence: { frequency: recurrenceFrequency, until: recurrenceUntil },
+            recurrence: {
+              frequency: recurrenceFrequency,
+              until: recurrenceUntilStored,
+            },
             ...payload,
           });
       }
@@ -21705,24 +21766,28 @@ const CreateTaskModal = ({
     await doSubmit();
   };
 
-  let displayDate = "";
-  if (date) {
-    try {
-      const [y, m, d] = date.split("-");
-      displayDate = new Date(y, m - 1, d).toLocaleDateString("es-ES", {
-        day: "numeric",
-        month: "short",
-      });
-    } catch (e) {}
-  } else if (data?.date) {
-    try {
-      const [y, m, d] = data.date.split("-");
-      displayDate = new Date(y, m - 1, d).toLocaleDateString("es-ES", {
-        day: "numeric",
-        month: "short",
-      });
-    } catch (e) {}
-  }
+  const viewerZoneLabel = getViewerTimeZoneLabel();
+  const formatLocalDueChip = (dateValue, timeValue) => {
+    if (!dateValue) return "";
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateValue));
+    if (!m) return String(dateValue);
+    const months = [
+      "ene", "feb", "mar", "abr", "may", "jun",
+      "jul", "ago", "sep", "oct", "nov", "dic",
+    ];
+    const label = `${parseInt(m[3], 10)} ${months[parseInt(m[2], 10) - 1] || ""}`;
+    if (!timeValue) return label;
+    return `${label} · ${timeValue} ${viewerZoneLabel}`;
+  };
+  const displayDate = date
+    ? formatLocalDueChip(date, time)
+    : data?.date
+      ? formatTaskDueLabel({
+          date: data.date,
+          time: data.time || "",
+          includeTimeZone: Boolean(data.time),
+        })
+      : "";
 
   return (
     <div
@@ -22271,17 +22336,20 @@ const CreateTaskModal = ({
             </select>
           )}
 
-          {/* Hora límite — se usa 17:00 cuando no se especifica otra */}
+          {/* Hora límite en zona local del usuario; se guarda en Honduras */}
           {(type === "accountTask" || type === "editingTask" || type === "managementTask") && (
-            <div className="relative">
+            <div className="relative flex items-center gap-2">
               <input
                 type="time"
                 value={time}
                 disabled={!canEditDue}
                 onChange={(e) => canEditDue && setTime(e.target.value)}
-                title={canEditDue ? "Hora" : "No tienes permiso para cambiar la hora"}
+                title={canEditDue ? `Hora local (${viewerZoneLabel})` : "No tienes permiso para cambiar la hora"}
                 className={`px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 outline-none w-[110px] ${canEditDue ? "cursor-pointer" : "opacity-50 cursor-not-allowed"}`}
               />
+              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                {viewerZoneLabel}
+              </span>
             </div>
           )}
         </div>

@@ -1,18 +1,180 @@
-export const getHondurasDateString = (dateObj = new Date()) => {
-    const formatter = new Intl.DateTimeFormat('es-HN', {
-        timeZone: 'America/Tegucigalpa',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-    });
-    const parts = formatter.formatToParts(dateObj);
-    const y = parts.find((p) => p.type === 'year').value;
-    const m = parts.find((p) => p.type === 'month').value;
-    const d = parts.find((p) => p.type === 'day').value;
-    return `${y}-${m}-${d}`;
+export const BUSINESS_TIMEZONE = 'America/Tegucigalpa';
+
+const TIME_ONLY_PATTERN = /^(\d{1,2}):(\d{2})$/;
+
+export const getViewerTimeZone = () => {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || BUSINESS_TIMEZONE;
+    } catch {
+        return BUSINESS_TIMEZONE;
+    }
 };
 
+const getZonedParts = (dateObj, timeZone = BUSINESS_TIMEZONE) => {
+    const date = dateObj instanceof Date ? dateObj : new Date(dateObj);
+    if (Number.isNaN(date.getTime())) return null;
+    try {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hourCycle: 'h23'
+        }).formatToParts(date);
+        const get = (type) => parts.find((part) => part.type === type)?.value || '';
+        return {
+            year: get('year'),
+            month: get('month'),
+            day: get('day'),
+            hour: get('hour'),
+            minute: get('minute'),
+            second: get('second')
+        };
+    } catch {
+        return null;
+    }
+};
+
+export const getZonedDateString = (dateObj = new Date(), timeZone = BUSINESS_TIMEZONE) => {
+    const parts = getZonedParts(dateObj, timeZone);
+    if (!parts?.year) return '';
+    return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
+export const getZonedTimeString = (dateObj = new Date(), timeZone = BUSINESS_TIMEZONE) => {
+    const parts = getZonedParts(dateObj, timeZone);
+    if (!parts?.hour) return '';
+    return `${parts.hour}:${parts.minute}`;
+};
+
+export const getHondurasDateString = (dateObj = new Date()) => (
+    getZonedDateString(dateObj, BUSINESS_TIMEZONE)
+);
+
 export const getHondurasTodayStr = () => getHondurasDateString(new Date());
+
+export const getViewerTodayStr = () => getZonedDateString(new Date(), getViewerTimeZone());
+
+export const getViewerTimeZoneLabel = (timeZone = getViewerTimeZone()) => {
+    try {
+        const parts = new Intl.DateTimeFormat('es-HN', {
+            timeZone,
+            timeZoneName: 'short'
+        }).formatToParts(new Date());
+        return parts.find((part) => part.type === 'timeZoneName')?.value || timeZone;
+    } catch {
+        return timeZone;
+    }
+};
+
+const normalizeTimeOnly = (value = '') => {
+    const match = String(value || '').trim().match(TIME_ONLY_PATTERN);
+    if (!match) return '';
+    const hours = match[1].padStart(2, '0');
+    const minutes = match[2];
+    if (Number(hours) > 23 || Number(minutes) > 59) return '';
+    return `${hours}:${minutes}`;
+};
+
+/**
+ * Interpreta date+time guardados como hora de negocio (Honduras) y
+ * devuelve el instante absoluto.
+ */
+export const parseBusinessDueMs = (date = '', time = '17:00') => {
+    const normalizedDate = normalizeDateOnlyString(date);
+    const normalizedTime = normalizeTimeOnly(time) || '17:00';
+    if (!normalizedDate) return null;
+    const iso = `${normalizedDate}T${normalizedTime}:00-06:00`;
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? ms : null;
+};
+
+const zonedWallTimeToUtcMs = (date = '', time = '00:00', timeZone = BUSINESS_TIMEZONE) => {
+    const normalizedDate = normalizeDateOnlyString(date);
+    const normalizedTime = normalizeTimeOnly(time) || '00:00';
+    if (!normalizedDate) return null;
+    const [year, month, day] = normalizedDate.split('-').map(Number);
+    const [hour, minute] = normalizedTime.split(':').map(Number);
+    let guess = Date.UTC(year, month - 1, day, hour, minute, 0);
+    for (let i = 0; i < 3; i += 1) {
+        const parts = getZonedParts(new Date(guess), timeZone);
+        if (!parts) return null;
+        const asUtc = Date.UTC(
+            Number(parts.year),
+            Number(parts.month) - 1,
+            Number(parts.day),
+            Number(parts.hour),
+            Number(parts.minute),
+            Number(parts.second || 0)
+        );
+        const diff = Date.UTC(year, month - 1, day, hour, minute, 0) - asUtc;
+        guess += diff;
+        if (diff === 0) break;
+    }
+    return guess;
+};
+
+/** Convierte date/time locales del usuario a date/time canónicos (Honduras). */
+export const viewerDueToStored = ({
+    date = '',
+    time = '',
+    timeZone = getViewerTimeZone()
+} = {}) => {
+    const normalizedDate = normalizeDateOnlyString(date);
+    if (!normalizedDate) return { date: '', time: '' };
+    const normalizedTime = normalizeTimeOnly(time);
+    if (!normalizedTime) {
+        return { date: normalizedDate, time: '' };
+    }
+    const ms = zonedWallTimeToUtcMs(normalizedDate, normalizedTime, timeZone);
+    if (!Number.isFinite(ms)) return { date: normalizedDate, time: normalizedTime };
+    return {
+        date: getZonedDateString(new Date(ms), BUSINESS_TIMEZONE),
+        time: getZonedTimeString(new Date(ms), BUSINESS_TIMEZONE)
+    };
+};
+
+/** Convierte date/time canónicos (Honduras) a la zona del usuario que abre la tarea. */
+export const storedDueToViewer = ({
+    date = '',
+    time = '',
+    timeZone = getViewerTimeZone(),
+    fallbackTime = '17:00'
+} = {}) => {
+    const normalizedDate = normalizeDateOnlyString(date);
+    if (!normalizedDate) return { date: '', time: '' };
+    const normalizedTime = normalizeTimeOnly(time);
+    if (!normalizedTime) {
+        return { date: normalizedDate, time: '' };
+    }
+    const ms = parseBusinessDueMs(normalizedDate, normalizedTime || fallbackTime);
+    if (!Number.isFinite(ms)) {
+        return { date: normalizedDate, time: normalizedTime };
+    }
+    return {
+        date: getZonedDateString(new Date(ms), timeZone),
+        time: getZonedTimeString(new Date(ms), timeZone)
+    };
+};
+
+export const formatTaskDueLabel = ({
+    date = '',
+    time = '',
+    timeZone = getViewerTimeZone(),
+    includeTimeZone = false
+} = {}) => {
+    const local = storedDueToViewer({ date, time, timeZone });
+    if (!local.date) return '';
+    const [year, month, day] = local.date.split('-').map(Number);
+    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    const dateLabel = `${day} ${months[month - 1] || ''}`;
+    if (!local.time) return dateLabel;
+    const zone = includeTimeZone ? ` ${getViewerTimeZoneLabel(timeZone)}` : '';
+    return `${dateLabel} · ${local.time}${zone}`;
+};
 
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
 const padDateSegment = (value) => String(value).padStart(2, '0');
