@@ -10,6 +10,31 @@ const uniqueStrings = (values = []) => [...new Set(
         .filter(Boolean)
 )];
 
+/** DM conversation id: dm__{sortedUserIdA}__{sortedUserIdB} */
+export const buildDmClientId = (leftId = '', rightId = '') => {
+    const ids = uniqueStrings([leftId, rightId]).sort();
+    if (ids.length !== 2) return '';
+    return `dm__${ids[0]}__${ids[1]}`;
+};
+
+export const parseDmClientId = (clientId = '') => {
+    const raw = String(clientId || '').trim();
+    if (!raw.startsWith('dm__')) return null;
+    const parts = raw.slice(4).split('__').filter(Boolean);
+    if (parts.length !== 2) return null;
+    return parts;
+};
+
+export const isDmParticipant = (clientId = '', candidateIds = []) => {
+    const parts = parseDmClientId(clientId);
+    if (!parts) return false;
+    const allowed = new Set(parts.map(String));
+    return (Array.isArray(candidateIds) ? candidateIds : [])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .some((id) => allowed.has(id));
+};
+
 export const canManageChatGroups = (userRecord) => (
     userRecord?.isActive !== false
     && ['manager', 'super_admin'].includes(String(userRecord?.role || ''))
@@ -105,9 +130,34 @@ export const buildChatGroups = ({
         addDerivedMember(clientId, managerId);
     });
 
+    const dmGroupsById = new Map();
     messages.forEach((message) => {
         const clientId = String(message?.clientId || '').trim();
-        if (!clientId || (clientIds.size > 0 && !clientIds.has(clientId))) return;
+        if (!clientId) return;
+        const kind = String(message?.kind || 'client');
+        if (kind === 'dm') {
+            const parts = parseDmClientId(clientId);
+            if (!parts) return;
+            const memberIds = uniqueStrings(parts
+                .map((id) => directory.resolvePersonId({ id }) || id));
+            const previous = dmGroupsById.get(clientId);
+            dmGroupsById.set(clientId, {
+                clientId,
+                memberIds: uniqueStrings([
+                    ...(previous?.memberIds || []),
+                    ...memberIds,
+                    directory.resolvePersonId({
+                        id: message?.authorId,
+                        email: message?.authorEmail,
+                        name: message?.authorName
+                    })
+                ].filter(Boolean)),
+                source: 'dm',
+                updatedAt: message?.createdAt || previous?.updatedAt || ''
+            });
+            return;
+        }
+        if (clientIds.size > 0 && !clientIds.has(clientId)) return;
         addDerivedMember(clientId, directory.resolvePersonId({
             id: message?.authorId,
             email: message?.authorEmail,
@@ -160,7 +210,10 @@ export const buildChatGroups = ({
         })
         .filter(Boolean);
 
-    return { ...directory, groups: [...groups, ...teamGroupEntries] };
+    return {
+        ...directory,
+        groups: [...groups, ...teamGroupEntries, ...dmGroupsById.values()]
+    };
 };
 
 export const getChatGroupChangeError = ({

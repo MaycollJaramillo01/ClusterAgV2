@@ -13,13 +13,59 @@ import { nowIso } from '../lib/time.js';
 
 const router = Router();
 
-const NOTIFICATION_TYPES = new Set(['assigned', 'mention', 'chat_mention', 'call_invite', 'client_priority', 'task_updated']);
+const NOTIFICATION_TYPES = new Set([
+    'assigned',
+    'mention',
+    'chat_mention',
+    'call_invite',
+    'client_priority',
+    'task_updated',
+    'video_ready',
+    'video_approved',
+    'video_rejected'
+]);
 const RECIPIENT_COLLECTIONS = ['users', 'managers', 'editors'];
 const TASK_COLLECTION_BY_TYPE = {
     accountTask: 'account_tasks',
     editingTask: 'editing',
     managementTask: 'management_tasks',
     event: 'events'
+};
+
+const collectTaskParticipantIds = async (task = {}) => {
+    const ids = [
+        ...(Array.isArray(task.assignees) ? task.assignees : []),
+        task.contextId,
+        task.assigneeUserId,
+        task.accountId
+    ].filter(Boolean).map(String);
+    if (task.accountId) {
+        const account = await getRecord({
+            collectionName: 'managers',
+            recordId: String(task.accountId)
+        });
+        if (account?.userId) ids.push(String(account.userId));
+        if (account?.linkedUserId) ids.push(String(account.linkedUserId));
+    }
+    for (const assigneeId of (Array.isArray(task.assignees) ? task.assignees : [])) {
+        const editor = await getRecord({
+            collectionName: 'editors',
+            recordId: String(assigneeId)
+        });
+        if (editor?.userId) ids.push(String(editor.userId));
+        const manager = editor
+            ? null
+            : await getRecord({ collectionName: 'managers', recordId: String(assigneeId) });
+        if (manager?.userId) ids.push(String(manager.userId));
+    }
+    if (task.contextId) {
+        const editor = await getRecord({
+            collectionName: 'editors',
+            recordId: String(task.contextId)
+        });
+        if (editor?.userId) ids.push(String(editor.userId));
+    }
+    return [...new Set(ids)];
 };
 
 const findRecipient = async (email) => {
@@ -37,7 +83,10 @@ const notificationTitle = (type) => ({
     task_updated: 'Tarea modificada',
     chat_mention: 'Te mencionaron en el chat',
     call_invite: 'Invitación a llamada',
-    client_priority: 'Cambio de prioridad'
+    client_priority: 'Cambio de prioridad',
+    video_ready: 'Video listo para revisar',
+    video_approved: 'Video aprobado',
+    video_rejected: 'Video rechazado'
 }[type] || 'Notificación');
 
 const notificationBody = ({ type, actorName, taskTitle, clientName, priorityLabel }) => {
@@ -50,6 +99,9 @@ const notificationBody = ({ type, actorName, taskTitle, clientName, priorityLabe
     if (type === 'chat_mention') return `${actorLabel} te mencionó en el chat de ${client}`;
     if (type === 'call_invite') return `${actorLabel} te invitó a una llamada de ${client}`;
     if (type === 'client_priority') return `${client} cambió a prioridad ${String(priorityLabel || 'alta').slice(0, 40)}`;
+    if (type === 'video_ready') return `${actorLabel} subió el video editado de: ${task}`;
+    if (type === 'video_approved') return `${actorLabel} aprobó el video de: ${task}`;
+    if (type === 'video_rejected') return `${actorLabel} rechazó el video de: ${task}`;
     return 'Tienes una notificación nueva.';
 };
 
@@ -167,6 +219,18 @@ export const buildEmail = ({ type, senderName, taskTitle, taskType, comment, app
             <blockquote style="margin:12px 0;padding:12px 16px;background:#f8fafc;border-left:3px solid ${accent};border-radius:0 8px 8px 0;color:#475569;font-style:italic;">
                 "${escapeHtml(comment)}"
             </blockquote>`;
+    } else if (type === 'video_ready') {
+        subject = `🎬 Video listo para revisar: ${taskTitle}`;
+        heading = 'Video editado listo';
+        body = `<strong>${escapeHtml(senderName)}</strong> subió el video editado de <strong>"${escapeHtml(taskTitle)}"</strong>. Revísalo y aprueba o rechaza desde la tarea.`;
+    } else if (type === 'video_approved') {
+        subject = `✅ Video aprobado: ${taskTitle}`;
+        heading = 'Video aprobado';
+        body = `<strong>${escapeHtml(senderName)}</strong> aprobó el video de la tarea <strong>"${escapeHtml(taskTitle)}"</strong>. La tarea pasó a estado aprobado.`;
+    } else if (type === 'video_rejected') {
+        subject = `⛔ Video rechazado: ${taskTitle}`;
+        heading = 'Video rechazado';
+        body = `<strong>${escapeHtml(senderName)}</strong> rechazó el video de la tarea <strong>"${escapeHtml(taskTitle)}"</strong>. El estado de la tarea no cambió.`;
     } else {
         subject = `📞 ${senderName} te invitó a una llamada de ${clientName}`;
         heading = 'Te invitaron a una llamada';
@@ -251,14 +315,33 @@ router.post('/send', asyncHandler(async (req, res) => {
         if (!task || !readPermission || !hasPermission(actor, readPermission)) {
             throw createHttpError(403, 'La notificacion no corresponde a una tarea accesible.', 'notifications/resource-mismatch');
         }
-        if (type === 'assigned' || type === 'task_updated') {
-            const assigneeIds = [
-                ...(Array.isArray(task.assignees) ? task.assignees : []),
-                task.contextId,
-                task.assigneeUserId
-            ].filter(Boolean).map(String);
-            if (!assigneeIds.includes(String(recipient.id))) {
+        if (
+            type === 'assigned'
+            || type === 'task_updated'
+            || type === 'video_ready'
+            || type === 'video_approved'
+            || type === 'video_rejected'
+        ) {
+            const participantIds = await collectTaskParticipantIds(task);
+            if (!participantIds.includes(String(recipient.id))) {
                 throw createHttpError(403, 'El destinatario no esta asignado a esta tarea.', 'notifications/resource-mismatch');
+            }
+            if (type === 'video_ready') {
+                if (!task.accountId) {
+                    throw createHttpError(403, 'La tarea no tiene account asignado.', 'notifications/resource-mismatch');
+                }
+                const account = await getRecord({
+                    collectionName: 'managers',
+                    recordId: String(task.accountId)
+                });
+                const accountIds = new Set(
+                    [task.accountId, account?.userId, account?.linkedUserId]
+                        .filter(Boolean)
+                        .map(String)
+                );
+                if (!accountIds.has(String(recipient.id))) {
+                    throw createHttpError(403, 'Solo el account puede recibir esta notificacion.', 'notifications/resource-mismatch');
+                }
             }
         }
         if (type === 'mention') {

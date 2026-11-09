@@ -753,6 +753,33 @@ const findCurrentUserTaskAssignee = (profile, assignees = []) => {
     ) || null
   );
 };
+
+const buildDmClientId = (leftId = "", rightId = "") => {
+  const ids = [...new Set([String(leftId || "").trim(), String(rightId || "").trim()].filter(Boolean))].sort();
+  if (ids.length !== 2) return "";
+  return `dm__${ids[0]}__${ids[1]}`;
+};
+
+const parseDmClientId = (clientId = "") => {
+  const raw = String(clientId || "").trim();
+  if (!raw.startsWith("dm__")) return null;
+  const parts = raw.slice(4).split("__").filter(Boolean);
+  return parts.length === 2 ? parts : null;
+};
+
+const isProfileLinkedToAssignee = (profile, assignee) => {
+  if (!profile || !assignee) return false;
+  const profileIds = new Set(
+    [profile.id, profile.linkedManagerId, profile.linkedEditorId].filter(Boolean).map(String),
+  );
+  const profileEmail = normalizeEmail(profile.email);
+  return (
+    profileIds.has(String(assignee.id || "")) ||
+    profileIds.has(String(assignee.assigneeUserId || "")) ||
+    profileIds.has(String(assignee.userId || "")) ||
+    (profileEmail && normalizeEmail(assignee.email) === profileEmail)
+  );
+};
 const buildDuplicateUserGroups = (users = []) => {
   const userById = new Map(users.map((item) => [item.id, item]));
   const adjacency = new Map(users.map((item) => [item.id, new Set()]));
@@ -2273,201 +2300,6 @@ function ComplianceAlertModal({
 }
 
 // --- APP PRINCIPAL ---
-// Diálogo de políticas laborales: obligatorio para todos los usuarios, con tabla de respuestas para supervisores.
-const WorkPolicyModal = ({
-  isOpen,
-  required = false,
-  state = {},
-  users = [],
-  saving = false,
-  onDecision,
-  onRetry,
-  onClose,
-}) => {
-  const dialogRef = useDialogA11y(isOpen, required ? () => {} : onClose);
-  const titleId = useId();
-  if (!isOpen) return null;
-
-  const sections = [
-    {
-      title: "1. Horarios y puntualidad",
-      items: [
-        "Cada colaborador deberá cumplir el horario de trabajo establecido.",
-        "Las llegadas tarde, salidas anticipadas y ausencias se deben comunicar al supervisor.",
-        "Las horas perdidas por tardanzas injustificadas podrán reponerse al final de la jornada, previa coordinación y conforme a la legislación aplicable.",
-        "Los cambios de horario requieren autorización previa. El trabajo remoto exige la misma puntualidad, responsabilidad y disponibilidad que el presencial.",
-      ],
-    },
-    {
-      title: "2. Ausencias y comunicación",
-      items: [
-        "Durante la jornada, cada colaborador deberá mantenerse disponible.",
-        "Las ausencias y los periodos sin respuesta deberán comunicarse y registrarse.",
-        "Las horas no trabajadas sin justificación podrán descontarse cuando legalmente corresponda.",
-      ],
-    },
-    {
-      title: "3. Enfermedades e incapacidades",
-      items: [
-        "Las ausencias por enfermedad deberán notificarse lo antes posible.",
-        "Se deberá presentar constancia médica dentro de las 48 horas posteriores a la atención, salvo imposibilidad justificada.",
-        "Las incapacidades deberán estar certificadas por un profesional de salud e indicar los días de reposo.",
-        "La documentación se evaluará respetando las excepciones previstas por la ley.",
-      ],
-    },
-    {
-      title: "4. Consultas y emergencias médicas",
-      items: [
-        "Las consultas programadas se informarán con al menos 24 horas de anticipación y se respaldarán con constancia médica.",
-        "Se reconocerá el tiempo razonable para la consulta y el desplazamiento. Las emergencias se comunicarán tan pronto como sea posible.",
-        "Se podrán otorgar hasta dos permisos administrativos extraordinarios por emergencias médicas al año. Los casos adicionales se evaluarán individualmente.",
-        "Este límite no aplica a incapacidades certificadas ni a derechos laborales obligatorios.",
-      ],
-    },
-    {
-      title: "5. Permisos personales",
-      items: [
-        "Los permisos deberán solicitarse previamente al supervisor. La solicitud no significa que esté aprobada.",
-        "La autorización dependerá de las necesidades operativas.",
-        "El tiempo no trabajado por asuntos personales no será remunerado, salvo autorización o disposición legal aplicable.",
-      ],
-    },
-    {
-      title: "7. Incumplimientos",
-      items: [
-        "Las faltas injustificadas o reiteradas podrán dar lugar a medidas progresivas, según la gravedad y las circunstancias:",
-        "Primera incidencia: advertencia documentada. Segunda: amonestación escrita. Tercera: advertencia final. Si hay reincidencia, se evaluará la continuidad de la relación contractual.",
-        "Toda medida respetará las disposiciones legales aplicables.",
-      ],
-    },
-    {
-      title: "8. Disposiciones generales",
-      items: [
-        "Los feriados no se usarán para compensar ausencias injustificadas.",
-        "Toda excepción requiere autorización de la dirección.",
-        "La aplicación de estas políticas respetará los derechos laborales y las condiciones contractuales de cada colaborador.",
-      ],
-    },
-  ];
-  const holidays = [
-    ["1 de enero", "Día completo"],
-    ["Miércoles Santo", "Desde mediodía"],
-    ["Jueves, Viernes y Sábado Santo", "Día completo"],
-    ["1 de mayo", "Día completo"],
-    ["4 de julio", "Día completo"],
-    ["Thanksgiving", "Día completo"],
-    ["24 de diciembre", "Desde mediodía"],
-    ["25 de diciembre", "Día completo"],
-    ["31 de diciembre", "Desde mediodía"],
-  ];
-  const responseByUser = new Map((state.responses || []).map((item) => [String(item.userId), item]));
-  const activeUsers = users.filter((item) => item.isActive !== false && item.id !== "anonymous");
-  const decisionLabel = (decision) => decision === "accepted" ? "Aceptó" : decision === "rejected" ? "Rechazó" : "Pendiente";
-  const formatResponseDate = (value) => {
-    if (!value) return "—";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "—";
-    return new Intl.DateTimeFormat("es-HN", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Tegucigalpa" }).format(date);
-  };
-
-  return (
-    <div className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm sm:p-6">
-      <section
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={`${titleId}-description`}
-        tabIndex={-1}
-        className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-      >
-        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800 sm:px-7">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-600 dark:text-indigo-300">Cluster Media</p>
-            <h1 id={titleId} className="mt-1 text-xl font-black text-slate-900 dark:text-white sm:text-2xl">Políticas de asistencia, horarios y permisos</h1>
-            <p id={`${titleId}-description`} className="mt-1 text-sm text-slate-600 dark:text-slate-300">Lee las políticas vigentes y registra tu respuesta.</p>
-          </div>
-          {!required && (
-            <button type="button" onClick={onClose} aria-label="Cerrar políticas" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
-              <Icon name="X" />
-            </button>
-          )}
-        </header>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
-          <p className="mb-5 text-sm leading-6 text-slate-700 dark:text-slate-300">
-            En Cluster Media buscamos mantener un ambiente de trabajo organizado, responsable y respetuoso. Estas políticas describen las pautas de asistencia, puntualidad, permisos y días de descanso para el equipo.
-          </p>
-          <div className="space-y-5">
-            {sections.slice(0, 5).map((section) => (
-              <section key={section.title}>
-                <h2 className="text-sm font-extrabold text-slate-900 dark:text-white">{section.title}</h2>
-                <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-6 text-slate-700 dark:text-slate-300">
-                  {section.items.map((item) => <li key={item}>{item}</li>)}
-                </ul>
-              </section>
-            ))}
-            <section>
-              <h2 className="text-sm font-extrabold text-slate-900 dark:text-white">6. Feriados generales</h2>
-              <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">Estos descansos forman parte del calendario corporativo:</p>
-              <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-300"><tr><th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Descanso</th></tr></thead>
-                  <tbody>{holidays.map(([date, rest]) => <tr key={date} className="border-t border-slate-100 dark:border-slate-800"><td className="px-3 py-2 font-semibold text-slate-800 dark:text-slate-200">{date}</td><td className="px-3 py-2 text-slate-700 dark:text-slate-300">{rest}</td></tr>)}</tbody>
-                </table>
-              </div>
-              <p className="mt-3 text-sm font-semibold text-slate-800 dark:text-slate-200">Feriado adicional por país</p>
-              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-700 dark:text-slate-300">
-                <li>Honduras y Nicaragua: 15 de septiembre.</li><li>Venezuela: 5 de julio.</li><li>Perú: 28 de julio.</li><li>Argentina: 9 de julio.</li>
-              </ul>
-              <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Estos descansos no sustituyen otros feriados obligatorios establecidos por la legislación aplicable.</p>
-            </section>
-            {sections.slice(5).map((section) => (
-              <section key={section.title}>
-                <h2 className="text-sm font-extrabold text-slate-900 dark:text-white">{section.title}</h2>
-                <ol className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-6 text-slate-700 dark:text-slate-300">
-                  {section.items.map((item) => <li key={item}>{item}</li>)}
-                </ol>
-              </section>
-            ))}
-          </div>
-
-          {state.canReview && (
-            <section className="mt-8 border-t border-slate-200 pt-5 dark:border-slate-800">
-              <h2 className="text-base font-black text-slate-900 dark:text-white">Respuestas del equipo</h2>
-              <p className="mt-1 text-sm text-slate-500">Visible solo para usuarios con permisos de supervisión.</p>
-              <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                <table className="w-full min-w-[620px] text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase text-slate-500 dark:bg-slate-800 dark:text-slate-300"><tr><th className="px-3 py-2">Colaborador</th><th className="px-3 py-2">Cargo</th><th className="px-3 py-2">Respuesta</th><th className="px-3 py-2">Fecha</th></tr></thead>
-                  <tbody>{activeUsers.map((person) => {
-                    const response = responseByUser.get(String(person.id));
-                    const decision = response?.decision || "pending";
-                    return <tr key={person.id} className="border-t border-slate-100 dark:border-slate-800"><td className="px-3 py-2"><span className="block font-semibold text-slate-800 dark:text-slate-200">{person.name || "Sin nombre"}</span><span className="text-xs text-slate-500">{person.email}</span></td><td className="px-3 py-2 text-slate-600 dark:text-slate-300">{getRoleMeta(person.role).label}</td><td className={`px-3 py-2 font-bold ${decision === "accepted" ? "text-emerald-700 dark:text-emerald-300" : decision === "rejected" ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300"}`}>{decisionLabel(decision)}</td><td className="px-3 py-2 text-slate-500">{formatResponseDate(response?.respondedAt)}</td></tr>;
-                  })}</tbody>
-                </table>
-              </div>
-            </section>
-          )}
-        </div>
-
-        <footer className="shrink-0 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950 sm:px-7">
-          {state.status === "loading" || state.status === "idle" ? (
-            <p role="status" className="text-sm font-semibold text-slate-600 dark:text-slate-300">Consultando la política vigente…</p>
-          ) : state.status === "error" ? (
-            <div className="flex flex-wrap items-center justify-between gap-3"><p role="alert" className="text-sm font-semibold text-red-700 dark:text-red-300">{state.error}</p><button type="button" onClick={onRetry} className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-bold text-white dark:bg-white dark:text-slate-900">Reintentar</button></div>
-          ) : state.decision === "rejected" && required ? (
-            <div className="space-y-3"><p role="alert" className="text-sm font-semibold text-red-700 dark:text-red-300">Registramos que no aceptas estas políticas. Para continuar en la plataforma, revisa el documento y selecciona “Acepto”.</p><div className="flex flex-wrap justify-end gap-2"><button type="button" disabled={saving} onClick={() => onDecision("accepted")} className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50">{saving ? "Guardando…" : "Acepto las políticas"}</button></div></div>
-          ) : required && state.required ? (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="max-w-xl text-xs leading-5 text-slate-600 dark:text-slate-400">Registra tu respuesta para continuar. Quedará asociada a tu usuario y a esta versión del documento.</p><div className="flex shrink-0 justify-end gap-2"><button type="button" disabled={saving || state.status !== "ready"} onClick={() => onDecision("rejected")} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">No acepto</button><button type="button" disabled={saving || state.status !== "ready"} onClick={() => onDecision("accepted")} className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50">{saving ? "Guardando…" : "Acepto las políticas"}</button></div></div>
-          ) : (
-            <div className="flex items-center justify-between gap-3"><p className="text-xs text-slate-500">Versión {state.policy?.version || "actual"} · Tu respuesta: {decisionLabel(state.decision)}</p><button type="button" onClick={onClose} className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-bold text-white dark:bg-white dark:text-slate-900">Cerrar</button></div>
-          )}
-        </footer>
-      </section>
-    </div>
-  );
-};
-
 const AUTOMATIC_DATA_REPAIR_ENABLED = false;
 
 function App() {
@@ -2532,9 +2364,6 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [workPolicyState, setWorkPolicyState] = useState({ status: "idle" });
-  const [workPolicySaving, setWorkPolicySaving] = useState(false);
-  const [workPolicyReviewOpen, setWorkPolicyReviewOpen] = useState(false);
   const [chatDirectory, setChatDirectory] = useState([]);
   const [chatGroupsByClient, setChatGroupsByClient] = useState({});
   const [chatGroupsLoaded, setChatGroupsLoaded] = useState(false);
@@ -2730,47 +2559,6 @@ function App() {
   const canLeaveChatGroup = currentUserProfile?.role === "super_admin";
   const profileBlocked = Boolean(
     currentUserProfile && currentUserProfile.isActive === false,
-  );
-
-  const loadWorkPolicyState = useCallback(async () => {
-    if (!currentUserProfile?.id || currentUserProfile.pending || currentUserProfile.isAnonymous) return;
-    setWorkPolicyState((current) => ({ ...current, status: "loading", error: "" }));
-    try {
-      const state = await apiFetch("/api/policies/attendance");
-      setWorkPolicyState({ status: "ready", ...state });
-    } catch (error) {
-      setWorkPolicyState({ status: "error", error: error.message || "No se pudo consultar la política." });
-    }
-  }, [currentUserProfile?.id, currentUserProfile?.pending, currentUserProfile?.isAnonymous]);
-
-  useEffect(() => {
-    if (!usersLoaded || !currentUserProfile?.id || currentUserProfile.pending || currentUserProfile.isAnonymous) {
-      setWorkPolicyState({ status: "idle" });
-      return;
-    }
-    void loadWorkPolicyState();
-  }, [usersLoaded, currentUserProfile?.id, currentUserProfile?.pending, currentUserProfile?.isAnonymous, loadWorkPolicyState]);
-
-  const submitWorkPolicyDecision = async (decision) => {
-    setWorkPolicySaving(true);
-    try {
-      const result = await apiFetch("/api/policies/attendance/decision", {
-        method: "POST",
-        body: JSON.stringify({ decision }),
-      });
-      setWorkPolicyState((current) => ({ ...current, ...result, status: "ready" }));
-      if (decision === "accepted") showToast("Política aceptada", "success");
-    } catch (error) {
-      showToast(error.message || "No se pudo guardar la respuesta", "error");
-      await loadWorkPolicyState();
-    } finally {
-      setWorkPolicySaving(false);
-    }
-  };
-  const workPolicyRequired = Boolean(
-    usersLoaded && currentUserProfile?.id && !currentUserProfile.pending
-    && !currentUserProfile.isAnonymous && !profileBlocked
-    && (workPolicyState.status !== "ready" || workPolicyState.decision !== "accepted"),
   );
 
   useEffect(() => {
@@ -5977,7 +5765,11 @@ function App() {
     if (result?.id && conversation?.id) {
       await addClientChatMessage({
         clientId: conversation.id,
-        kind: conversation.isTeamGroup ? "team_group" : "client",
+        kind: conversation.isDm
+          ? "dm"
+          : conversation.isTeamGroup
+            ? "team_group"
+            : "client",
         text: `Asignó la tarea "${trimmed}"`,
         mentionedIds: ids,
         taskRef: {
@@ -6303,6 +6095,8 @@ function App() {
               : [taskData.contextId].filter(Boolean),
             contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
           assigneeUserId: assignee?.assigneeUserId || "",
+            accountId: taskData.accountId || "",
+            editedVideo: taskData.editedVideo || null,
             notificationsEnabled: taskData.notificationsEnabled !== false,
           status: initialStatus,
           ...getStatusTimestampPatch(
@@ -6325,6 +6119,25 @@ function App() {
     });
       if (!result) return first;
       if (!first) first = result;
+    }
+    if (first?.id) {
+      notifyTaskPeople(
+        {
+          ...taskData,
+          id: first.id,
+          assignees: Array.isArray(taskData.assignees)
+            ? taskData.assignees
+            : [taskData.contextId].filter(Boolean),
+          contextId:
+            (taskData.assignees && taskData.assignees[0]) ||
+            taskData.contextId ||
+            "",
+          assigneeUserId: assignee?.assigneeUserId || "",
+          accountId: taskData.accountId || "",
+        },
+        "editingTask",
+        "assigned",
+      );
     }
     return first;
   };
@@ -6687,44 +6500,67 @@ function App() {
       console.warn("[notify]", e.message);
     }
   };
-  const notifyExistingTaskEdited = (task, taskType) => {
-    if (!task?.id || !taskType) return;
+  const resolveTaskNotifyPeople = (task, taskType = "editingTask") => {
     const poolMap = {
       accountTask: accountTaskAssignees,
-      editingTask: editingTaskAssignees,
+      editingTask: [...editingTaskAssignees, ...accountTaskAssignees],
       managementTask: managementUsers,
       event: [...managers, ...editors, ...appUsers],
     };
+    const pool = [
+      ...(poolMap[taskType] || []),
+      ...appUsers,
+      ...managers,
+      ...editors,
+    ];
     const ids = [
-      ...(Array.isArray(task.assignees) ? task.assignees : []),
-      task.contextId,
-      task.assigneeUserId,
+      ...(Array.isArray(task?.assignees) ? task.assignees : []),
+      task?.contextId,
+      task?.assigneeUserId,
+      task?.accountId,
     ]
       .map((value) => String(value || "").trim())
       .filter(Boolean);
     const actorId = String(currentUserProfile?.id || "");
     const actorEmail = normalizeEmail(currentUserProfile?.email);
-    const pool = poolMap[taskType] || [];
     const seen = new Set();
+    const people = [];
     ids.forEach((id) => {
       if (id === actorId) return;
       const person =
         pool.find((item) => String(item.id) === id) ||
-        appUsers.find((item) => String(item.id) === id);
+        pool.find((item) => String(item.assigneeUserId || "") === id) ||
+        pool.find((item) => String(item.userId || "") === id);
       const email = person?.email || person?.authEmail;
       const normalized = normalizeEmail(email);
-      if (!normalized || seen.has(normalized) || normalized === actorEmail)
-        return;
+      if (!normalized || seen.has(normalized) || normalized === actorEmail) return;
       seen.add(normalized);
+      people.push({ id, email, person });
+    });
+    return people;
+  };
+  const notifyTaskPeople = (task, taskType, type, { onlyAccount = false, onlyEditors = false } = {}) => {
+    if (!task?.id || !taskType || !type) return;
+    resolveTaskNotifyPeople(task, taskType).forEach(({ id, email }) => {
+      const isAccount = String(id) === String(task.accountId || "");
+      const isEditor =
+        String(id) === String(task.contextId || "") ||
+        String(id) === String(task.assigneeUserId || "") ||
+        (Array.isArray(task.assignees) && task.assignees.map(String).includes(String(id)));
+      if (onlyAccount && !isAccount) return;
+      if (onlyEditors && !isEditor) return;
       sendNotification({
         to: email,
-        type: "task_updated",
+        type,
         senderName: currentUserProfile?.name || "Alguien",
         taskTitle: task.title || "(sin titulo)",
         taskType,
         taskId: task.id,
       });
     });
+  };
+  const notifyExistingTaskEdited = (task, taskType) => {
+    notifyTaskPeople(task, taskType, "task_updated");
   };
 
   const addTaskComment = async (
@@ -6800,6 +6636,7 @@ function App() {
     call = null,
     sticker = null,
     kind = "client",
+    threadRootId = null,
   }) => {
     const trimmed = (text || "").trim();
     const safeAttachments = Array.isArray(attachments) ? attachments : [];
@@ -6812,11 +6649,13 @@ function App() {
     const senderName =
       currentUserProfile?.name ||
       (authEmail ? authEmail.split("@")[0] : "Usuario");
+    const resolvedKind =
+      kind === "team_group" ? "team_group" : kind === "dm" ? "dm" : "client";
     let createdMessage;
     try {
       createdMessage = await addDoc(dataCollection("client_chats"), {
       clientId,
-      kind: kind === "team_group" ? "team_group" : "client",
+      kind: resolvedKind,
       text: trimmed,
       authorName: senderName,
       authorId: currentUserProfile?.id || "",
@@ -6824,6 +6663,7 @@ function App() {
       mentionedIds,
       attachments: safeAttachments,
       forwarded: Boolean(forwarded),
+      threadRootId: threadRootId ? String(threadRootId) : null,
       replyTo: replyTo
         ? {
             id: replyTo.id || "",
@@ -6851,7 +6691,10 @@ function App() {
     }
     const client = clients.find((item) => item.id === clientId);
     const teamGroup = teamGroups.find((item) => item.id === clientId);
-    const clientName = client?.name || teamGroup?.name || "Chat";
+    const clientName =
+      client?.name ||
+      teamGroup?.name ||
+      (resolvedKind === "dm" ? "Mensaje directo" : "Chat");
     for (const uid of mentionedIds) {
       const person = chatMentionables.find((p) => p.id === uid);
       const email = person?.email;
@@ -6959,7 +6802,40 @@ function App() {
     if (client) return client;
     const group = teamGroups.find((item) => String(item.id) === id);
     if (group) return { ...group, isTeamGroup: true };
+    const dmParts = parseDmClientId(id);
+    if (dmParts) {
+      const otherId = dmParts.find((part) => part !== String(currentUserProfile?.id || "")) || dmParts[0];
+      const person =
+        chatMentionables.find((item) => String(item.id) === String(otherId)) ||
+        appUsers.find((item) => String(item.id) === String(otherId));
+      return {
+        id,
+        name: person?.name || "Mensaje directo",
+        photo: person?.photo || "",
+        memberIds: dmParts,
+        isDm: true,
+        kind: "dm",
+      };
+    }
     return null;
+  };
+
+  const openDirectMessage = (person) => {
+    const me = String(currentUserProfile?.id || "");
+    const other = String(person?.id || "");
+    const dmId = buildDmClientId(me, other);
+    if (!dmId) {
+      showToast("No se pudo abrir el chat directo.", "error");
+      return;
+    }
+    openClientChat({
+      id: dmId,
+      name: person?.name || "Mensaje directo",
+      photo: person?.photo || "",
+      memberIds: parseDmClientId(dmId) || [me, other],
+      isDm: true,
+      kind: "dm",
+    });
   };
 
   // Abre el chat de un cliente y lo marca como leído.
@@ -7481,10 +7357,15 @@ function App() {
     await updateDoc(dataDoc(col, task.id), { checklist, updatedAt: nowIso() });
   };
 
-  const addTaskAttachment = async (task, type, file, onProgress) => {
+  const addTaskAttachment = async (task, type, file, onProgress, options = {}) => {
     const col = TASK_UPLOAD_COLLECTIONS[type];
     if (!col || !file) return;
     const contentType = inferFileType(file);
+    const asEditedVideo = Boolean(options.asEditedVideo);
+    if (asEditedVideo && !String(contentType || "").startsWith("video/")) {
+      alert("El video editado debe ser un archivo de video.");
+      return;
+    }
     const uploadedBy =
       currentUserProfile?.name ||
       (authEmail ? authEmail.split("@")[0] : "Usuario");
@@ -7514,6 +7395,7 @@ function App() {
       storage: signed.storage || (status.r2 ? "r2" : "database"),
       uploadedBy,
       uploadedAt: nowIso(),
+      role: asEditedVideo ? "edited_video" : "attachment",
     };
 
     const currentSnap = await getDoc(dataDoc(col, task.id));
@@ -7526,12 +7408,46 @@ function App() {
     try {
     await updateDoc(dataDoc(col, task.id), {
       attachments: [...currentAttachments, newAttachment],
+      ...(asEditedVideo
+        ? {
+            editedVideo: {
+              id: newAttachment.id,
+              name: newAttachment.name,
+              type: newAttachment.type,
+              size: newAttachment.size,
+              key: newAttachment.key,
+              storage: newAttachment.storage,
+              uploadedBy: newAttachment.uploadedBy,
+              uploadedAt: newAttachment.uploadedAt,
+            },
+          }
+        : {}),
       updatedAt: nowIso(),
     });
+    if (asEditedVideo && type === "editingTask") {
+      notifyTaskPeople(task, "editingTask", "video_ready", { onlyAccount: true });
+    }
     } catch (error) {
       if (newAttachment.key) await deleteStoredAttachment(newAttachment.key, newAttachment.storage);
       throw error;
     }
+  };
+
+  const reviewEditedVideo = async (task, decision) => {
+    if (!task?.id) return;
+    if (decision === "approved") {
+      await changeEditingTaskStatus(task, "aprobado");
+      notifyTaskPeople(task, "editingTask", "video_approved", { onlyEditors: true });
+      showToast("Video aprobado", "success");
+      return;
+    }
+    await addTaskComment(
+      task,
+      "editingTask",
+      "Video editado rechazado. La tarea permanece en el estado actual.",
+    );
+    notifyTaskPeople(task, "editingTask", "video_rejected", { onlyEditors: true });
+    showToast("Video rechazado; el estado no cambió", "info");
   };
 
   const removeTaskAttachment = async (task, type, attachmentId) => {
@@ -8271,15 +8187,6 @@ function App() {
                 label="Mi Perfil"
                 color="purple"
               />
-              {userHasPermission(currentUserProfile, "view_users") && (
-                <SidebarItem
-                  active={workPolicyReviewOpen}
-                  onClick={() => setWorkPolicyReviewOpen(true)}
-                  icon="FileText"
-                  label="Políticas del equipo"
-                  color="indigo"
-                />
-              )}
               {isAdminConfigVisible &&
                 canAccessView(currentUserProfile, "control-center") && (
                   <SidebarItem
@@ -8544,6 +8451,7 @@ function App() {
               onCreateTeamGroup={createTeamGroup}
               onUpdateTeamGroup={updateTeamGroupMembers}
               onAssignTaskFromChat={assignTaskFromChat}
+              onOpenDirectMessage={openDirectMessage}
             />
           )}
           {view === "managers" && (
@@ -9078,17 +8986,6 @@ function App() {
         onRefresh={refreshNotifications}
       />
 
-      <WorkPolicyModal
-        isOpen={workPolicyRequired || workPolicyReviewOpen}
-        required={workPolicyRequired}
-        state={workPolicyState}
-        users={appUsers}
-        saving={workPolicySaving}
-        onDecision={submitWorkPolicyDecision}
-        onRetry={loadWorkPolicyState}
-        onClose={() => setWorkPolicyReviewOpen(false)}
-      />
-
       <div
         aria-live="polite"
         aria-atomic="true"
@@ -9253,6 +9150,7 @@ function App() {
         sendNotification={sendNotification}
         onAddAttachment={addTaskAttachment}
         onRemoveAttachment={removeTaskAttachment}
+        onReviewEditedVideo={reviewEditedVideo}
         onDelete={(task, type) => {
           setTaskDetailConfig({ isOpen: false, task: null, type: null });
           setDeleteConfirm({
@@ -15453,6 +15351,7 @@ const ClientChatView = ({
   onCreateTeamGroup,
   onUpdateTeamGroup,
   onAssignTaskFromChat,
+  onOpenDirectMessage,
 }) => {
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -15486,6 +15385,11 @@ const ClientChatView = ({
   const [groupName, setGroupName] = useState("");
   const [groupMemberIds, setGroupMemberIds] = useState([]);
   const [savingGroup, setSavingGroup] = useState(false);
+  const [dmPickerOpen, setDmPickerOpen] = useState(false);
+  const [dmSearch, setDmSearch] = useState("");
+  const [threadRoot, setThreadRoot] = useState(null);
+  const [threadText, setThreadText] = useState("");
+  const [sendingThread, setSendingThread] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignTitle, setAssignTitle] = useState("");
   const [assignType, setAssignType] = useState("accountTask");
@@ -15632,12 +15536,74 @@ const ClientChatView = ({
       ...group,
       isTeamGroup: true,
     }));
+  const dmConversations = (() => {
+    const byId = new Map();
+    clientChats.forEach((message) => {
+      if (String(message?.kind || "") !== "dm") return;
+      const clientId = String(message.clientId || "");
+      const parts = parseDmClientId(clientId);
+      if (!parts) return;
+      if (
+        membershipIdentity &&
+        !parts.map(String).includes(String(membershipIdentity)) &&
+        !parts.map(String).includes(String(currentUserId))
+      ) {
+        return;
+      }
+      const otherId =
+        parts.find(
+          (part) =>
+            String(part) !== String(membershipIdentity) &&
+            String(part) !== String(currentUserId),
+        ) || parts[0];
+      const person = mentionables.find((item) => String(item.id) === String(otherId));
+      const name = person?.name || "Mensaje directo";
+      if (term && !name.toLowerCase().includes(term)) return;
+      const previous = byId.get(clientId);
+      if (!previous || (message.createdAt || "") > (previous.lastAt || "")) {
+        byId.set(clientId, {
+          id: clientId,
+          name,
+          photo: person?.photo || "",
+          memberIds: parts,
+          isDm: true,
+          kind: "dm",
+          lastAt: message.createdAt || "",
+        });
+      }
+    });
+    if (activeClient?.isDm && !byId.has(String(activeClient.id))) {
+      byId.set(String(activeClient.id), {
+        ...activeClient,
+        isDm: true,
+        kind: "dm",
+        lastAt: "",
+      });
+    }
+    return [...byId.values()].sort((a, b) =>
+      (a.lastAt || "") > (b.lastAt || "") ? -1 : 1,
+    );
+  })();
+  const dmPeopleCandidates = mentionables
+    .filter((person) => {
+      const id = String(person.id || "");
+      if (!id || id === String(currentUserId) || id === membershipIdentity) return false;
+      if (!dmSearch.trim()) return true;
+      const q = dmSearch.trim().toLowerCase();
+      return (
+        (person.name || "").toLowerCase().includes(q) ||
+        (person.email || "").toLowerCase().includes(q)
+      );
+    })
+    .slice(0, 40);
   const activeClients = groupsLoaded
     ? matchingClients.filter((client) => belongsToChatGroup(client.id))
     : matchingClients;
   const activeClientCount = groupsLoaded
-    ? clients.filter((client) => belongsToChatGroup(client.id)).length
-    : clients.length;
+    ? clients.filter((client) => belongsToChatGroup(client.id)).length +
+      visibleTeamGroups.length +
+      dmConversations.length
+    : clients.length + visibleTeamGroups.length + dmConversations.length;
   const archivedClients = groupsLoaded
     ? matchingClients.filter((client) => !belongsToChatGroup(client.id))
     : [];
@@ -15645,8 +15611,14 @@ const ClientChatView = ({
     ? clients.filter((client) => !belongsToChatGroup(client.id)).length
     : 0;
   const sortedClients = showArchived ? archivedClients : activeClients;
+  const conversationKind = (conversation = activeClient) =>
+    conversation?.isDm || conversation?.kind === "dm"
+      ? "dm"
+      : conversation?.isTeamGroup
+        ? "team_group"
+        : "client";
 
-  const messages = activeClient
+  const allConversationMessages = activeClient
     ? clientChats
         .filter(
           (message) =>
@@ -15654,6 +15626,20 @@ const ClientChatView = ({
             !(hiddenIds && hiddenIds.has(String(message.id))),
         )
         .sort((a, b) => ((a.createdAt || "") > (b.createdAt || "") ? 1 : -1))
+    : [];
+  const messages = allConversationMessages.filter((message) => !message.threadRootId);
+  const threadReplyCounts = allConversationMessages.reduce((acc, message) => {
+    const rootId = String(message.threadRootId || "");
+    if (!rootId) return acc;
+    acc[rootId] = (acc[rootId] || 0) + 1;
+    return acc;
+  }, {});
+  const threadMessages = threadRoot
+    ? allConversationMessages.filter(
+        (message) =>
+          String(message.id) === String(threadRoot.id) ||
+          String(message.threadRootId) === String(threadRoot.id),
+      )
     : [];
 
   // Reacciones agrupadas por mensaje: { messageId: { emoji: {count, mine, names} } }
@@ -15700,11 +15686,17 @@ const ClientChatView = ({
       ]
     : [];
 
-  const activeGroup = activeClient?.isTeamGroup
+  const isDmConversation = Boolean(
+    activeClient?.isDm || activeClient?.kind === "dm",
+  );
+  const activeGroup = activeClient?.isTeamGroup || isDmConversation
     ? {
         clientId: String(activeClient.id),
-        memberIds: activeClient.memberIds || [],
-        source: "managed",
+        memberIds:
+          activeClient.memberIds ||
+          parseDmClientId(activeClient.id) ||
+          [],
+        source: isDmConversation ? "dm" : "managed",
       }
     : activeClient
     ? groupsByClient[String(activeClient.id)] || {
@@ -15716,9 +15708,10 @@ const ClientChatView = ({
   const activeGroupMemberIds = (activeGroup?.memberIds || []).map(String);
   const activeGroupMemberSet = new Set(activeGroupMemberIds);
   const isActiveGroupMember = activeGroupMemberSet.has(membershipIdentity)
-    || activeGroupMemberSet.has(String(currentUserProfile?.id || ""));
+    || activeGroupMemberSet.has(String(currentUserProfile?.id || ""))
+    || activeGroupMemberSet.has(String(currentUserId || ""));
   const canInteractWithActiveGroup =
-    !groupsLoaded || isActiveGroupMember;
+    isDmConversation || !groupsLoaded || isActiveGroupMember;
   const canEditMembers = canManageMembers
     || (canAddMembers && groupsLoaded && isActiveGroupMember);
   const activeGroupMembers = mentionables.filter((person) =>
@@ -16072,7 +16065,7 @@ const ClientChatView = ({
       recordSecondsRef.current = 0;
       recordContextRef.current = {
         clientId: activeClient?.id || "",
-        kind: activeClient?.isTeamGroup ? "team_group" : "client",
+        kind: conversationKind(activeClient),
         replyTo: replyingTo
           ? {
               id: replyingTo.id,
@@ -16196,7 +16189,7 @@ const ClientChatView = ({
     try {
       await onSendMessage({
         clientId: activeClient.id,
-        kind: activeClient.isTeamGroup ? "team_group" : "client",
+        kind: conversationKind(activeClient),
         text: trimmed,
         mentionedIds,
         taskRef,
@@ -16233,7 +16226,7 @@ const ClientChatView = ({
     try {
       await onSendMessage({
         clientId: activeClient.id,
-        kind: activeClient.isTeamGroup ? "team_group" : "client",
+        kind: conversationKind(activeClient),
         sticker: stickerId,
         replyTo: replyingTo
           ? {
@@ -16402,20 +16395,35 @@ const ClientChatView = ({
                 {chatUnread.total}
               </span>
             )}
-            {!showArchived && onCreateTeamGroup && (
-              <button
-                type="button"
-                onClick={() => {
-                  setGroupName("");
-                  setGroupMemberIds(currentUserProfile?.id ? [currentUserProfile.id] : []);
-                  setCreateGroupOpen(true);
-                }}
-                className="chat-header-button ml-auto shrink-0"
-                title="Nuevo grupo"
-              >
-                <Icon name="Users" size={16} />
-              </button>
-            )}
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              {onOpenDirectMessage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDmSearch("");
+                    setDmPickerOpen(true);
+                  }}
+                  className="chat-header-button"
+                  title="Nuevo mensaje directo"
+                >
+                  <Icon name="MessageSquare" size={16} />
+                </button>
+              )}
+              {!showArchived && onCreateTeamGroup && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGroupName("");
+                    setGroupMemberIds(currentUserProfile?.id ? [currentUserProfile.id] : []);
+                    setCreateGroupOpen(true);
+                  }}
+                  className="chat-header-button"
+                  title="Nuevo grupo"
+                >
+                  <Icon name="Users" size={16} />
+                </button>
+              )}
+            </div>
           </div>
           <div className="chat-search relative mt-5">
             <Icon
@@ -16482,6 +16490,47 @@ const ClientChatView = ({
               </span>
             </div>
           )}
+          {!showArchived && dmConversations.length > 0 && (
+            <div className="px-4 pb-1 pt-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+              Mensajes directos
+            </div>
+          )}
+          {!showArchived &&
+            dmConversations.map((dm) => {
+              const unread = chatUnread.byClient?.[dm.id] || 0;
+              const last = lastMsgByClient[dm.id];
+              const isActive = activeClient?.id === dm.id;
+              return (
+                <button
+                  key={dm.id}
+                  type="button"
+                  onClick={() => {
+                    setThreadRoot(null);
+                    onSelectClient(dm);
+                  }}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`chat-list-item flex w-full items-center gap-3 text-left ${isActive ? "is-active" : ""}`}
+                >
+                  <span className="chat-list-avatar-wrap relative shrink-0">
+                    <span
+                      className="chat-list-avatar flex items-center justify-center text-xs font-black text-white"
+                      style={{ backgroundColor: chatAvatarColor(dm.name || dm.id) }}
+                    >
+                      {(dm.name || "DM").slice(0, 2).toUpperCase()}
+                    </span>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <strong className="block truncate">{dm.name}</strong>
+                    <small className="block truncate text-slate-500">
+                      {previewText(last)}
+                    </small>
+                  </span>
+                  {unread > 0 && (
+                    <span className="chat-item-unread">{unread}</span>
+                  )}
+                </button>
+              );
+            })}
           {!showArchived && visibleTeamGroups.length > 0 && (
             <div className="px-4 pb-1 pt-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
               Grupos de equipo
@@ -16607,7 +16656,7 @@ const ClientChatView = ({
 
       {/* Hilo del cliente */}
       <section
-        className={`chat-conversation-pane ${activeClient ? "is-active" : ""} flex min-h-0 min-w-0 flex-1 flex-col`}
+        className={`chat-conversation-pane ${activeClient ? "is-active" : ""} relative flex min-h-0 min-w-0 flex-1 flex-col`}
       >
         {!activeClient ? (
           <div className="chat-welcome flex flex-1 flex-col items-center justify-center p-8 text-center">
@@ -16658,11 +16707,15 @@ const ClientChatView = ({
                 </p>
                 <p className="chat-header-status">
                   <span
-                    className={`chat-group-state-dot ${isActiveGroupMember ? "is-active" : "is-archived"}`}
+                    className={`chat-group-state-dot ${isActiveGroupMember || isDmConversation ? "is-active" : "is-archived"}`}
                   />
-                  {isActiveGroupMember ? "Grupo activo" : "Archivado"}
+                  {isDmConversation
+                    ? "Mensaje directo"
+                    : isActiveGroupMember
+                      ? "Grupo activo"
+                      : "Archivado"}
                   {` · ${messages.length} mensaje${messages.length === 1 ? "" : "s"}`}
-                  {groupsLoaded
+                  {!isDmConversation && groupsLoaded
                     ? ` · ${activeGroupMembers.length} integrante${activeGroupMembers.length === 1 ? "" : "s"}`
                     : ""}
                   {activeClientMuted
@@ -16670,29 +16723,31 @@ const ClientChatView = ({
                     : ""}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={openMembers}
-                aria-label="Ver integrantes del grupo"
-                title="Integrantes del grupo"
-                className="chat-members-button shrink-0"
-              >
-                <span className="chat-member-stack" aria-hidden="true">
-                  {activeGroupMembers.slice(0, 3).map((person) => (
-                    <span
-                      key={person.id}
-                      style={{
-                        backgroundColor: chatAvatarColor(person.id || person.name),
-                      }}
-                    >
-                      {(person.name || "U").slice(0, 1).toUpperCase()}
-                    </span>
-                  ))}
-                </span>
-                <span className="chat-members-count">
-                  {activeGroupMembers.length || 0}
-                </span>
-              </button>
+              {!isDmConversation && (
+                <button
+                  type="button"
+                  onClick={openMembers}
+                  aria-label="Ver integrantes del grupo"
+                  title="Integrantes del grupo"
+                  className="chat-members-button shrink-0"
+                >
+                  <span className="chat-member-stack" aria-hidden="true">
+                    {activeGroupMembers.slice(0, 3).map((person) => (
+                      <span
+                        key={person.id}
+                        style={{
+                          backgroundColor: chatAvatarColor(person.id || person.name),
+                        }}
+                      >
+                        {(person.name || "U").slice(0, 1).toUpperCase()}
+                      </span>
+                    ))}
+                  </span>
+                  <span className="chat-members-count">
+                    {activeGroupMembers.length || 0}
+                  </span>
+                </button>
+              )}
               {onAssignTaskFromChat && (
                 <button
                   type="button"
@@ -16951,6 +17006,17 @@ const ClientChatView = ({
                                 },
                               },
                               {
+                                key: "thread",
+                                label: "Responder en hilo",
+                                icon: "MessageSquare",
+                                show: !message.deleted,
+                                on: () => {
+                                  setMenuFor(null);
+                                  setThreadRoot(message);
+                                  setThreadText("");
+                                },
+                              },
+                              {
                                 key: "react",
                                 label: "Reaccionar",
                                 icon: "Smile",
@@ -17198,6 +17264,21 @@ const ClientChatView = ({
                             )}
                           </div>
                         )}
+                      {(threadReplyCounts[message.id] > 0 ||
+                        String(threadRoot?.id || "") === String(message.id)) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setThreadRoot(message);
+                            setThreadText("");
+                          }}
+                          className={`mt-1 inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:underline dark:text-indigo-300 ${mine ? "ml-auto" : ""}`}
+                        >
+                          <Icon name="MessageSquare" size={12} />
+                          {threadReplyCounts[message.id] || 0} respuesta
+                          {(threadReplyCounts[message.id] || 0) === 1 ? "" : "s"}
+                        </button>
+                      )}
                     </div>
                   </div>
                   </React.Fragment>
@@ -17213,6 +17294,93 @@ const ClientChatView = ({
                 />
               )}
             </div>
+
+            {threadRoot && (
+              <div className="absolute inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-[var(--chat-border)] bg-[var(--chat-panel)] shadow-2xl">
+                <div className="flex items-center gap-2 border-b border-[var(--chat-border)] px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+                      Hilo
+                    </p>
+                    <p className="truncate text-sm font-bold text-slate-800 dark:text-slate-100">
+                      {threadRoot.authorName || "Mensaje"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setThreadRoot(null)}
+                    className="chat-header-button"
+                    aria-label="Cerrar hilo"
+                  >
+                    <Icon name="X" size={16} />
+                  </button>
+                </div>
+                <div className="custom-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+                  {threadMessages.map((message) => (
+                    <div key={message.id} className="rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-900/70">
+                      <p className="text-[11px] font-bold text-slate-500">
+                        {message.authorName || "Usuario"}
+                        <span className="ml-2 font-medium text-slate-400">
+                          {chatShortTime(message.createdAt)}
+                        </span>
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">
+                        {message.deleted
+                          ? "Mensaje eliminado"
+                          : message.text ||
+                            (message.sticker
+                              ? "Sticker"
+                              : previewText(message))}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                {canInteractWithActiveGroup && (
+                  <form
+                    className="border-t border-[var(--chat-border)] p-3"
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      const trimmed = threadText.trim();
+                      if (!trimmed || sendingThread || !activeClient?.id) return;
+                      setSendingThread(true);
+                      try {
+                        await onSendMessage({
+                          clientId: activeClient.id,
+                          kind: conversationKind(activeClient),
+                          text: trimmed,
+                          threadRootId: threadRoot.id,
+                          replyTo: {
+                            id: threadRoot.id,
+                            authorName: threadRoot.authorName,
+                            text: threadRoot.text,
+                            sticker: threadRoot.sticker || null,
+                          },
+                        });
+                        setThreadText("");
+                      } finally {
+                        setSendingThread(false);
+                      }
+                    }}
+                  >
+                    <textarea
+                      value={threadText}
+                      onChange={(event) => setThreadText(event.target.value)}
+                      rows={2}
+                      placeholder="Responder en el hilo…"
+                      className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900"
+                    />
+                    <button
+                      type="submit"
+                      disabled={sendingThread || !threadText.trim()}
+                      className="mt-2 inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      <Icon name="Send" size={13} />
+                      Enviar al hilo
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
 
             {/* Composer de mensajería */}
             {canInteractWithActiveGroup ? (
@@ -18188,7 +18356,7 @@ const ClientChatView = ({
                   if (onSendMessage) {
                     created = await onSendMessage({
                       clientId: activeClient.id,
-                      kind: activeClient.isTeamGroup ? "team_group" : "client",
+                      kind: conversationKind(activeClient),
                       text:
                         callPicker.mode === "add"
                           ? "Invitó a la llamada"
@@ -18274,6 +18442,77 @@ const ClientChatView = ({
             )}
           </div>
         </div>,
+          document.body,
+        )}
+      {dmPickerOpen &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 p-4"
+            onClick={() => setDmPickerOpen(false)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h3 className="text-lg font-black text-slate-800 dark:text-white">
+                Nuevo mensaje directo
+              </h3>
+              <input
+                value={dmSearch}
+                onChange={(event) => setDmSearch(event.target.value)}
+                placeholder="Buscar persona"
+                className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+              <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                {dmPeopleCandidates.length === 0 ? (
+                  <p className="px-3 py-4 text-sm text-slate-500">
+                    No hay personas para chatear.
+                  </p>
+                ) : (
+                  dmPeopleCandidates.map((person) => (
+                    <button
+                      key={person.id}
+                      type="button"
+                      onClick={() => {
+                        setThreadRoot(null);
+                        onOpenDirectMessage?.(person);
+                        setDmPickerOpen(false);
+                      }}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                    >
+                      <span
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-black text-white"
+                        style={{
+                          backgroundColor: chatAvatarColor(person.id || person.name),
+                        }}
+                      >
+                        {(person.name || "U").slice(0, 2).toUpperCase()}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <strong className="block truncate text-slate-800 dark:text-slate-100">
+                          {person.name}
+                        </strong>
+                        {person.email && (
+                          <small className="block truncate text-slate-500">
+                            {person.email}
+                          </small>
+                        )}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setDmPickerOpen(false)}
+                  className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>,
           document.body,
         )}
       {createGroupOpen &&
@@ -19251,6 +19490,7 @@ const TaskDetailModal = ({
   sendNotification,
   onAddAttachment,
   onRemoveAttachment,
+  onReviewEditedVideo,
   onDelete,
   currentUserProfile,
   accountTasks = [],
@@ -19293,6 +19533,9 @@ const TaskDetailModal = ({
   const [devStatusLabel, setDevStatusLabel] = useState("");
   const [devStatusNote, setDevStatusNote] = useState("");
   const [savingDevStatus, setSavingDevStatus] = useState(false);
+  const [uploadingEditedVideo, setUploadingEditedVideo] = useState(false);
+  const [reviewingVideo, setReviewingVideo] = useState(false);
+  const editedVideoInputRef = useRef(null);
 
   // Cerrar dropdowns al click fuera
   useEffect(() => {
@@ -19470,6 +19713,10 @@ const TaskDetailModal = ({
       : type === "managementTask"
         ? users.find((u) => u.id === task.contextId)
         : editors.find((e) => e.id === task.contextId);
+  const accountAssignee =
+    type === "editingTask"
+      ? managers.find((manager) => String(manager.id) === String(task.accountId || ""))
+      : null;
   // Multi-assignees: use task.assignees if present, else fall back to contextId
   const currentAssigneeIds = Array.isArray(task.assignees)
     ? task.assignees
@@ -19499,6 +19746,19 @@ const TaskDetailModal = ({
   const currentStatus =
     statuses.find((s) => s.id === task.status) || statuses[0];
   const canAct = canEdit(type);
+  const canReviewEditedVideo =
+    type === "editingTask" &&
+    Boolean(task.editedVideo?.id) &&
+    task.status !== "aprobado" &&
+    task.status !== "publicado" &&
+    isProfileLinkedToAssignee(currentUserProfile, accountAssignee);
+  const canUploadEditedVideo =
+    type === "editingTask" &&
+    (canAct ||
+      isTaskAssignedToProfile(task, currentUserProfile, [
+        currentUserProfile?.linkedEditorId,
+        currentUserProfile?.id,
+      ]));
   const canAssign =
     canAct && userHasPermission(currentUserProfile, "assign_tasks");
   const isDevTask = type === "managementTask" && isDevelopmentTask(task);
@@ -19898,10 +20158,22 @@ const TaskDetailModal = ({
                 </span>
                 {assignee && (
                   <span className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                    <span className="text-xs text-slate-400">
+                      {type === "editingTask" ? "Editor" : "Asignado"}
+                    </span>
                     <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--text-muted)] text-[9px] font-bold text-white">
                       {assignee.name?.slice(0, 2).toUpperCase()}
                     </span>
                     <strong className="font-semibold">{assignee.name}</strong>
+                  </span>
+                )}
+                {accountAssignee && (
+                  <span className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                    <span className="text-xs text-slate-400">Account</span>
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500 text-[9px] font-bold text-white">
+                      {accountAssignee.name?.slice(0, 2).toUpperCase()}
+                    </span>
+                    <strong className="font-semibold">{accountAssignee.name}</strong>
                   </span>
                 )}
                 {task.createdAt && (
@@ -20965,6 +21237,115 @@ const TaskDetailModal = ({
                   </span>
                 </div>
               )}
+
+              {type === "editingTask" && (
+                <div className="rounded-xl border border-[var(--border)] bg-white p-4 dark:border-white/10 dark:bg-[var(--surface-raised)]">
+                  <p className="mb-2 text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                    Video editado
+                  </p>
+                  {task.editedVideo?.id ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/70">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                          <Icon name="Video" size={16} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                            {task.editedVideo.name || "Video editado"}
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            {task.editedVideo.uploadedBy
+                              ? `Subido por ${task.editedVideo.uploadedBy}`
+                              : "Listo para revisión"}
+                          </p>
+                        </div>
+                      </div>
+                      {canReviewEditedVideo && (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={reviewingVideo}
+                            onClick={async () => {
+                              setReviewingVideo(true);
+                              try {
+                                await onReviewEditedVideo?.(task, "approved");
+                              } finally {
+                                setReviewingVideo(false);
+                              }
+                            }}
+                            className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+                          >
+                            <Icon name="Check" size={13} />
+                            Aprobar video
+                          </button>
+                          <button
+                            type="button"
+                            disabled={reviewingVideo}
+                            onClick={async () => {
+                              setReviewingVideo(true);
+                              try {
+                                await onReviewEditedVideo?.(task, "rejected");
+                              } finally {
+                                setReviewingVideo(false);
+                              }
+                            }}
+                            className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                          >
+                            <Icon name="X" size={13} />
+                            Rechazar
+                          </button>
+                        </div>
+                      )}
+                      {task.status === "aprobado" && (
+                        <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                          Video aprobado.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-sm text-slate-500 dark:text-slate-400">
+                        El editor sube aquí el video final para que el account lo revise.
+                      </p>
+                      {canUploadEditedVideo && (
+                        <>
+                          <input
+                            ref={editedVideoInputRef}
+                            type="file"
+                            accept="video/*"
+                            className="hidden"
+                            onChange={async (event) => {
+                              const file = event.target.files?.[0];
+                              event.target.value = "";
+                              if (!file || !onAddAttachment) return;
+                              setUploadingEditedVideo(true);
+                              try {
+                                await onAddAttachment(task, type, file, setUploadProgress, {
+                                  asEditedVideo: true,
+                                });
+                              } catch (error) {
+                                alert(error?.message || "No se pudo subir el video editado.");
+                              } finally {
+                                setUploadingEditedVideo(false);
+                                setUploadProgress(0);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            disabled={uploadingEditedVideo}
+                            onClick={() => editedVideoInputRef.current?.click()}
+                            className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-dashed border-amber-300 bg-amber-50 px-4 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+                          >
+                            <Icon name={uploadingEditedVideo ? "Loader2" : "Video"} size={13} className={uploadingEditedVideo ? "animate-spin" : ""} />
+                            {uploadingEditedVideo ? "Subiendo…" : "Subir video editado"}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {type === "managementTask" && task.category && (
                 <div className="rounded-xl border border-[var(--border)] bg-white p-4 dark:border-white/10 dark:bg-[var(--surface-raised)]">
                   <p className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400 mb-2">
@@ -21296,6 +21677,8 @@ const CreateTaskModal = ({
   const [showDesc, setShowDesc] = useState(false);
   const [assigneeId, setAssigneeId] = useState("");
   const [assigneeIds, setAssigneeIds] = useState([]);
+  const [accountId, setAccountId] = useState("");
+  const [accountOpen, setAccountOpen] = useState(false);
   const [clientId, setClientId] = useState("");
   const [date, setDate] = useState("");
   const [priority, setPriority] = useState("");
@@ -21348,6 +21731,7 @@ const CreateTaskModal = ({
               ? [data.contextId]
               : [],
         );
+        setAccountId(data.accountId || "");
         setClientId(data.clientId || "");
         {
           const localDue = storedDueToViewer({
@@ -21374,6 +21758,7 @@ const CreateTaskModal = ({
         setShowDesc(false);
         setAssigneeId(data?.contextId || "");
         setAssigneeIds(data?.contextId ? [data.contextId] : []);
+        setAccountId(data?.accountId || "");
         setClientId(data?.clientId || "");
         {
           const seedDate = data?.date || "";
@@ -21451,7 +21836,7 @@ const CreateTaskModal = ({
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
-  }, [assigneeOpen, clientOpen, priorityOpen, recurrenceOpen]);
+  }, [assigneeOpen, accountOpen, clientOpen, priorityOpen, recurrenceOpen]);
 
   if (!isTaskDialogOpen) return null;
 
@@ -21463,8 +21848,10 @@ const CreateTaskModal = ({
           ? editors
           : managementUsers
     ).filter((person) => person.isActive !== false);
+  const accountPool = managers.filter((person) => person.isActive !== false);
   const assignee = peoplePool.find((p) => p.id === (assigneeIds[0] || assigneeId));
   const selectedAssignees = peoplePool.filter((p) => assigneeIds.includes(p.id));
+  const selectedAccount = accountPool.find((person) => person.id === accountId);
   const canAssign =
     !config.isEdit || userHasPermission(currentUserProfile, "assign_tasks");
   const canEditDue =
@@ -21646,6 +22033,7 @@ const CreateTaskModal = ({
             status,
             notes,
             clientId,
+            accountId: accountId || "",
             time: dueTime,
             ...duePatch,
             ...assignmentPatch,
@@ -21700,6 +22088,7 @@ const CreateTaskModal = ({
             notes,
             contextId: assigneeIds[0] || assigneeId || "",
             assignees: assigneeIds,
+            accountId: accountId || "",
             clientId,
             recurrence: {
               frequency: recurrenceFrequency,
@@ -21982,7 +22371,7 @@ const CreateTaskModal = ({
 
         {/* Chips */}
         <div className="px-6 py-4 flex flex-wrap gap-2.5">
-          {/* Persona asignada */}
+          {/* Persona asignada / Editor */}
           <div className="relative" data-ctdrop>
             <Chip
               icon={selectedAssignees.length ? null : "UserCircle2"}
@@ -21995,12 +22384,14 @@ const CreateTaskModal = ({
                   <div className="w-4 h-4 rounded-full bg-[var(--text-muted)] flex items-center justify-center text-white font-black text-[8px]">
                     {selectedAssignees[0].name.slice(0, 2).toUpperCase()}
                   </div>
-                  {selectedAssignees[0].name}
+                  {type === "editingTask" ? `Editor · ${selectedAssignees[0].name}` : selectedAssignees[0].name}
                 </>
               ) : selectedAssignees.length > 1 ? (
-                `${selectedAssignees.length} asignados`
+                type === "editingTask"
+                  ? `${selectedAssignees.length} editores`
+                  : `${selectedAssignees.length} asignados`
               ) : (
-                "Asignar personas"
+                type === "editingTask" ? "Asignar editor" : "Asignar personas"
               )}
             </Chip>
             {assigneeOpen && canAssign && (
@@ -22009,7 +22400,7 @@ const CreateTaskModal = ({
                 data-ctdrop
               >
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-4 pt-2 pb-1 sticky top-0 bg-white dark:bg-slate-800">
-                  Asignar a varios
+                  {type === "editingTask" ? "Editores" : "Asignar a varios"}
                 </p>
                 {peoplePool.map((p) => {
                   const checked = assigneeIds.includes(p.id);
@@ -22046,6 +22437,75 @@ const CreateTaskModal = ({
               </div>
             )}
           </div>
+
+          {type === "editingTask" && (
+            <div className="relative" data-ctdrop>
+              <Chip
+                icon={selectedAccount ? null : "Briefcase"}
+                active={Boolean(selectedAccount)}
+                disabled={!canAssign}
+                onClick={() => setAccountOpen((open) => !open)}
+              >
+                {selectedAccount ? (
+                  <>
+                    <div className="w-4 h-4 rounded-full bg-indigo-500 flex items-center justify-center text-white font-black text-[8px]">
+                      {selectedAccount.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    {`Account · ${selectedAccount.name}`}
+                  </>
+                ) : (
+                  "Asignar account"
+                )}
+              </Chip>
+              {accountOpen && canAssign && (
+                <div
+                  className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 py-1 w-56 max-h-60 overflow-y-auto"
+                  data-ctdrop
+                >
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-4 pt-2 pb-1 sticky top-0 bg-white dark:bg-slate-800">
+                    Account revisor
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountId("");
+                      setAccountOpen(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  >
+                    Sin account
+                  </button>
+                  {accountPool.map((person) => (
+                    <button
+                      key={person.id}
+                      type="button"
+                      onClick={() => {
+                        setAccountId(person.id);
+                        setAccountOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white font-black text-[9px] shrink-0">
+                        {person.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <span
+                        className={`text-sm font-semibold flex-1 ${
+                          accountId === person.id
+                            ? "text-purple-600 dark:text-purple-400"
+                            : "text-slate-700 dark:text-slate-200"
+                        }`}
+                      >
+                        {person.name}
+                      </span>
+                      {accountId === person.id && (
+                        <Icon name="Check" size={12} className="text-purple-500" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Fecha límite */}
           <div className="relative">

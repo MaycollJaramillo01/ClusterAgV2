@@ -805,52 +805,6 @@ test('notifications require a session and a known active recipient', async () =>
     })).status, 200);
 });
 
-test('work policy decisions are private to the user and reviewable only by supervisors', async () => {
-    const anonymous = await request('/api/policies/attendance');
-    assert.equal(anonymous.status, 401);
-
-    const rejected = await request('/api/policies/attendance/decision', {
-        token: viewerToken,
-        method: 'POST',
-        body: { decision: 'rejected', userId: 'super-admin' }
-    });
-    assert.equal(rejected.status, 200);
-    assert.equal(rejected.payload.decision, 'rejected');
-    assert.equal(rejected.payload.required, true);
-
-    const viewerState = await request('/api/policies/attendance', { token: viewerToken });
-    assert.equal(viewerState.status, 200);
-    assert.equal(viewerState.payload.decision, 'rejected');
-    assert.equal(viewerState.payload.required, true);
-    assert.deepEqual(viewerState.payload.responses, []);
-
-    const forbiddenResponses = await request('/api/policies/attendance', { token: managerToken });
-    assert.equal(forbiddenResponses.payload.canReview, false);
-    assert.deepEqual(forbiddenResponses.payload.responses, []);
-
-    const accepted = await request('/api/policies/attendance/decision', {
-        token: operationsToken,
-        method: 'POST',
-        body: { decision: 'accepted' }
-    });
-    assert.equal(accepted.status, 200);
-    assert.equal(accepted.payload.required, false);
-
-    const supervisorState = await request('/api/policies/attendance', { token: operationsToken });
-    assert.equal(supervisorState.payload.canReview, true);
-    assert.deepEqual(
-        supervisorState.payload.responses.map((response) => [response.userId, response.decision]),
-        [['operations', 'accepted'], ['viewer', 'rejected']]
-    );
-
-    const invalid = await request('/api/policies/attendance/decision', {
-        token: viewerToken,
-        method: 'POST',
-        body: { decision: 'maybe' }
-    });
-    assert.equal(invalid.status, 400);
-});
-
 test('editor performance report is protected and database portable', async () => {
     assert.equal((await request('/api/reports/rendimiento-editores')).status, 401);
     assert.equal((await request('/api/reports/rendimiento-diario.pdf')).status, 401);

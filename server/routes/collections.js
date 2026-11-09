@@ -17,7 +17,12 @@ import { DEFAULT_TASK_DUE_TIME, prepareManagementTaskPayload } from '../lib/mana
 import { requireAuthenticatedUser } from '../lib/sessions.js';
 import { normalizeEmail } from '../lib/text.js';
 import { sendClientChatPush } from '../lib/push-notifications.js';
-import { buildChatGroups, canManageChatGroups } from '../lib/chat-groups.js';
+import {
+    buildChatGroups,
+    canManageChatGroups,
+    isDmParticipant,
+    parseDmClientId
+} from '../lib/chat-groups.js';
 import { nowIso } from '../lib/time.js';
 import { writeAuditLog } from '../lib/audit.js';
 import { recordTaskActivity } from '../lib/task-activity.js';
@@ -231,6 +236,11 @@ const validateReferences = async ({ collectionName, existing = null, payload, tr
     }
     if (collectionName === 'client_chats' && (record.kind === 'team_group' || existing?.kind === 'team_group')) {
         await requireReference('clientId', ['team_groups']);
+    }
+    if (collectionName === 'client_chats' && (record.kind === 'dm' || existing?.kind === 'dm')) {
+        if (!parseDmClientId(record.clientId || existing?.clientId)) {
+            throw createHttpError(400, 'El chat directo no es valido.', 'chat/invalid-dm');
+        }
     }
     if (collectionName === 'team_groups') {
         for (const memberId of (Array.isArray(record.memberIds) ? record.memberIds : [])) {
@@ -494,6 +504,13 @@ const ensureChatMentionsAllowed = async ({ userRecord, clientId, mentionedIds, i
     const { context } = await loadChatGroupAccess(userRecord, null, true, true);
     const group = context?.groups?.find((item) => String(item.clientId) === String(clientId));
     const allowedIds = new Set((group?.memberIds || []).map(String));
+    const dmParts = parseDmClientId(clientId);
+    if (dmParts) {
+        dmParts.forEach((id) => {
+            allowedIds.add(String(context?.resolvePersonId?.({ id }) || id));
+            allowedIds.add(String(id));
+        });
+    }
     if (isCall) {
         context?.people
             ?.filter((person) => person.canReceiveCallsOutsideGroups === true)
@@ -510,8 +527,17 @@ const ensureChatMentionsAllowed = async ({ userRecord, clientId, mentionedIds, i
 };
 
 const ensureChatClientAccess = async (userRecord, clientId, { allowOversight = false } = {}) => {
-    const access = await loadChatGroupAccess(userRecord, null, allowOversight);
+    const access = await loadChatGroupAccess(userRecord, null, allowOversight, true);
     if (access.canAccessAll || access.clientIds.has(String(clientId || ''))) return;
+    const actorCandidates = [
+        access.context?.resolvePersonId?.({
+            id: userRecord?.id,
+            email: userRecord?.email,
+            name: userRecord?.name
+        }),
+        userRecord?.id
+    ];
+    if (isDmParticipant(clientId, actorCandidates)) return;
     throw createHttpError(403, 'No perteneces a este grupo.', 'chat-groups/membership-required');
 };
 
@@ -655,9 +681,18 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         if (call && !/^[A-Za-z0-9_-]{3,120}$/.test(String(call.roomId || ''))) {
             throw createHttpError(400, 'La sala de llamada no es valida.', 'chat/invalid-call-room');
         }
-        const kind = String(safePayload.kind || existing?.kind || 'client') === 'team_group'
+        const rawKind = String(safePayload.kind || existing?.kind || 'client');
+        const kind = rawKind === 'team_group'
             ? 'team_group'
-            : 'client';
+            : rawKind === 'dm'
+                ? 'dm'
+                : 'client';
+        if (kind === 'dm' && !parseDmClientId(safePayload.clientId || existing?.clientId)) {
+            throw createHttpError(400, 'El chat directo no es valido.', 'chat/invalid-dm');
+        }
+        const threadRootId = String(
+            safePayload.threadRootId ?? existing?.threadRootId ?? ''
+        ).trim().slice(0, 120);
         return {
             ...safePayload,
             kind,
@@ -666,6 +701,8 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
             mentionedIds: normalizeMentionIds(safePayload.mentionedIds ?? existing?.mentionedIds),
             call,
             sticker,
+            threadRootId: threadRootId || null,
+            replyTo: safePayload.replyTo ?? existing?.replyTo ?? null,
             authorId: String(existing?.authorId || actor?.id || ''),
             authorEmail: normalizeEmail(existing?.authorEmail || actor?.email),
             authorName: existing?.authorName || actor?.name || '',
@@ -1121,9 +1158,10 @@ router.post('/:collectionName', asyncHandler(async (req, res) => {
             collectionName: 'team_groups',
             recordId: record.clientId
         });
+        const dmLabel = record.kind === 'dm' ? 'Mensaje directo' : '';
         await sendClientChatPush({
             message: record,
-            clientName: conversation?.name || 'Chat'
+            clientName: conversation?.name || dmLabel || 'Chat'
         }).catch((error) => console.warn('[push]', error?.message || error));
     }
     res.status(201).json({ record });
