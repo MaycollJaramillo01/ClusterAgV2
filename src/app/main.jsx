@@ -6838,6 +6838,35 @@ function App() {
     });
   };
 
+  const shareTaskToChat = async ({
+    conversation,
+    task,
+    taskType,
+    note = "",
+  }) => {
+    if (!conversation?.id || !task?.id || !taskType) return null;
+    const kind = conversation.isDm || conversation.kind === "dm"
+      ? "dm"
+      : conversation.isTeamGroup
+        ? "team_group"
+        : "client";
+    const title = String(task.title || "Tarea").trim() || "Tarea";
+    const created = await addClientChatMessage({
+      clientId: conversation.id,
+      kind,
+      text: String(note || "").trim() || `Compartió la tarea "${title}"`,
+      taskRef: {
+        taskId: task.id,
+        taskType,
+        taskTitle: title,
+      },
+    });
+    if (created?.id) {
+      showToast("Tarea compartida en el chat", "success");
+    }
+    return created;
+  };
+
   // Abre el chat de un cliente y lo marca como leído.
   const openClientChat = (client) => {
     setSelectedChatClient(client || null);
@@ -9140,9 +9169,39 @@ function App() {
         onChangePriority={changeTaskPriority}
         clientChats={clientChats}
         onSendClientChatMessage={addClientChatMessage}
+        onShareTaskToChat={shareTaskToChat}
+        chatShareTargets={[
+          ...clients.map((client) => ({
+            id: client.id,
+            name: client.name || "Cliente",
+            kind: "client",
+            photo: client.photo || "",
+          })),
+          ...teamGroups.map((group) => ({
+            id: group.id,
+            name: group.name || "Grupo",
+            kind: "team_group",
+            isTeamGroup: true,
+            memberIds: group.memberIds || [],
+          })),
+          ...chatMentionables
+            .filter((person) => String(person.id) !== String(currentUserProfile?.id || ""))
+            .map((person) => {
+              const dmId = buildDmClientId(currentUserProfile?.id, person.id);
+              return {
+                id: dmId,
+                name: person.name || "Mensaje directo",
+                kind: "dm",
+                isDm: true,
+                memberIds: parseDmClientId(dmId) || [],
+                photo: person.photo || "",
+              };
+            })
+            .filter((item) => item.id),
+        ]}
         onOpenClientChat={(clientId) => {
-          const client = clients.find((item) => item.id === clientId);
-          openClientChat(client || null);
+          const conversation = resolveChatConversation(clientId);
+          openClientChat(conversation || null);
           handleNavigate("chat");
         }}
         onChangeAssignee={changeTaskAssignee}
@@ -15664,13 +15723,28 @@ const ClientChatView = ({
 
   const taskTouchesGroup = (task) => {
     if (!activeClient) return false;
-    if (!activeClient.isTeamGroup) return task.clientId === activeClient.id;
-    const ids = new Set([
-      ...(Array.isArray(task.assignees) ? task.assignees : []),
-      task.contextId,
-      task.assigneeUserId,
-    ].filter(Boolean).map(String));
-    return (activeClient.memberIds || []).some((id) => ids.has(String(id)));
+    if (activeClient.isDm || activeClient.kind === "dm") {
+      const ids = new Set([
+        ...(Array.isArray(task.assignees) ? task.assignees : []),
+        task.contextId,
+        task.assigneeUserId,
+        task.accountId,
+        task.assignedByUserId,
+      ].filter(Boolean).map(String));
+      return (activeClient.memberIds || []).some((id) => ids.has(String(id)))
+        || ids.has(String(currentUserId))
+        || ids.has(membershipIdentity);
+    }
+    if (activeClient.isTeamGroup) {
+      const ids = new Set([
+        ...(Array.isArray(task.assignees) ? task.assignees : []),
+        task.contextId,
+        task.assigneeUserId,
+        task.accountId,
+      ].filter(Boolean).map(String));
+      return (activeClient.memberIds || []).some((id) => ids.has(String(id)));
+    }
+    return !task.clientId || task.clientId === activeClient.id;
   };
   const clientTasks = activeClient
     ? [
@@ -15684,6 +15758,29 @@ const ClientChatView = ({
           .filter(taskTouchesGroup)
           .map((task) => ({ id: task.id, title: task.title, type: "managementTask" })),
       ]
+    : [];
+  const shareableTasks = activeClient
+    ? (
+        clientTasks.length > 0
+          ? clientTasks
+          : [
+              ...accountTasks.map((task) => ({
+                id: task.id,
+                title: task.title,
+                type: "accountTask",
+              })),
+              ...editingTasks.map((task) => ({
+                id: task.id,
+                title: task.title,
+                type: "editingTask",
+              })),
+              ...managementTasks.map((task) => ({
+                id: task.id,
+                title: task.title,
+                type: "managementTask",
+              })),
+            ]
+      ).slice(0, 80)
     : [];
 
   const isDmConversation = Boolean(
@@ -17450,6 +17547,42 @@ const ClientChatView = ({
                         {taskRef.taskTitle}
                       </span>
                       <button
+                        type="button"
+                        title="Compartir ahora"
+                        onClick={async () => {
+                          if (!activeClient?.id || submitting) return;
+                          setSubmitting(true);
+                          try {
+                            await onSendMessage({
+                              clientId: activeClient.id,
+                              kind: conversationKind(activeClient),
+                              text:
+                                text.trim() ||
+                                `Compartió la tarea "${taskRef.taskTitle || "Tarea"}"`,
+                              mentionedIds,
+                              taskRef,
+                              replyTo: replyingTo
+                                ? {
+                                    id: replyingTo.id,
+                                    authorName: replyingTo.authorName,
+                                    text: replyingTo.text,
+                                    sticker: replyingTo.sticker || null,
+                                  }
+                                : null,
+                            });
+                            setText("");
+                            setMentionedIds([]);
+                            setTaskRef(null);
+                            setReplyingTo(null);
+                          } finally {
+                            setSubmitting(false);
+                          }
+                        }}
+                        className="rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+                      >
+                        Enviar
+                      </button>
+                      <button
                         onClick={() => setTaskRef(null)}
                         aria-label="Quitar tarea"
                         className="opacity-70 hover:opacity-100"
@@ -17551,10 +17684,10 @@ const ClientChatView = ({
                   </div>
                 )}
                 {taskPickerOpen && (
-                  <div className="chat-picker absolute bottom-full left-0 z-30 mb-2 max-h-64 w-72 overflow-y-auto py-1 custom-scroll">
+                  <div className="chat-picker absolute bottom-full left-0 z-30 mb-2 max-h-64 w-80 overflow-y-auto py-1 custom-scroll">
                     <div className="flex items-center justify-between px-3 pb-1 pt-1.5">
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                        Enlazar tarea del cliente
+                        Compartir tarea
                       </p>
                       <button
                         onMouseDown={(event) => {
@@ -17567,34 +17700,66 @@ const ClientChatView = ({
                         <Icon name="X" size={13} />
                       </button>
                     </div>
-                    {clientTasks.length === 0 && (
+                    {shareableTasks.length === 0 && (
                       <p className="px-3 py-2 text-xs text-slate-400">
-                        Este cliente no tiene tareas.
+                        No hay tareas para compartir.
                       </p>
                     )}
-                    {clientTasks.map((task) => (
-                      <button
+                    {shareableTasks.map((task) => (
+                      <div
                         key={`${task.type}-${task.id}`}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          setTaskRef({
-                            taskId: task.id,
-                            taskType: task.type,
-                            taskTitle: task.title || "Tarea",
-                          });
-                          setTaskPickerOpen(false);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
+                        className="flex items-center gap-1 px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-700"
                       >
-                        <span
-                          className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-black ${CHAT_TASK_CHIP_STYLES[task.type]}`}
+                        <button
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            setTaskRef({
+                              taskId: task.id,
+                              taskType: task.type,
+                              taskTitle: task.title || "Tarea",
+                            });
+                            setTaskPickerOpen(false);
+                          }}
+                          className="flex min-w-0 flex-1 items-center gap-2 px-1 py-1 text-left"
                         >
-                          {CHAT_TASK_LABELS[task.type]}
-                        </span>
-                        <span className="flex-1 truncate text-sm text-slate-700 dark:text-slate-200">
-                          {task.title || "(sin título)"}
-                        </span>
-                      </button>
+                          <span
+                            className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-black ${CHAT_TASK_CHIP_STYLES[task.type]}`}
+                          >
+                            {CHAT_TASK_LABELS[task.type]}
+                          </span>
+                          <span className="flex-1 truncate text-sm text-slate-700 dark:text-slate-200">
+                            {task.title || "(sin título)"}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          title="Compartir ahora"
+                          onMouseDown={async (event) => {
+                            event.preventDefault();
+                            if (!activeClient?.id || submitting) return;
+                            setTaskPickerOpen(false);
+                            setSubmitting(true);
+                            try {
+                              await onSendMessage({
+                                clientId: activeClient.id,
+                                kind: conversationKind(activeClient),
+                                text: `Compartió la tarea "${task.title || "Tarea"}"`,
+                                taskRef: {
+                                  taskId: task.id,
+                                  taskType: task.type,
+                                  taskTitle: task.title || "Tarea",
+                                },
+                              });
+                            } finally {
+                              setSubmitting(false);
+                            }
+                          }}
+                          className="shrink-0 rounded-lg px-2 py-1.5 text-[10px] font-bold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+                        >
+                          Enviar
+                        </button>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -19498,6 +19663,8 @@ const TaskDetailModal = ({
   managementTasks = [],
   clientChats = [],
   onSendClientChatMessage,
+  onShareTaskToChat,
+  chatShareTargets = [],
   onOpenClientChat,
 }) => {
   const [commentText, setCommentText] = useState("");
@@ -19517,6 +19684,10 @@ const TaskDetailModal = ({
   const [priorityOpen, setPriorityOpen] = useState(false);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [shareChatOpen, setShareChatOpen] = useState(false);
+  const [shareChatSearch, setShareChatSearch] = useState("");
+  const [shareChatNote, setShareChatNote] = useState("");
+  const [sharingTask, setSharingTask] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionStart, setMentionStart] = useState(-1);
@@ -19705,6 +19876,32 @@ const TaskDetailModal = ({
       setClientChatText("");
     } finally {
       setSendingClientChat(false);
+    }
+  };
+  const shareTargetQuery = shareChatSearch.trim().toLowerCase();
+  const filteredShareTargets = chatShareTargets
+    .filter((target) => {
+      if (!shareTargetQuery) return true;
+      return String(target.name || "").toLowerCase().includes(shareTargetQuery);
+    })
+    .slice(0, 40);
+  const handleShareTaskToChat = async (target) => {
+    if (!target?.id || !onShareTaskToChat || sharingTask) return;
+    setSharingTask(true);
+    try {
+      const created = await onShareTaskToChat({
+        conversation: target,
+        task,
+        taskType: type,
+        note: shareChatNote,
+      });
+      if (created?.id) {
+        setShareChatOpen(false);
+        setShareChatNote("");
+        setShareChatSearch("");
+      }
+    } finally {
+      setSharingTask(false);
     }
   };
   const assignee =
@@ -20060,7 +20257,22 @@ const TaskDetailModal = ({
                   <Icon name="MoreHorizontal" size={18} />
                 </button>
                 {actionsOpen && (
-                  <div className="absolute right-0 top-full z-30 mt-2 w-48 rounded-xl border border-[var(--border)] bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[var(--surface-raised)]">
+                  <div className="absolute right-0 top-full z-30 mt-2 w-52 rounded-xl border border-[var(--border)] bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[var(--surface-raised)]">
+                    {onShareTaskToChat && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActionsOpen(false);
+                          setShareChatSearch("");
+                          setShareChatNote("");
+                          setShareChatOpen(true);
+                        }}
+                        className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                      >
+                        <Icon name="MessageSquare" size={15} />
+                        Compartir en chat
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -20076,6 +20288,22 @@ const TaskDetailModal = ({
                 )}
               </div>
             </div>
+          )}
+          {onShareTaskToChat && (
+            <button
+              type="button"
+              onClick={() => {
+                setShareChatSearch("");
+                setShareChatNote("");
+                setShareChatOpen(true);
+              }}
+              aria-label="Compartir tarea en un chat"
+              title="Compartir en chat"
+              className="flex min-h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-muted)] dark:border-white/10 dark:bg-[var(--surface-raised)] dark:text-slate-200 dark:hover:border-white/20 dark:hover:bg-[var(--surface-muted)]"
+            >
+              <Icon name="Send" size={14} />
+              <span className="hidden sm:inline">Compartir</span>
+            </button>
           )}
           <button
             onClick={onClose}
@@ -21477,6 +21705,94 @@ const TaskDetailModal = ({
       onChangeIndex={setLightboxIndex}
       onDownload={downloadTicketAttachment}
     />
+    {shareChatOpen &&
+      createPortal(
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4"
+          onClick={() => !sharingTask && setShareChatOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-black text-slate-800 dark:text-white">
+                  Compartir en chat
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Envía “{task.title || "Tarea"}” a un cliente, grupo o mensaje directo.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShareChatOpen(false)}
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                aria-label="Cerrar"
+              >
+                <Icon name="X" size={16} />
+              </button>
+            </div>
+            <input
+              value={shareChatSearch}
+              onChange={(event) => setShareChatSearch(event.target.value)}
+              placeholder="Buscar conversación"
+              className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            />
+            <textarea
+              value={shareChatNote}
+              onChange={(event) => setShareChatNote(event.target.value)}
+              placeholder="Mensaje opcional"
+              rows={2}
+              className="mt-3 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            />
+            <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
+              {filteredShareTargets.length === 0 ? (
+                <p className="px-3 py-4 text-sm text-slate-500">
+                  No hay conversaciones para compartir.
+                </p>
+              ) : (
+                filteredShareTargets.map((target) => (
+                  <button
+                    key={`${target.kind}-${target.id}`}
+                    type="button"
+                    disabled={sharingTask}
+                    onClick={() => handleShareTaskToChat(target)}
+                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 disabled:opacity-50 dark:hover:bg-slate-800"
+                  >
+                    <span
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-black text-white"
+                      style={{
+                        backgroundColor: chatAvatarColor(target.id || target.name),
+                      }}
+                    >
+                      {target.kind === "team_group" ? (
+                        <Icon name="Users" size={14} />
+                      ) : (
+                        (target.name || "C").slice(0, 2).toUpperCase()
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <strong className="block truncate text-slate-800 dark:text-slate-100">
+                        {target.name}
+                      </strong>
+                      <small className="text-slate-500">
+                        {target.kind === "dm"
+                          ? "Mensaje directo"
+                          : target.kind === "team_group"
+                            ? "Grupo de equipo"
+                            : "Chat de cliente"}
+                      </small>
+                    </span>
+                    <Icon name="Send" size={14} className="text-slate-400" />
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </>
   );
 };
