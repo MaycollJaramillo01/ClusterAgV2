@@ -6,6 +6,8 @@ import { addHoursToIso, isIsoExpired, nowIso } from './time.js';
 import { getRecord, upsertRecord } from './records.js';
 
 const SESSION_TOUCH_INTERVAL_MS = 15 * 60 * 1000;
+export const PRESENCE_ONLINE_WINDOW_MS = 90 * 1000;
+const PRESENCE_AWAY_STAMP = '1970-01-01T00:00:00.000Z';
 
 const markUserDisconnectedAt = async ({ userRecordId, disconnectedAt = nowIso() }) => {
     if (!userRecordId) return;
@@ -141,10 +143,39 @@ export const markCurrentSessionDisconnected = async (req) => {
         req.auth.sessionId
             ? db('auth_sessions')
                 .where({ session_id: sha256(req.auth.sessionId) })
-                .update({ last_seen_at: stamp })
+                .update({ last_seen_at: PRESENCE_AWAY_STAMP })
             : Promise.resolve()
     ]);
     return true;
+};
+
+export const touchCurrentSessionPresence = async (req) => {
+    if (!req.auth?.userRecord?.id || !req.auth?.sessionId) return false;
+    const stamp = nowIso();
+    const updated = await db('auth_sessions')
+        .where({ session_id: sha256(req.auth.sessionId) })
+        .where('expires_at', '>=', stamp)
+        .update({ last_seen_at: stamp });
+    return updated > 0;
+};
+
+export const listOnlineUserIds = async ({
+    now = Date.now(),
+    windowMs = PRESENCE_ONLINE_WINDOW_MS
+} = {}) => {
+    const stamp = new Date(now).toISOString();
+    const cutoffMs = now - Math.max(15_000, Number(windowMs) || PRESENCE_ONLINE_WINDOW_MS);
+    const cutoffIso = new Date(cutoffMs).toISOString();
+    const rows = await db('auth_sessions')
+        .where('expires_at', '>=', stamp)
+        .andWhere('last_seen_at', '>=', cutoffIso)
+        .select('user_record_id')
+        .distinct();
+    return [...new Set(
+        rows
+            .map((row) => String(row.user_record_id || '').trim())
+            .filter(Boolean)
+    )];
 };
 
 export const attachSession = async (req, res, next) => {

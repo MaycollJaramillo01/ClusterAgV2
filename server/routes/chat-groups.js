@@ -7,8 +7,9 @@ import {
 } from '../lib/chat-groups.js';
 import { getRecord, listRecords, upsertRecord } from '../lib/records.js';
 import { hasPermission } from '../lib/permissions.js';
-import { requireAuthenticatedUser } from '../lib/sessions.js';
+import { listOnlineUserIds, requireAuthenticatedUser } from '../lib/sessions.js';
 import { nowIso } from '../lib/time.js';
+import { normalizeEmail } from '../lib/text.js';
 
 const router = Router();
 
@@ -43,16 +44,40 @@ const requireChatAccess = (userRecord) => {
 router.get('/', asyncHandler(async (req, res) => {
     const userRecord = requireAuthenticatedUser(req);
     requireChatAccess(userRecord);
-    const context = await loadChatGroupContext();
+    const [context, onlineUserIds] = await Promise.all([
+        loadChatGroupContext(),
+        listOnlineUserIds()
+    ]);
     const currentUserId = context.resolvePersonId({
         id: userRecord.id,
         email: userRecord.email,
         name: userRecord.name
     });
+    const onlineIdSet = new Set(onlineUserIds.map(String));
+    if (userRecord.id) onlineIdSet.add(String(userRecord.id));
+    if (currentUserId) onlineIdSet.add(String(currentUserId));
+
+    const onlineByEmail = new Set(
+        context.people
+            .filter((person) => onlineIdSet.has(String(person.id)))
+            .map((person) => normalizeEmail(person.email))
+            .filter(Boolean)
+    );
+
+    const people = context.people.map((person) => {
+        const online = onlineIdSet.has(String(person.id))
+            || onlineByEmail.has(normalizeEmail(person.email));
+        return { ...person, online };
+    });
+    const onlinePersonIds = people
+        .filter((person) => person.online)
+        .map((person) => String(person.id));
+
     res.json({
-        people: context.people,
+        people,
         groups: context.groups,
         currentUserId,
+        onlineUserIds: onlinePersonIds,
         canManage: canManageChatGroups(userRecord),
         canLeave: userRecord.role === 'super_admin'
     });

@@ -5,7 +5,15 @@ import { asyncHandler, createHttpError } from '../lib/http.js';
 import { randomToken, signPayload, verifySignedPayload } from '../lib/crypto.js';
 import { addMinutesToIso, isIsoExpired, nowIso } from '../lib/time.js';
 import { normalizeEmail } from '../lib/text.js';
-import { createSession, clearSession, markCurrentSessionDisconnected } from '../lib/sessions.js';
+import {
+    createSession,
+    clearSession,
+    markCurrentSessionDisconnected,
+    touchCurrentSessionPresence,
+    listOnlineUserIds,
+    PRESENCE_ONLINE_WINDOW_MS,
+    requireAuthenticatedUser
+} from '../lib/sessions.js';
 import { ensureAuthUserRecord } from '../lib/users.js';
 import { verifyFirebaseIdToken } from '../lib/firebase-admin.js';
 import { getLocalGoogleCallbackUrl, getRequestOrigin, isLocalOrigin } from '../lib/request-origin.js';
@@ -110,6 +118,18 @@ router.post('/logout', asyncHandler(async (req, res) => {
 router.post('/presence/disconnect', asyncHandler(async (req, res) => {
     await markCurrentSessionDisconnected(req);
     res.status(204).end();
+}));
+
+router.post('/presence/heartbeat', asyncHandler(async (req, res) => {
+    requireAuthenticatedUser(req);
+    const ok = await touchCurrentSessionPresence(req);
+    res.json({ ok, at: nowIso() });
+}));
+
+router.get('/presence/online', asyncHandler(async (req, res) => {
+    requireAuthenticatedUser(req);
+    const onlineUserIds = await listOnlineUserIds();
+    res.json({ onlineUserIds, windowMs: PRESENCE_ONLINE_WINDOW_MS });
 }));
 
 router.post('/token/exchange', asyncHandler(async (req, res) => {

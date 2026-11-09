@@ -2365,6 +2365,7 @@ function App() {
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [chatDirectory, setChatDirectory] = useState([]);
+  const [chatOnlineUserIds, setChatOnlineUserIds] = useState([]);
   const [chatGroupsByClient, setChatGroupsByClient] = useState({});
   const [chatGroupsLoaded, setChatGroupsLoaded] = useState(false);
   const [chatGroupIdentityId, setChatGroupIdentityId] = useState("");
@@ -3384,6 +3385,11 @@ function App() {
   useEffect(() => {
     if (!user?.email) return undefined;
     let disconnectReported = false;
+    let heartbeatId = null;
+    const sendHeartbeat = () => {
+      if (document.visibilityState === "hidden") return;
+      apiFetch("/api/auth/presence/heartbeat", { method: "POST" }).catch(() => {});
+    };
     const reportDisconnect = () => {
       if (disconnectReported) return;
       disconnectReported = true;
@@ -3391,18 +3397,20 @@ function App() {
     };
     const restorePresence = () => {
       disconnectReported = false;
+      sendHeartbeat();
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") reportDisconnect();
       else restorePresence();
     };
 
+    sendHeartbeat();
+    heartbeatId = window.setInterval(sendHeartbeat, 45000);
     window.addEventListener("pagehide", reportDisconnect);
     window.addEventListener("pageshow", restorePresence);
-    if (isNativeApp()) {
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
+      if (heartbeatId) window.clearInterval(heartbeatId);
       window.removeEventListener("pagehide", reportDisconnect);
       window.removeEventListener("pageshow", restorePresence);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
@@ -7170,6 +7178,7 @@ function App() {
   useEffect(() => {
     if (!user || !authEmail || currentUserProfile?.isAnonymous || profileBlocked) {
       setChatDirectory([]);
+      setChatOnlineUserIds([]);
       setChatGroupsByClient({});
       setChatGroupsLoaded(false);
       setChatGroupIdentityId("");
@@ -7180,6 +7189,12 @@ function App() {
       .then((payload) => {
         if (cancelled) return;
         if (Array.isArray(payload?.people)) setChatDirectory(payload.people);
+        const onlineIds = Array.isArray(payload?.onlineUserIds)
+          ? payload.onlineUserIds.map(String)
+          : (Array.isArray(payload?.people) ? payload.people : [])
+              .filter((person) => person?.online)
+              .map((person) => String(person.id));
+        setChatOnlineUserIds(onlineIds);
         const nextGroups = {};
         (Array.isArray(payload?.groups) ? payload.groups : []).forEach(
           (group) => {
@@ -7195,7 +7210,7 @@ function App() {
       });
     loadGroups();
     const intervalId =
-      view === "chat" ? window.setInterval(loadGroups, 120000) : null;
+      view === "chat" ? window.setInterval(loadGroups, 30000) : null;
     window.addEventListener("focus", loadGroups);
     return () => {
       cancelled = true;
@@ -8461,6 +8476,7 @@ function App() {
                 "moderate_client_chat",
               )}
               mentionables={chatMentionables}
+              onlineUserIds={chatOnlineUserIds}
               groupsByClient={chatGroupsByClient}
               groupsLoaded={chatGroupsLoaded}
               currentGroupMemberId={
@@ -15393,6 +15409,7 @@ const ClientChatView = ({
   currentUserProfile,
   canModerate = false,
   mentionables = [],
+  onlineUserIds = [],
   groupsByClient = {},
   groupsLoaded = false,
   currentGroupMemberId = "",
@@ -15563,6 +15580,20 @@ const ClientChatView = ({
   const membershipIdentity = String(
     currentGroupMemberId || currentUserProfile?.id || "",
   );
+  const onlineIdSet = new Set(
+    (Array.isArray(onlineUserIds) ? onlineUserIds : []).map(String),
+  );
+  (Array.isArray(mentionables) ? mentionables : []).forEach((person) => {
+    if (person?.online) onlineIdSet.add(String(person.id));
+  });
+  const isPersonOnline = (personOrId) => {
+    if (!personOrId) return false;
+    if (typeof personOrId === "object") {
+      if (personOrId.online === true) return true;
+      return onlineIdSet.has(String(personOrId.id || ""));
+    }
+    return onlineIdSet.has(String(personOrId));
+  };
   const belongsToChatGroup = (clientId) =>
     (groupsByClient[String(clientId)]?.memberIds || [])
       .map(String)
@@ -15625,6 +15656,8 @@ const ClientChatView = ({
           name,
           photo: person?.photo || "",
           memberIds: parts,
+          otherUserId: String(otherId || ""),
+          online: isPersonOnline(person || otherId),
           isDm: true,
           kind: "dm",
           lastAt: message.createdAt || "",
@@ -15632,16 +15665,28 @@ const ClientChatView = ({
       }
     });
     if (activeClient?.isDm && !byId.has(String(activeClient.id))) {
+      const parts = parseDmClientId(activeClient.id) || activeClient.memberIds || [];
+      const otherId =
+        activeClient.otherUserId ||
+        parts.find(
+          (part) =>
+            String(part) !== String(membershipIdentity) &&
+            String(part) !== String(currentUserId),
+        ) ||
+        "";
       byId.set(String(activeClient.id), {
         ...activeClient,
+        otherUserId: String(otherId || ""),
+        online: isPersonOnline(otherId || activeClient.otherUserId),
         isDm: true,
         kind: "dm",
         lastAt: "",
       });
     }
-    return [...byId.values()].sort((a, b) =>
-      (a.lastAt || "") > (b.lastAt || "") ? -1 : 1,
-    );
+    return [...byId.values()].sort((a, b) => {
+      if (Boolean(a.online) !== Boolean(b.online)) return a.online ? -1 : 1;
+      return (a.lastAt || "") > (b.lastAt || "") ? -1 : 1;
+    });
   })();
   const dmPeopleCandidates = mentionables
     .filter((person) => {
@@ -15654,7 +15699,20 @@ const ClientChatView = ({
         (person.email || "").toLowerCase().includes(q)
       );
     })
+    .sort((a, b) => {
+      const aOnline = isPersonOnline(a);
+      const bOnline = isPersonOnline(b);
+      if (aOnline !== bOnline) return aOnline ? -1 : 1;
+      return (a.name || "").localeCompare(b.name || "");
+    })
     .slice(0, 40);
+  const onlinePeople = mentionables
+    .filter((person) => {
+      const id = String(person.id || "");
+      if (!id || id === String(currentUserId) || id === membershipIdentity) return false;
+      return isPersonOnline(person);
+    })
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   const activeClients = groupsLoaded
     ? matchingClients.filter((client) => belongsToChatGroup(client.id))
     : matchingClients;
@@ -15814,6 +15872,22 @@ const ClientChatView = ({
   const activeGroupMembers = mentionables.filter((person) =>
     activeGroupMemberSet.has(String(person.id)),
   );
+  const activeDmOtherId = (() => {
+    if (!isDmConversation || !activeClient) return "";
+    if (activeClient.otherUserId) return String(activeClient.otherUserId);
+    const parts = parseDmClientId(activeClient.id) || activeClient.memberIds || [];
+    return String(
+      parts.find(
+        (part) =>
+          String(part) !== String(membershipIdentity) &&
+          String(part) !== String(currentUserId),
+      ) || "",
+    );
+  })();
+  const activeDmOnline = isDmConversation && isPersonOnline(activeDmOtherId);
+  const activeOnlineMemberCount = activeGroupMembers.filter((person) =>
+    isPersonOnline(person),
+  ).length;
   const scopedMentionables = groupsLoaded ? activeGroupMembers : [];
   const callMentionables = groupsLoaded
     ? mentionables.filter(
@@ -16481,7 +16555,11 @@ const ClientChatView = ({
               <p className="chat-list-subtitle">
                 {showArchived
                   ? `${archivedClientCount} fuera de tu bandeja principal`
-                  : `${activeClientCount} grupo${activeClientCount === 1 ? "" : "s"} activo${activeClientCount === 1 ? "" : "s"}`}
+                  : `${activeClientCount} conversacion${activeClientCount === 1 ? "" : "es"}${
+                      onlinePeople.length > 0
+                        ? ` · ${onlinePeople.length} en línea`
+                        : ""
+                    }`}
               </p>
             </div>
             {!showArchived && chatUnread.total > 0 && (
@@ -16587,6 +16665,42 @@ const ClientChatView = ({
               </span>
             </div>
           )}
+          {!showArchived && onlinePeople.length > 0 && !term && (
+            <>
+              <div className="px-4 pb-1 pt-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                En línea · {onlinePeople.length}
+              </div>
+              <div className="chat-online-strip flex gap-2 overflow-x-auto px-4 pb-2">
+                {onlinePeople.slice(0, 12).map((person) => (
+                  <button
+                    key={`online-${person.id}`}
+                    type="button"
+                    title={person.name || person.email || "En línea"}
+                    onClick={() => {
+                      setThreadRoot(null);
+                      onOpenDirectMessage?.(person);
+                    }}
+                    className="chat-online-person relative flex w-12 shrink-0 flex-col items-center gap-1"
+                  >
+                    <span className="chat-list-avatar-wrap relative">
+                      <span
+                        className="flex h-10 w-10 items-center justify-center rounded-xl text-[10px] font-black text-white"
+                        style={{
+                          backgroundColor: chatAvatarColor(person.id || person.name),
+                        }}
+                      >
+                        {(person.name || "U").slice(0, 2).toUpperCase()}
+                      </span>
+                      <span className="chat-presence-dot" />
+                    </span>
+                    <span className="w-full truncate text-center text-[10px] font-semibold text-slate-500">
+                      {(person.name || "").split(" ")[0] || "User"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           {!showArchived && dmConversations.length > 0 && (
             <div className="px-4 pb-1 pt-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
               Mensajes directos
@@ -16615,11 +16729,12 @@ const ClientChatView = ({
                     >
                       {(dm.name || "DM").slice(0, 2).toUpperCase()}
                     </span>
+                    {dm.online && <span className="chat-presence-dot" />}
                   </span>
                   <span className="min-w-0 flex-1">
                     <strong className="block truncate">{dm.name}</strong>
                     <small className="block truncate text-slate-500">
-                      {previewText(last)}
+                      {dm.online ? "En línea" : previewText(last)}
                     </small>
                   </span>
                   {unread > 0 && (
@@ -16701,7 +16816,6 @@ const ClientChatView = ({
                       {(client.name || "C").slice(0, 2).toUpperCase()}
                     </span>
                   )}
-                  {!showArchived && <span className="chat-presence-dot" />}
                 </span>
                 <div className="chat-list-copy min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -16804,16 +16918,29 @@ const ClientChatView = ({
                 </p>
                 <p className="chat-header-status">
                   <span
-                    className={`chat-group-state-dot ${isActiveGroupMember || isDmConversation ? "is-active" : "is-archived"}`}
+                    className={`chat-group-state-dot ${
+                      isDmConversation
+                        ? activeDmOnline
+                          ? "is-active"
+                          : "is-archived"
+                        : isActiveGroupMember
+                          ? "is-active"
+                          : "is-archived"
+                    }`}
                   />
                   {isDmConversation
-                    ? "Mensaje directo"
+                    ? activeDmOnline
+                      ? "En línea"
+                      : "Desconectado"
                     : isActiveGroupMember
                       ? "Grupo activo"
                       : "Archivado"}
                   {` · ${messages.length} mensaje${messages.length === 1 ? "" : "s"}`}
                   {!isDmConversation && groupsLoaded
                     ? ` · ${activeGroupMembers.length} integrante${activeGroupMembers.length === 1 ? "" : "s"}`
+                    : ""}
+                  {!isDmConversation && groupsLoaded && activeOnlineMemberCount > 0
+                    ? ` · ${activeOnlineMemberCount} en línea`
                     : ""}
                   {activeClientMuted
                     ? ` · Silenciado ${formatChatMuteUntil(activeMuteUntil)}`
@@ -18272,31 +18399,35 @@ const ClientChatView = ({
                       const canRemove =
                         (canManageMembers && (!isSelf || canLeaveGroup))
                         || (canEditMembers && !activeGroupMemberSet.has(String(person.id)));
+                      const personOnline = isPersonOnline(person);
                       return (
                         <div
                           key={person.id}
                           className="chat-member-row flex items-center gap-3"
                         >
-                          <span
-                            className="chat-member-avatar flex h-9 w-9 shrink-0 items-center justify-center text-[11px] font-black text-white"
-                            style={{
-                              backgroundColor: chatAvatarColor(
-                                person.id || person.name,
-                              ),
-                            }}
-                          >
-                            {(person.name || "U").slice(0, 2).toUpperCase()}
+                          <span className="relative shrink-0">
+                            <span
+                              className="chat-member-avatar flex h-9 w-9 items-center justify-center text-[11px] font-black text-white"
+                              style={{
+                                backgroundColor: chatAvatarColor(
+                                  person.id || person.name,
+                                ),
+                              }}
+                            >
+                              {(person.name || "U").slice(0, 2).toUpperCase()}
+                            </span>
+                            {personOnline && <span className="chat-presence-dot" />}
                           </span>
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-bold text-slate-700 dark:text-slate-100">
                               {person.name || person.email}
                               {isSelf ? " (tú)" : ""}
                             </p>
-                            {person.email && (
-                              <p className="truncate text-[11px] text-slate-400">
-                                {person.email}
-                              </p>
-                            )}
+                            <p className="truncate text-[11px] text-slate-400">
+                              {personOnline
+                                ? "En línea"
+                                : person.email || "Desconectado"}
+                            </p>
                           </div>
                           {(canManageMembers || canRemove) && (
                             <button
@@ -18634,7 +18765,9 @@ const ClientChatView = ({
                     No hay personas para chatear.
                   </p>
                 ) : (
-                  dmPeopleCandidates.map((person) => (
+                  dmPeopleCandidates.map((person) => {
+                    const personOnline = isPersonOnline(person);
+                    return (
                     <button
                       key={person.id}
                       type="button"
@@ -18645,26 +18778,30 @@ const ClientChatView = ({
                       }}
                       className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
                     >
-                      <span
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-black text-white"
-                        style={{
-                          backgroundColor: chatAvatarColor(person.id || person.name),
-                        }}
-                      >
-                        {(person.name || "U").slice(0, 2).toUpperCase()}
+                      <span className="relative shrink-0">
+                        <span
+                          className="flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-black text-white"
+                          style={{
+                            backgroundColor: chatAvatarColor(person.id || person.name),
+                          }}
+                        >
+                          {(person.name || "U").slice(0, 2).toUpperCase()}
+                        </span>
+                        {personOnline && <span className="chat-presence-dot" />}
                       </span>
                       <span className="min-w-0 flex-1">
                         <strong className="block truncate text-slate-800 dark:text-slate-100">
                           {person.name}
                         </strong>
-                        {person.email && (
-                          <small className="block truncate text-slate-500">
-                            {person.email}
-                          </small>
-                        )}
+                        <small className="block truncate text-slate-500">
+                          {personOnline
+                            ? "En línea"
+                            : person.email || "Desconectado"}
+                        </small>
                       </span>
                     </button>
-                  ))
+                    );
+                  })
                 )}
               </div>
               <div className="mt-4 flex justify-end">
