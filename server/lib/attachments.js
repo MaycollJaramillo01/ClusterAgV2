@@ -149,7 +149,8 @@ const sanitizeEmbeddedAttachment = (attachment, index, totals) => {
     }
 
     // Acepta data URLs con parámetros MIME (codecs=opus, etc.).
-    const match = data.match(/^data:([^;,]+)(?:;[^,]*)*;base64,([A-Za-z0-9+/=\r\n]+)$/i);
+    // [^;,]* evita que el grupo de parámetros consuma el separador ";base64,".
+    const match = data.match(/^data:([^;,]+)(?:;[^;,]*)*;base64,([A-Za-z0-9+/=\r\n]+)$/i);
     const dataType = normalizeAttachmentType(match?.[1] || '');
     if (!match || !dataType || dataType !== type) {
         throw createHttpError(400, 'El contenido del adjunto no es valido.', 'attachment/invalid-data');
