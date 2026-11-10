@@ -15192,10 +15192,31 @@ const buildChatRoomId = (clientName = "") => {
       .slice(0, 24) || "sala";
   return `cluster-${slug}-${Math.random().toString(36).slice(2, 8)}`;
 };
-const chatFileToBase64 = (file) =>
+const normalizeChatMimeType = (value = "", fallback = "application/octet-stream") => {
+  const clean = String(value || "")
+    .split(";", 1)[0]
+    .trim()
+    .toLowerCase();
+  return clean || fallback;
+};
+
+const chatFileToBase64 = (file, forcedType = "") =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const type = normalizeChatMimeType(
+        forcedType || file?.type,
+        "application/octet-stream",
+      );
+      // Reescribe el MIME por si FileReader conserva ";codecs=...".
+      const match = result.match(/^data:[^,]*,([\s\S]*)$/);
+      if (!match) {
+        resolve(result);
+        return;
+      }
+      resolve(`data:${type};base64,${match[1].replace(/\s+/g, "")}`);
+    };
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
@@ -15385,18 +15406,19 @@ const isVoiceNoteAttachment = (att = {}) => {
 };
 
 const createVoiceNoteFile = (blob, durationSec = 0) => {
-  const mime = String(blob?.type || "audio/webm").toLowerCase();
-  const ext = mime.includes("ogg")
+  const mime = normalizeChatMimeType(blob?.type, "audio/webm");
+  const safeMime = mime.startsWith("audio/") ? mime : "audio/webm";
+  const ext = safeMime.includes("ogg")
     ? "ogg"
-    : mime.includes("mp4")
+    : safeMime.includes("mp4")
       ? "m4a"
-      : mime.includes("mpeg")
+      : safeMime.includes("mpeg")
         ? "mp3"
         : "webm";
   const file = new File(
     [blob],
     `nota-de-voz-${Date.now()}.${ext}`,
-    { type: mime.startsWith("audio/") ? mime : "audio/webm" },
+    { type: safeMime },
   );
   return { file, duration: Math.max(0, Math.round(Number(durationSec) || 0)) };
 };
@@ -16343,9 +16365,9 @@ const ClientChatView = ({
           recordContextRef.current = null;
           return;
         }
-        const blob = new Blob(audioChunksRef.current, {
-          type: recorder.mimeType || "audio/webm",
-        });
+        const rawMime = recorder.mimeType || "audio/webm";
+        const cleanMime = normalizeChatMimeType(rawMime, "audio/webm");
+        const blob = new Blob(audioChunksRef.current, { type: cleanMime });
         if (blob.size === 0) {
           sendRecordingRef.current = false;
           recordSecondsRef.current = 0;
@@ -16359,13 +16381,19 @@ const ClientChatView = ({
           recordContextRef.current = null;
           return;
         }
-        const data = await chatFileToBase64(blob);
+        const ext = cleanMime.includes("ogg")
+          ? "ogg"
+          : cleanMime.includes("mp4") || cleanMime.includes("mpeg")
+            ? "m4a"
+            : "webm";
+        const data = await chatFileToBase64(blob, cleanMime);
         const voiceAttachment = {
           id: Math.random().toString(36).slice(2, 10),
-          name: `nota-de-voz-${Date.now()}.webm`,
-          type: blob.type || "audio/webm",
+          name: `nota-de-voz-${Date.now()}.${ext}`,
+          type: cleanMime,
           size: blob.size,
           duration: recordSecondsRef.current,
+          isVoiceNote: true,
           data,
         };
         if (sendRecordingRef.current && recordContextRef.current?.clientId) {

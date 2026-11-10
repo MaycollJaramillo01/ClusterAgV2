@@ -70,8 +70,15 @@ const EXTENSION_TYPES = {
     pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 };
 
+export const normalizeAttachmentType = (value = '') => {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return '';
+    // MediaRecorder / FileReader suelen mandar "audio/webm;codecs=opus".
+    return raw.split(';', 1)[0].trim();
+};
+
 export const inferContentType = (fileName = '', declared = '') => {
-    const type = String(declared || '').trim().toLowerCase();
+    const type = normalizeAttachmentType(declared);
     if (ALLOWED_ATTACHMENT_TYPES.has(type)) return type;
     const ext = String(fileName).split('.').pop()?.toLowerCase();
     return EXTENSION_TYPES[ext] || type;
@@ -135,14 +142,16 @@ const optionalDuration = (value) => {
 
 const sanitizeEmbeddedAttachment = (attachment, index, totals) => {
     const name = String(attachment.name || `archivo-${index + 1}`).trim().slice(0, 180);
-    const type = String(attachment.type || '').trim().toLowerCase();
+    const type = normalizeAttachmentType(attachment.type);
     const data = String(attachment.data || '');
     if (!name || !ALLOWED_ATTACHMENT_TYPES.has(type)) {
         throw createHttpError(400, 'El tipo de archivo no esta permitido.', 'attachment/type-denied');
     }
 
-    const match = data.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
-    if (!match || match[1].toLowerCase() !== type) {
+    // Acepta data URLs con parámetros MIME (codecs=opus, etc.).
+    const match = data.match(/^data:([^;,]+)(?:;[^,]*)*;base64,([A-Za-z0-9+/=\r\n]+)$/i);
+    const dataType = normalizeAttachmentType(match?.[1] || '');
+    if (!match || !dataType || dataType !== type) {
         throw createHttpError(400, 'El contenido del adjunto no es valido.', 'attachment/invalid-data');
     }
     const decoded = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
@@ -159,7 +168,11 @@ const sanitizeEmbeddedAttachment = (attachment, index, totals) => {
         name,
         type,
         size: decoded.length,
-        data,
+        // Reescribe el data URL con el MIME canónico para lecturas posteriores.
+        data: `data:${type};base64,${match[2].replace(/\s+/g, '')}`,
+        ...(attachment.isVoiceNote === true || /^nota-de-voz/i.test(name)
+            ? { isVoiceNote: true }
+            : {}),
         ...optionalDuration(attachment.duration)
     };
 };
@@ -169,7 +182,7 @@ const sanitizeStoredAttachment = (attachment, index, { collectionName, recordId,
         throw createHttpError(400, 'Este modulo no admite archivos externos.', 'attachment/storage-denied');
     }
     const name = String(attachment.name || `archivo-${index + 1}`).trim().slice(0, 180);
-    const type = String(attachment.type || '').trim().toLowerCase();
+    const type = normalizeAttachmentType(attachment.type);
     const key = String(attachment.key || '').trim();
     const parsed = parseObjectKey(key);
     const size = Number(attachment.size);

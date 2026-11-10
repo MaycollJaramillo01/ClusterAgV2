@@ -120,3 +120,18 @@ test('embedded attachments still work for chat-sized files', () => {
     assert.equal(attachment.type, 'image/png');
     assert.ok(attachment.data.startsWith('data:image/png;base64,'));
 });
+
+test('voice notes with MediaRecorder codecs are accepted', () => {
+    const payload = 'data:audio/webm;codecs=opus;base64,' + Buffer.from('voice-bytes').toString('base64');
+    const [attachment] = sanitizeAttachments([{
+        name: 'nota-de-voz-1.webm',
+        type: 'audio/webm;codecs=opus',
+        data: payload,
+        duration: 4,
+        isVoiceNote: true
+    }], { collectionName: 'client_chats' });
+    assert.equal(attachment.type, 'audio/webm');
+    assert.equal(attachment.isVoiceNote, true);
+    assert.equal(attachment.duration, 4);
+    assert.equal(attachment.data, 'data:audio/webm;base64,' + Buffer.from('voice-bytes').toString('base64'));
+});
