@@ -6498,6 +6498,19 @@ function App() {
     });
   };
 
+  const changeTaskAccount = async (task, type, nextAccountId = "") => {
+    if (!["accountTask", "editingTask"].includes(type)) return;
+    if (!userHasPermission(currentUserProfile, "assign_tasks")) {
+      showToast("No tienes permiso para cambiar el account", "error");
+      return;
+    }
+    const col = type === "editingTask" ? "editing" : "account_tasks";
+    await updateDoc(dataDoc(col, task.id), {
+      accountId: String(nextAccountId || ""),
+      updatedAt: nowIso(),
+    });
+  };
+
   const sendNotification = async (payload) => {
     try {
       await apiFetch("/api/notifications/send", {
@@ -7430,6 +7443,7 @@ function App() {
       signed.headers,
       onProgress,
     );
+    const voiceDuration = Number(options.duration);
     const newAttachment = {
       id: signed.attachmentId,
       name: file.name,
@@ -7440,6 +7454,14 @@ function App() {
       uploadedBy,
       uploadedAt: nowIso(),
       role: asEditedVideo ? "edited_video" : "attachment",
+      ...(options.isVoiceNote || isVoiceNoteAttachment({ name: file.name, type: contentType })
+        ? {
+            isVoiceNote: true,
+            ...(Number.isFinite(voiceDuration) && voiceDuration > 0
+              ? { duration: voiceDuration }
+              : {}),
+          }
+        : {}),
     };
 
     const currentSnap = await getDoc(dataDoc(col, task.id));
@@ -9222,6 +9244,7 @@ function App() {
         }}
         onChangeAssignee={changeTaskAssignee}
         onChangeAssignees={changeTaskAssignees}
+        onChangeAccount={changeTaskAccount}
         sendNotification={sendNotification}
         onAddAttachment={addTaskAttachment}
         onRemoveAttachment={removeTaskAttachment}
@@ -15356,6 +15379,67 @@ const ChatVoiceNote = ({
     </div>
   );
 };
+const isVoiceNoteAttachment = (att = {}) => {
+  if (!String(att?.type || "").startsWith("audio/")) return false;
+  return /^nota-de-voz/i.test(String(att?.name || "")) || Boolean(att?.isVoiceNote);
+};
+
+const createVoiceNoteFile = (blob, durationSec = 0) => {
+  const mime = String(blob?.type || "audio/webm").toLowerCase();
+  const ext = mime.includes("ogg")
+    ? "ogg"
+    : mime.includes("mp4")
+      ? "m4a"
+      : mime.includes("mpeg")
+        ? "mp3"
+        : "webm";
+  const file = new File(
+    [blob],
+    `nota-de-voz-${Date.now()}.${ext}`,
+    { type: mime.startsWith("audio/") ? mime : "audio/webm" },
+  );
+  return { file, duration: Math.max(0, Math.round(Number(durationSec) || 0)) };
+};
+
+const startBrowserVoiceRecording = async ({
+  onChunk,
+  onStop,
+  onError,
+}) => {
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    onError?.(new Error("Este dispositivo no permite grabar audio."));
+    return null;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    const chunks = [];
+    const startedAt = Date.now();
+    recorder.ondataavailable = (event) => {
+      if (event.data?.size) {
+        chunks.push(event.data);
+        onChunk?.(event.data);
+      }
+    };
+    recorder.onstop = () => {
+      stream.getTracks().forEach((track) => track.stop());
+      const blob = new Blob(chunks, {
+        type: recorder.mimeType || "audio/webm",
+      });
+      const durationSec = Math.max(
+        1,
+        Math.round((Date.now() - startedAt) / 1000),
+      );
+      onStop?.({ blob, durationSec, mimeType: recorder.mimeType || "audio/webm" });
+    };
+    recorder.start();
+    return { recorder, stream, startedAt };
+  } catch (error) {
+    onError?.(error);
+    return null;
+  }
+};
+
 const chatDayKey = (iso) => {
   try {
     return new Date(iso).toDateString();
@@ -19789,6 +19873,7 @@ const TaskDetailModal = ({
   onChangePriority,
   onChangeAssignee,
   onChangeAssignees,
+  onChangeAccount,
   sendNotification,
   onAddAttachment,
   onRemoveAttachment,
@@ -19820,7 +19905,13 @@ const TaskDetailModal = ({
   const [addingCheck, setAddingCheck] = useState(false);
   const [priorityOpen, setPriorityOpen] = useState(false);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [recordingVoice, setRecordingVoice] = useState(false);
+  const [recordingPaused, setRecordingPaused] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const voiceRecorderRef = useRef(null);
+  const voiceTimerRef = useRef(null);
   const [shareChatOpen, setShareChatOpen] = useState(false);
   const [shareChatSearch, setShareChatSearch] = useState("");
   const [shareChatNote, setShareChatNote] = useState("");
@@ -19847,18 +19938,31 @@ const TaskDetailModal = ({
 
   // Cerrar dropdowns al click fuera
   useEffect(() => {
-    if (!statusOpen && !priorityOpen && !assigneeOpen && !actionsOpen) return;
+    if (!statusOpen && !priorityOpen && !assigneeOpen && !accountOpen && !actionsOpen) return;
     const handler = (e) => {
       if (!e.target.closest("[data-dropdown]")) {
         setStatusOpen(false);
         setPriorityOpen(false);
         setAssigneeOpen(false);
+        setAccountOpen(false);
         setActionsOpen(false);
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [statusOpen, priorityOpen, assigneeOpen, actionsOpen]);
+  }, [statusOpen, priorityOpen, assigneeOpen, accountOpen, actionsOpen]);
+
+  useEffect(() => () => {
+    if (voiceTimerRef.current) window.clearInterval(voiceTimerRef.current);
+    const active = voiceRecorderRef.current;
+    if (active?.recorder && active.recorder.state !== "inactive") {
+      try {
+        active.recorder.stop();
+      } catch {
+        /* noop */
+      }
+    }
+  }, []);
   const timerStartRef = useRef(null);
   const timerIntervalRef = useRef(null);
   const commentInputRef = useRef(null);
@@ -20048,9 +20152,10 @@ const TaskDetailModal = ({
         ? users.find((u) => u.id === task.contextId)
         : editors.find((e) => e.id === task.contextId);
   const accountAssignee =
-    type === "editingTask"
+    type === "editingTask" || type === "accountTask"
       ? managers.find((manager) => String(manager.id) === String(task.accountId || ""))
       : null;
+  const accountPool = managers.filter((person) => person.isActive !== false);
   // Multi-assignees: use task.assignees if present, else fall back to contextId
   const currentAssigneeIds = Array.isArray(task.assignees)
     ? task.assignees
@@ -20524,7 +20629,11 @@ const TaskDetailModal = ({
                 {assignee && (
                   <span className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                     <span className="text-xs text-slate-400">
-                      {type === "editingTask" ? "Editor" : "Asignado"}
+                      {type === "editingTask"
+                        ? "Editor"
+                        : type === "accountTask"
+                          ? "Responsable"
+                          : "Asignado"}
                     </span>
                     <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--text-muted)] text-[9px] font-bold text-white">
                       {assignee.name?.slice(0, 2).toUpperCase()}
@@ -20532,13 +20641,19 @@ const TaskDetailModal = ({
                     <strong className="font-semibold">{assignee.name}</strong>
                   </span>
                 )}
-                {accountAssignee && (
+                {(type === "editingTask" || type === "accountTask") && (
                   <span className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                     <span className="text-xs text-slate-400">Account</span>
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500 text-[9px] font-bold text-white">
-                      {accountAssignee.name?.slice(0, 2).toUpperCase()}
-                    </span>
-                    <strong className="font-semibold">{accountAssignee.name}</strong>
+                    {accountAssignee ? (
+                      <>
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500 text-[9px] font-bold text-white">
+                          {accountAssignee.name?.slice(0, 2).toUpperCase()}
+                        </span>
+                        <strong className="font-semibold">{accountAssignee.name}</strong>
+                      </>
+                    ) : (
+                      <strong className="font-semibold text-slate-400">Sin account</strong>
+                    )}
                   </span>
                 )}
                 {task.createdAt && (
@@ -20589,9 +20704,62 @@ const TaskDetailModal = ({
                 id="task-summary"
                 className="mb-4 scroll-mt-16 rounded-xl border border-[var(--border)] bg-white p-5 dark:border-white/10 dark:bg-[var(--surface-raised)]"
               >
-                <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400 mb-2">
-                  Descripción
-                </p>
+                <div className="mb-2 flex items-center gap-2">
+                  <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                    Descripción
+                  </p>
+                  {canAct && !recordingVoice && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!onAddAttachment) return;
+                        const session = await startBrowserVoiceRecording({
+                          onStop: async ({ blob, durationSec }) => {
+                            setRecordingVoice(false);
+                            setRecordingPaused(false);
+                            setRecordSeconds(0);
+                            voiceRecorderRef.current = null;
+                            if (voiceTimerRef.current) {
+                              window.clearInterval(voiceTimerRef.current);
+                              voiceTimerRef.current = null;
+                            }
+                            if (!blob?.size) return;
+                            const { file } = createVoiceNoteFile(blob, durationSec);
+                            setUploadingFile(true);
+                            try {
+                              await onAddAttachment(task, type, file, setUploadProgress, {
+                                isVoiceNote: true,
+                                duration: durationSec,
+                              });
+                            } catch (error) {
+                              alert(error?.message || "No se pudo guardar la nota de voz.");
+                            } finally {
+                              setUploadingFile(false);
+                              setUploadProgress(0);
+                            }
+                          },
+                          onError: () => {
+                            alert("No se pudo acceder al micrófono.");
+                            setRecordingVoice(false);
+                          },
+                        });
+                        if (!session) return;
+                        voiceRecorderRef.current = session;
+                        setRecordingVoice(true);
+                        setRecordingPaused(false);
+                        setRecordSeconds(0);
+                        voiceTimerRef.current = window.setInterval(() => {
+                          setRecordSeconds((value) => value + 1);
+                        }, 1000);
+                      }}
+                      className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                      title="Grabar nota de voz"
+                    >
+                      <Icon name="Microphone" size={12} />
+                      Nota de voz
+                    </button>
+                  )}
+                </div>
                 {task.notes ? (
                   <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70 px-4 py-3">
                     <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
@@ -20609,10 +20777,97 @@ const TaskDetailModal = ({
                         {canAct ? "Agregar descripción" : "Sin descripción"}
                       </strong>
                       <span className="mt-0.5 block text-xs text-slate-500">
-                        Añade contexto, enlaces o instrucciones para el equipo.
+                        Texto o nota de voz con contexto para el equipo.
                       </span>
                     </span>
                   </button>
+                )}
+                {recordingVoice && (
+                  <div className="mt-3 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 dark:border-red-500/30 dark:bg-red-500/10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const active = voiceRecorderRef.current;
+                        if (voiceTimerRef.current) {
+                          window.clearInterval(voiceTimerRef.current);
+                          voiceTimerRef.current = null;
+                        }
+                        if (active?.stream) {
+                          active.stream.getTracks().forEach((track) => track.stop());
+                        }
+                        voiceRecorderRef.current = null;
+                        setRecordingVoice(false);
+                        setRecordingPaused(false);
+                        setRecordSeconds(0);
+                      }}
+                      className="rounded-lg p-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-500/20"
+                      aria-label="Cancelar grabación"
+                    >
+                      <Icon name="Trash2" size={14} />
+                    </button>
+                    <span className="inline-flex items-center gap-2 text-sm font-bold text-red-700 dark:text-red-300">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+                      {formatVoiceDuration(recordSeconds)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const recorder = voiceRecorderRef.current?.recorder;
+                        if (!recorder) return;
+                        if (recorder.state === "recording") {
+                          recorder.pause();
+                          setRecordingPaused(true);
+                          if (voiceTimerRef.current) {
+                            window.clearInterval(voiceTimerRef.current);
+                            voiceTimerRef.current = null;
+                          }
+                        } else if (recorder.state === "paused") {
+                          recorder.resume();
+                          setRecordingPaused(false);
+                          voiceTimerRef.current = window.setInterval(() => {
+                            setRecordSeconds((value) => value + 1);
+                          }, 1000);
+                        }
+                      }}
+                      className="rounded-lg p-1.5 text-slate-600 hover:bg-white/70 dark:text-slate-200 dark:hover:bg-white/10"
+                      aria-label={recordingPaused ? "Continuar" : "Pausar"}
+                    >
+                      <Icon name={recordingPaused ? "Play" : "PauseCircle"} size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const recorder = voiceRecorderRef.current?.recorder;
+                        if (!recorder || recorder.state === "inactive") return;
+                        if (voiceTimerRef.current) {
+                          window.clearInterval(voiceTimerRef.current);
+                          voiceTimerRef.current = null;
+                        }
+                        recorder.stop();
+                      }}
+                      className="ml-auto rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white dark:bg-white dark:text-slate-900"
+                    >
+                      Guardar
+                    </button>
+                  </div>
+                )}
+                {ticketAttachments.some((att) => isVoiceNoteAttachment(att) || isAudioAttachment(att)) && (
+                  <div className="mt-3 space-y-2">
+                    {ticketAttachments
+                      .filter((att) => isVoiceNoteAttachment(att) || isAudioAttachment(att))
+                      .map((att) => (
+                        <div key={att.id} className="rounded-xl border border-slate-200 bg-slate-50/80 p-2 dark:border-slate-700 dark:bg-slate-900/50">
+                          <ChatVoiceNote
+                            attachment={{
+                              ...att,
+                              data: att.data || attachmentUrls[att.id] || "",
+                            }}
+                            authorName={att.uploadedBy || currentUserProfile?.name || "Equipo"}
+                            compact
+                          />
+                        </div>
+                      ))}
+                  </div>
                 )}
               </section>
 
@@ -20953,7 +21208,7 @@ const TaskDetailModal = ({
                       multiple
                       className="hidden"
                       onChange={handleFileChange}
-                      accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.mp4,.mov,.webm"
+                      accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.mp4,.mov,.webm,.mp3,.wav,.m4a,.ogg"
                     />
                     {uploadingFile && (
                       <div className="mb-3 rounded-lg border border-[var(--border)] bg-[var(--surface-subtle)] px-3 py-2 dark:border-white/10">
@@ -20976,6 +21231,38 @@ const TaskDetailModal = ({
                             key={att.id}
                             className="group rounded-lg border border-[var(--border)] bg-[var(--surface-subtle)] p-3 transition-colors hover:border-[var(--border-strong)] dark:border-white/10 dark:bg-[var(--surface-muted)] dark:hover:border-white/20"
                           >
+                            {(isVoiceNoteAttachment(att) || isAudioAttachment(att)) ? (
+                              <div className="space-y-2">
+                                <ChatVoiceNote
+                                  attachment={{
+                                    ...att,
+                                    data: previewUrl(att),
+                                  }}
+                                  authorName={att.uploadedBy || "Equipo"}
+                                  compact
+                                />
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => openAttachment(att, true)}
+                                    title="Descargar"
+                                    className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
+                                  >
+                                    <Icon name="ArrowRight" size={13} />
+                                  </button>
+                                  {canAct && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onRemoveAttachment(task, type, att.id)}
+                                      title="Eliminar"
+                                      className="rounded-lg p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
+                                    >
+                                      <Icon name="X" size={13} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
                             <div className="flex items-center gap-3">
                             <button
                               type="button"
@@ -21052,6 +21339,7 @@ const TaskDetailModal = ({
                               )}
                             </div>
                             </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -21363,7 +21651,7 @@ const TaskDetailModal = ({
               <div data-dropdown className="relative rounded-xl border border-[var(--border)] bg-white p-4 dark:border-white/10 dark:bg-[var(--surface-raised)]">
                 <p className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
                   <Icon name="Users" size={14} />
-                  Responsable
+                  {type === "editingTask" ? "Editor / Responsable" : "Responsable"}
                 </p>
                 {/* Avatars row */}
                 <div className="flex min-h-10 flex-wrap items-center gap-2">
@@ -21485,6 +21773,93 @@ const TaskDetailModal = ({
                   </div>
                 )}
               </div>
+
+              {(type === "editingTask" || type === "accountTask") && (
+                <div data-dropdown className="relative rounded-xl border border-[var(--border)] bg-white p-4 dark:border-white/10 dark:bg-[var(--surface-raised)]">
+                  <p className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+                    <Icon name="Briefcase" size={14} />
+                    Account
+                  </p>
+                  <div className="flex min-h-10 flex-wrap items-center gap-2">
+                    {accountAssignee ? (
+                      <div className="group flex min-h-10 items-center gap-2 rounded-lg bg-indigo-50 py-1 pl-1.5 pr-2 dark:bg-indigo-500/15">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-500 text-[8px] font-black text-white">
+                          {accountAssignee.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                          {accountAssignee.name.split(" ")[0]}
+                        </span>
+                        {canAssign && onChangeAccount && (
+                          <button
+                            type="button"
+                            onClick={() => onChangeAccount(task, type, "")}
+                            className="ml-0.5 text-slate-500 opacity-0 transition-colors hover:text-red-400 group-hover:opacity-100"
+                            aria-label="Quitar account"
+                          >
+                            <Icon name="X" size={9} />
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm italic text-slate-500">Sin account</span>
+                    )}
+                    {canAssign && onChangeAccount && (
+                      <button
+                        type="button"
+                        onClick={() => setAccountOpen((open) => !open)}
+                        aria-label="Cambiar account"
+                        className="flex h-10 min-h-0 w-10 min-w-0 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-500 transition-colors hover:border-blue-400 hover:text-blue-500 dark:border-slate-600"
+                      >
+                        <Icon name="Plus" size={12} />
+                      </button>
+                    )}
+                  </div>
+                  {accountOpen && canAssign && onChangeAccount && (
+                    <div
+                      className="absolute left-0 top-full z-20 mt-1 max-h-60 w-52 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-800"
+                      data-dropdown
+                    >
+                      <p className="sticky top-0 bg-white px-4 pb-1 pt-2 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:bg-slate-800">
+                        Account revisor
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onChangeAccount(task, type, "");
+                          setAccountOpen(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"
+                      >
+                        Sin account
+                      </button>
+                      {accountPool.map((person) => (
+                        <button
+                          key={person.id}
+                          type="button"
+                          onClick={() => {
+                            onChangeAccount(task, type, person.id);
+                            setAccountOpen(false);
+                          }}
+                          className="flex w-full items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700"
+                        >
+                          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-[9px] font-black text-white">
+                            {person.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <span
+                            className={`flex-1 text-sm font-semibold ${
+                              String(task.accountId || "") === String(person.id)
+                                ? "text-purple-600 dark:text-purple-400"
+                                : "text-slate-700 dark:text-slate-200"
+                            }`}
+                          >
+                            {person.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Prioridad */}
               <div data-dropdown className="relative rounded-xl border border-[var(--border)] bg-white p-4 dark:border-white/10 dark:bg-[var(--surface-raised)]">
@@ -22158,7 +22533,12 @@ const CreateTaskModal = ({
   });
   const [uploadProgress, setUploadProgress] = useState(0);
   const [fileOver, setFileOver] = useState(false);
+  const [recordingVoice, setRecordingVoice] = useState(false);
+  const [recordingPaused, setRecordingPaused] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
   const createFileInputRef = useRef(null);
+  const voiceRecorderRef = useRef(null);
+  const voiceTimerRef = useRef(null);
 
   // Reset / pre-fill when modal opens
   useEffect(() => {
@@ -22278,10 +22658,11 @@ const CreateTaskModal = ({
 
   // Close dropdowns on outside click
   useEffect(() => {
-    if (!assigneeOpen && !clientOpen && !priorityOpen && !recurrenceOpen) return;
+    if (!assigneeOpen && !accountOpen && !clientOpen && !priorityOpen && !recurrenceOpen) return;
     const h = (e) => {
       if (!e.target.closest("[data-ctdrop]")) {
         setAssigneeOpen(false);
+        setAccountOpen(false);
         setClientOpen(false);
         setPriorityOpen(false);
         setRecurrenceOpen(false);
@@ -22290,6 +22671,18 @@ const CreateTaskModal = ({
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [assigneeOpen, accountOpen, clientOpen, priorityOpen, recurrenceOpen]);
+
+  useEffect(() => () => {
+    if (voiceTimerRef.current) window.clearInterval(voiceTimerRef.current);
+    const active = voiceRecorderRef.current;
+    if (active?.recorder && active.recorder.state !== "inactive") {
+      try {
+        active.recorder.stop();
+      } catch {
+        /* noop */
+      }
+    }
+  }, []);
 
   if (!isTaskDialogOpen) return null;
 
@@ -22444,8 +22837,14 @@ const CreateTaskModal = ({
 
   const doSubmit = async () => {
     if (submitting) return null;
-    const files = pendingFiles.map((item) => item.file).filter(Boolean);
-    const payload = { pendingFiles: files };
+    const files = pendingFiles
+      .map((item) => ({
+        file: item.file,
+        isVoiceNote: Boolean(item.isVoiceNote) || String(item.type || "").startsWith("audio/"),
+        duration: Number(item.duration) || 0,
+      }))
+      .filter((item) => item.file);
+    const payload = { pendingFiles: files.map((item) => item.file) };
     setSubmitting(true);
     setUploadProgress(0);
     try {
@@ -22473,6 +22872,7 @@ const CreateTaskModal = ({
             clientId,
             notes,
             priority,
+            accountId: accountId || "",
             time: dueTime,
             ...duePatch,
             ...assignmentPatch,
@@ -22521,6 +22921,7 @@ const CreateTaskModal = ({
             time: createTime,
             contextId: assigneeIds[0] || assigneeId || "",
             assignees: assigneeIds,
+            accountId: accountId || "",
             clientId,
             notes,
             priority,
@@ -22576,8 +22977,17 @@ const CreateTaskModal = ({
       if (result && files.length && actions.addAttachment) {
         const taskForFiles = result.id ? result : { ...data, id: data.id };
         try {
-          for (const file of files) {
-            await actions.addAttachment(taskForFiles, type, file, setUploadProgress);
+          for (const item of files) {
+            await actions.addAttachment(
+              taskForFiles,
+              type,
+              item.file,
+              setUploadProgress,
+              {
+                isVoiceNote: item.isVoiceNote,
+                duration: item.duration,
+              },
+            );
           }
         } catch (error) {
           alert(
@@ -22711,22 +23121,152 @@ const CreateTaskModal = ({
 
         {/* Description */}
         <div className="px-6 pb-4">
-          {showDesc ? (
+          <div className="mb-2 flex items-center gap-2">
+            {showDesc ? null : (
+              <button
+                type="button"
+                onClick={() => setShowDesc(true)}
+                className="flex items-center gap-2 py-1 text-sm text-slate-500 transition-colors hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                <Icon name="AlignLeft" size={14} /> Agregar descripción
+              </button>
+            )}
+            {!recordingVoice && (
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={async () => {
+                  const session = await startBrowserVoiceRecording({
+                    onStop: ({ blob, durationSec }) => {
+                      setRecordingVoice(false);
+                      setRecordingPaused(false);
+                      setRecordSeconds(0);
+                      voiceRecorderRef.current = null;
+                      if (voiceTimerRef.current) {
+                        window.clearInterval(voiceTimerRef.current);
+                        voiceTimerRef.current = null;
+                      }
+                      if (!blob?.size) return;
+                      const { file, duration } = createVoiceNoteFile(blob, durationSec);
+                      setPendingFiles((current) => {
+                        if (current.length >= MAX_TASK_ATTACHMENTS) {
+                          alert(`Puedes adjuntar hasta ${MAX_TASK_ATTACHMENTS} archivos.`);
+                          return current;
+                        }
+                        return [
+                          ...current,
+                          {
+                            id: Math.random().toString(36).slice(2, 10),
+                            file,
+                            name: file.name,
+                            size: file.size,
+                            type: file.type,
+                            preview: URL.createObjectURL(file),
+                            isVoiceNote: true,
+                            duration,
+                          },
+                        ];
+                      });
+                    },
+                    onError: () => {
+                      alert("No se pudo acceder al micrófono.");
+                      setRecordingVoice(false);
+                    },
+                  });
+                  if (!session) return;
+                  voiceRecorderRef.current = session;
+                  setRecordingVoice(true);
+                  setRecordingPaused(false);
+                  setRecordSeconds(0);
+                  voiceTimerRef.current = window.setInterval(() => {
+                    setRecordSeconds((value) => value + 1);
+                  }, 1000);
+                }}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <Icon name="Microphone" size={12} />
+                Nota de voz
+              </button>
+            )}
+          </div>
+          {showDesc && (
             <textarea
               autoFocus
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Agregar descripción..."
               rows={4}
-              className="w-full text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 rounded-xl px-4 py-3 outline-none resize-none placeholder-slate-400 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 transition-all"
+              className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition-all placeholder-slate-400 focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300"
             />
-          ) : (
-            <button
-              onClick={() => setShowDesc(true)}
-              className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors py-1"
-            >
-              <Icon name="AlignLeft" size={14} /> Agregar descripción
-            </button>
+          )}
+          {recordingVoice && (
+            <div className="mt-2 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 dark:border-red-500/30 dark:bg-red-500/10">
+              <button
+                type="button"
+                onClick={() => {
+                  const active = voiceRecorderRef.current;
+                  if (voiceTimerRef.current) {
+                    window.clearInterval(voiceTimerRef.current);
+                    voiceTimerRef.current = null;
+                  }
+                  if (active?.stream) {
+                    active.stream.getTracks().forEach((track) => track.stop());
+                  }
+                  voiceRecorderRef.current = null;
+                  setRecordingVoice(false);
+                  setRecordingPaused(false);
+                  setRecordSeconds(0);
+                }}
+                className="rounded-lg p-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-500/20"
+                aria-label="Cancelar grabación"
+              >
+                <Icon name="Trash2" size={14} />
+              </button>
+              <span className="inline-flex items-center gap-2 text-sm font-bold text-red-700 dark:text-red-300">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+                {formatVoiceDuration(recordSeconds)}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  const recorder = voiceRecorderRef.current?.recorder;
+                  if (!recorder) return;
+                  if (recorder.state === "recording") {
+                    recorder.pause();
+                    setRecordingPaused(true);
+                    if (voiceTimerRef.current) {
+                      window.clearInterval(voiceTimerRef.current);
+                      voiceTimerRef.current = null;
+                    }
+                  } else if (recorder.state === "paused") {
+                    recorder.resume();
+                    setRecordingPaused(false);
+                    voiceTimerRef.current = window.setInterval(() => {
+                      setRecordSeconds((value) => value + 1);
+                    }, 1000);
+                  }
+                }}
+                className="rounded-lg p-1.5 text-slate-600 hover:bg-white/70 dark:text-slate-200 dark:hover:bg-white/10"
+                aria-label={recordingPaused ? "Continuar" : "Pausar"}
+              >
+                <Icon name={recordingPaused ? "Play" : "PauseCircle"} size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const recorder = voiceRecorderRef.current?.recorder;
+                  if (!recorder || recorder.state === "inactive") return;
+                  if (voiceTimerRef.current) {
+                    window.clearInterval(voiceTimerRef.current);
+                    voiceTimerRef.current = null;
+                  }
+                  recorder.stop();
+                }}
+                className="ml-auto rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white dark:bg-white dark:text-slate-900"
+              >
+                Adjuntar
+              </button>
+            </div>
           )}
         </div>
 
@@ -22736,7 +23276,7 @@ const CreateTaskModal = ({
             type="file"
             multiple
             className="hidden"
-            accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.mp4,.mov,.webm"
+            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.mp4,.mov,.webm,.mp3,.wav,.m4a,.ogg"
             onChange={(event) => {
               queueCreateFiles(event.target.files);
               event.target.value = "";
@@ -22769,40 +23309,67 @@ const CreateTaskModal = ({
               {pendingFiles.map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50"
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50"
                 >
-                  {item.preview ? (
-                    <img
-                      src={item.preview}
-                      alt=""
-                      className="h-9 w-9 rounded-lg object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700">
-                      <Icon
-                        name={item.type?.startsWith("video/") ? "Video" : "FileText"}
-                        size={14}
-                        className="text-slate-500"
+                  {item.isVoiceNote || String(item.type || "").startsWith("audio/") ? (
+                    <div className="space-y-2">
+                      <ChatVoiceNote
+                        attachment={{
+                          ...item,
+                          data: item.preview,
+                          duration: item.duration,
+                        }}
+                        authorName={currentUserProfile?.name || "Tú"}
+                        compact
                       />
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => removeCreateFile(item.id)}
+                          disabled={submitting}
+                          title="Quitar"
+                          className="rounded-lg p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-500/10"
+                        >
+                          <Icon name="X" size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      {item.preview ? (
+                        <img
+                          src={item.preview}
+                          alt=""
+                          className="h-9 w-9 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700">
+                          <Icon
+                            name={item.type?.startsWith("video/") ? "Video" : "FileText"}
+                            size={14}
+                            className="text-slate-500"
+                          />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
+                          {item.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {formatCreateFileSize(item.size)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeCreateFile(item.id)}
+                        disabled={submitting}
+                        title="Quitar"
+                        className="rounded-lg p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-500/10"
+                      >
+                        <Icon name="X" size={13} />
+                      </button>
                     </div>
                   )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
-                      {item.name}
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      {formatCreateFileSize(item.size)}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeCreateFile(item.id)}
-                    disabled={submitting}
-                    title="Quitar"
-                    className="rounded-lg p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-500/10"
-                  >
-                    <Icon name="X" size={13} />
-                  </button>
                 </div>
               ))}
               {pendingFiles.length < MAX_TASK_ATTACHMENTS && (
@@ -22837,14 +23404,24 @@ const CreateTaskModal = ({
                   <div className="w-4 h-4 rounded-full bg-[var(--text-muted)] flex items-center justify-center text-white font-black text-[8px]">
                     {selectedAssignees[0].name.slice(0, 2).toUpperCase()}
                   </div>
-                  {type === "editingTask" ? `Editor · ${selectedAssignees[0].name}` : selectedAssignees[0].name}
+                  {type === "editingTask"
+                    ? `Editor · ${selectedAssignees[0].name}`
+                    : type === "accountTask"
+                      ? `Responsable · ${selectedAssignees[0].name}`
+                      : selectedAssignees[0].name}
                 </>
               ) : selectedAssignees.length > 1 ? (
                 type === "editingTask"
                   ? `${selectedAssignees.length} editores`
-                  : `${selectedAssignees.length} asignados`
+                  : type === "accountTask"
+                    ? `${selectedAssignees.length} responsables`
+                    : `${selectedAssignees.length} asignados`
               ) : (
-                type === "editingTask" ? "Asignar editor" : "Asignar personas"
+                type === "editingTask"
+                  ? "Asignar editor"
+                  : type === "accountTask"
+                    ? "Asignar responsable"
+                    : "Asignar personas"
               )}
             </Chip>
             {assigneeOpen && canAssign && (
@@ -22853,7 +23430,11 @@ const CreateTaskModal = ({
                 data-ctdrop
               >
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-4 pt-2 pb-1 sticky top-0 bg-white dark:bg-slate-800">
-                  {type === "editingTask" ? "Editores" : "Asignar a varios"}
+                  {type === "editingTask"
+                    ? "Editores"
+                    : type === "accountTask"
+                      ? "Responsables"
+                      : "Asignar a varios"}
                 </p>
                 {peoplePool.map((p) => {
                   const checked = assigneeIds.includes(p.id);
@@ -22891,7 +23472,7 @@ const CreateTaskModal = ({
             )}
           </div>
 
-          {type === "editingTask" && (
+          {(type === "editingTask" || type === "accountTask") && (
             <div className="relative" data-ctdrop>
               <Chip
                 icon={selectedAccount ? null : "Briefcase"}

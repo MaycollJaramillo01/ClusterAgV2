@@ -195,6 +195,7 @@ const sanitizeStoredAttachment = (attachment, index, { collectionName, recordId,
     const uploadedBy = String(attachment.uploadedBy || '').trim().slice(0, 120);
     const uploadedAt = String(attachment.uploadedAt || '').trim().slice(0, 40);
     const storage = attachment.storage === 'database' ? 'database' : 'r2';
+    const role = String(attachment.role || '').trim().slice(0, 40);
     return {
         id: String(attachment.id || parsed.attachmentId || `attachment-${index + 1}`).trim().slice(0, 120),
         name,
@@ -204,6 +205,10 @@ const sanitizeStoredAttachment = (attachment, index, { collectionName, recordId,
         storage,
         ...(uploadedBy ? { uploadedBy } : {}),
         ...(uploadedAt ? { uploadedAt } : {}),
+        ...(role ? { role } : {}),
+        ...(attachment.isVoiceNote === true || /^nota-de-voz/i.test(name)
+            ? { isVoiceNote: true }
+            : {}),
         ...optionalDuration(attachment.duration)
     };
 };
