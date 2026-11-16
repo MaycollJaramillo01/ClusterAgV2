@@ -36,6 +36,7 @@ copyIntoPublic('manifest.webmanifest');
 copyIntoPublic('firebase-messaging-sw.js');
 copyIntoPublic('src/app/main.compiled.js');
 copyIntoPublic('src/app/boot.js');
+copyIntoPublic('src/app/pwa.js');
 copyIntoPublic('src/app/assets');
 copyIntoPublic('src/styles/tailwind.generated.css');
 copyIntoPublic('src/styles/main.css');

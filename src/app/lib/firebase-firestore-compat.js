@@ -7,6 +7,7 @@ import {
 
 const registry = new Map();
 const DEFAULT_POLL_MS = 120000;
+const CHAT_POLL_MS = 10000;
 const IDLE_AFTER_MS = 240000;
 const TASK_COLLECTIONS = TASK_WINDOW_COLLECTIONS;
 const STATIC_COLLECTIONS = new Set(['clients', 'events', 'managers', 'editors', 'users', 'client_chats', 'chat_reads', 'chat_mutes', 'chat_hidden', 'chat_reactions', 'chat_pins', 'chat_stickers', 'team_groups']);
@@ -187,17 +188,24 @@ const getLiveCollectionsForView = (view, hasListeners = hasCollectionListeners) 
 
 const getLiveCollections = () => {
     if (typeof window === 'undefined') return [];
-    return getLiveCollectionsForView(window.__cluster_active_view || '');
+    const viewCollections = getLiveCollectionsForView(window.__cluster_active_view || '');
+    const chatCollections = ['client_chats', 'chat_reactions', 'chat_pins'].filter(hasCollectionListeners);
+    return [...new Set([...viewCollections, ...chatCollections])];
 };
 
-const shouldPollNow = () => typeof document !== 'undefined' && isPollingAllowed({
-    visibilityState: document.visibilityState,
-    lastActivity: lastActivityAt
-});
+const shouldPollNow = () => {
+    if (typeof document === 'undefined' || document.visibilityState !== 'visible') return false;
+    if (isPollingAllowed({
+        visibilityState: 'visible',
+        lastActivity: lastActivityAt
+    })) return true;
+    return hasCollectionListeners('client_chats');
+};
 
 const getPollMs = () => {
     const configured = Number(typeof window !== 'undefined' ? window.__cluster_poll_ms : DEFAULT_POLL_MS);
-    return Number.isFinite(configured) && configured >= 10000 ? configured : DEFAULT_POLL_MS;
+    if (Number.isFinite(configured) && configured >= 10000) return configured;
+    return hasCollectionListeners('client_chats') ? CHAT_POLL_MS : DEFAULT_POLL_MS;
 };
 
 const applyServerChanges = (changes) => {
@@ -348,6 +356,17 @@ if (typeof document !== 'undefined') {
             pauseSync();
         }
     });
+    if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
+        navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data?.type !== 'cluster:push') return;
+            const collections = Array.isArray(event.data.collections)
+                ? event.data.collections
+                : ['client_chats'];
+            window.dispatchEvent(new CustomEvent('cluster:push', {
+                detail: { collections }
+            }));
+        });
+    }
 }
 
 export const initializeFirestore = (app, options = {}) => ({ app, options });

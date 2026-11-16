@@ -54,14 +54,11 @@ export const registerFirebaseWebPush = async ({ onMessage } = {}) => {
     }
 
     const config = window.__cluster_firebase_config;
-    const serviceWorkerRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+    const workerUrl = `/firebase-messaging-sw.js?config=${encodeURIComponent(JSON.stringify(config || {}))}`;
+    const serviceWorkerRegistration = await navigator.serviceWorker.register(workerUrl, {
         scope: '/'
     });
     await navigator.serviceWorker.ready;
-    serviceWorkerRegistration.active?.postMessage({
-        type: 'firebase-config',
-        config: config || {}
-    });
     const messaging = await getFirebaseMessaging();
     const vapidKey = String(window.__cluster_firebase_web_push_vapid_key || '').trim();
     if (!isValidVapidPublicKey(vapidKey)) {

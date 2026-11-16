@@ -2,7 +2,7 @@
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js');
 
-const SHELL_CACHE = 'cluster-shell-v1';
+const SHELL_CACHE = 'cluster-shell-v2';
 const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg'];
 
 const readQueryConfig = () => {
@@ -44,11 +44,18 @@ const startFirebaseMessaging = (config) => {
     const messaging = firebase.messaging();
     messaging.onBackgroundMessage((payload) => {
         const data = payload?.data || {};
-        return showGroupedNotification({
-            title: data.title || payload?.notification?.title,
-            body: data.body || payload?.notification?.body,
-            data
-        });
+        return (async () => {
+            await showGroupedNotification({
+                title: data.title || payload?.notification?.title,
+                body: data.body || payload?.notification?.body,
+                data
+            });
+            const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+            windows.forEach((client) => client.postMessage({
+                type: 'cluster:push',
+                collections: ['client_chats']
+            }));
+        })();
     });
 };
 
@@ -72,41 +79,21 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
     const request = event.request;
-    if (request.method !== 'GET') return;
+    if (request.method !== 'GET' || request.mode !== 'navigate') return;
     const url = new URL(request.url);
     if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
 
-    if (request.mode === 'navigate') {
-        event.respondWith((async () => {
-            try {
-                const response = await fetch(request);
-                const cache = await caches.open(SHELL_CACHE);
-                cache.put('/index.html', response.clone()).catch(() => {});
-                return response;
-            } catch {
-                return (await caches.match('/index.html'))
-                    || (await caches.match('/'))
-                    || Response.error();
-            }
-        })());
-        return;
-    }
-
-    const isShellAsset = url.pathname.startsWith('/src/')
-        || url.pathname === '/favicon.svg'
-        || url.pathname === '/manifest.webmanifest'
-        || url.pathname === '/app-config.js';
-    if (!isShellAsset) return;
-
     event.respondWith((async () => {
-        const cached = await caches.match(request);
-        const network = fetch(request).then((response) => {
-            if (response && response.ok) {
-                caches.open(SHELL_CACHE).then((cache) => cache.put(request, response.clone())).catch(() => {});
-            }
+        try {
+            const response = await fetch(request);
+            const cache = await caches.open(SHELL_CACHE);
+            cache.put('/index.html', response.clone()).catch(() => {});
             return response;
-        }).catch(() => cached);
-        return cached || network;
+        } catch {
+            return (await caches.match('/index.html'))
+                || (await caches.match('/'))
+                || Response.error();
+        }
     })());
 });
 
