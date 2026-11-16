@@ -10483,6 +10483,7 @@ const DashboardView = ({
         completed: snapshot.completedTasks.length,
         assigned: snapshot.monthlyTasks.length,
         onTimePercent: snapshot.onTimePercent,
+        paceScore: snapshot.paceScore,
         measuredCompletionCount: snapshot.measuredCompletionCount,
         qualified: snapshot.qualified,
         provisionalReason: snapshot.provisionalReason,
@@ -10699,6 +10700,7 @@ const DashboardView = ({
               <small>
                 {completionPercent}% avance ·{" "}
                 {onTimePercent === null ? "N/D" : `${onTimePercent}%`} puntualidad
+                {personalKpi.paceScore != null ? ` · ${personalKpi.paceScore}% ritmo` : ""}
               </small>
               {personalCompliance?.quotaPenalty > 0 && (
                 <small className="font-semibold text-red-400">
@@ -10832,7 +10834,7 @@ const DashboardView = ({
           <div className="pd-insight-heading">
             <div>
               <h3 id="pd-user-kpi-title">KPI por usuario</h3>
-              <p>{dashboardPeriod.label} · avance 70% + puntualidad 30%</p>
+              <p>{dashboardPeriod.label} · avance 70% + puntualidad 30% · el ritmo ajusta la nota</p>
             </div>
             <button
               type="button"
@@ -10878,6 +10880,7 @@ const DashboardView = ({
                         : item.onTimePercent === null
                         ? "Puntualidad N/D"
                         : `${item.onTimePercent}% puntualidad`}
+                      {item.paceScore != null ? ` · ${item.paceScore}% ritmo` : ""}
                     </small>
                   </span>
                   <span className="pd-user-kpi-track" aria-hidden="true">
@@ -27855,7 +27858,7 @@ const PerformanceView = ({
             {groupLabel} · {visiblePersonStats.length} personas
           </span>
           <small>
-            70% entregado + 30% entregado a tiempo, sobre la carga asignada
+            70% entregado + 30% a tiempo. El ritmo de producción, revisión y aprobación ajusta un 25% de la nota
           </small>
         </div>
 
@@ -28040,6 +28043,7 @@ const PerformanceView = ({
                             {person.qualified
                               ? `${person.deliveryPerformance}% cumplimiento`
                               : `Provisional · ${person.provisionalReason}`}
+                            {person.paceScore != null ? ` · ${person.paceScore}% ritmo` : ""}
                           </small>
                     </span>
                     <span className="performance-kpi-track" aria-hidden="true">

@@ -35,7 +35,8 @@ const personal = (tasks, profile = { id: manager.userId, linkedManagerId: manage
 
 const assertSameKpi = (home, performance) => {
   for (const key of ["score", "total", "completed", "pending", "weightedTotal",
-    "weightedCompleted", "onTimePercent", "measuredCompletionCount", "qualified"]) {
+    "weightedCompleted", "onTimePercent", "measuredCompletionCount", "qualified",
+    "paceScore", "paceTaskCount"]) {
     assert.equal(home[key], performance[key], key);
   }
 };
@@ -250,6 +251,80 @@ test("el registro de etapas suma la producción del editor y la revisión de acc
   assert.equal(review.totalMs, 90 * 60 * 1000);
   assert.equal(review.lastActorId, "account-1");
   assert.equal(timeline.stages.find((stage) => stage.id === "aprobado").open, true);
+});
+
+test("el ritmo de cada etapa modifica el KPI de quien la hizo", () => {
+  const started = "2026-06-08T12:00:00.000Z";
+  const fastEnd = "2026-06-08T14:00:00.000Z";
+  const slowEnd = "2026-06-11T20:00:00.000Z";
+  const visit = (status, leftAt, closedById, enteredAt = started) => ({
+    status, enteredAt, leftAt, closedById, actorId: closedById,
+    durationMs: Date.parse(leftAt) - Date.parse(enteredAt),
+  });
+  const slowEditor = makeTasks({
+    _taskType: "editingTask", contextId: editor.id, createdAt: started,
+    stageLog: [visit("en_edicion", slowEnd, editor.id)],
+  });
+  const slow = team(slowEditor, editor, "editor");
+  assert.equal(slow.paceScore, 0);
+  assert.equal(slow.score, 75);
+  assertSameKpi(personal(slowEditor, { id: editor.userId, linkedEditorId: editor.id, role: "editor" }), slow);
+
+  const fastLate = makeTasks({
+    _taskType: "editingTask", contextId: editor.id, createdAt: started, completedAt: late,
+    stageLog: [visit("en_edicion", fastEnd, editor.id)],
+  });
+  assert.equal(team(fastLate, editor, "editor").paceScore, 100);
+  assert.equal(team(fastLate, editor, "editor").score, 78);
+
+  const reviewed = makeTasks({
+    _taskType: "editingTask", contextId: editor.id, accountId: manager.id, createdAt: started,
+    stageLog: [
+      visit("en_edicion", fastEnd, editor.id),
+      visit("revision_interna", "2026-06-12T00:00:00.000Z", manager.id, fastEnd),
+    ],
+  });
+  assert.equal(team(reviewed, editor, "editor").score, 100);
+  assert.equal(team(reviewed, editor, "editor").paceScore, 100);
+  const account = team([...makeTasks({ createdAt: started }), ...reviewed], manager, "manager");
+  assert.equal(account.paceScore, 0);
+  assert.equal(account.score, 75);
+
+  const queued = makeTasks({
+    _taskType: "editingTask", contextId: editor.id, createdAt: started,
+    stageLog: [
+      visit("editar", slowEnd, editor.id),
+      visit("en_edicion", "2026-06-11T22:00:00.000Z", editor.id, slowEnd),
+    ],
+  });
+  assert.equal(team(queued, editor, "editor").paceScore, 100);
+  assert.equal(team(queued, editor, "editor").score, 100);
+
+  const doneByOther = makeTasks({
+    _taskType: "editingTask", contextId: editor.id, createdAt: started,
+    stageLog: [visit("en_edicion", slowEnd, "editor-2")],
+  });
+  assert.equal(team(doneByOther, editor, "editor").paceScore, null);
+  assert.equal(team(doneByOther, editor, "editor").score, 100);
+  const other = team([
+    ...makeTasks({ _taskType: "editingTask", contextId: "editor-2", createdAt: started }),
+    ...doneByOther,
+  ], { id: "editor-2" }, "editor");
+  assert.equal(other.paceScore, 0);
+  assert.equal(other.score, 75);
+
+  const openNow = Date.parse(fastEnd);
+  const open = makeTasks({
+    _taskType: "editingTask", contextId: editor.id, status: "en_edicion",
+    completedAt: undefined, createdAt: started,
+    stageLog: [{ status: "en_edicion", enteredAt: started, leftAt: "", closedById: "", actorId: manager.id, durationMs: 0 }],
+  });
+  const openResult = buildTeamKpiStats({
+    people: [editor], tasks: open, kind: "editor", period, today, now: openNow,
+  })[0];
+  assert.equal(openResult.paceScore, 100);
+  assert.equal(openResult.score, 25);
+  assert.equal(team(makeTasks()).paceScore, null);
 });
 
 test("las transiciones guardan responsables y vencimiento antes de modificaciones posteriores", () => {
