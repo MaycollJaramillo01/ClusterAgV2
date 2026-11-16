@@ -112,6 +112,15 @@ test("assertTaskPrivilegedFields blocks due date and assignee edits without pack
     }),
     "tasks/assign-forbidden",
   );
+  expectForbidden(
+    () => assertTaskPrivilegedFields({
+      collectionName: "account_tasks",
+      existing,
+      incoming: { accountId: "manager-2" },
+      actor: manager,
+    }),
+    "tasks/assign-forbidden",
+  );
 
   assert.doesNotThrow(() => assertTaskPrivilegedFields({
     collectionName: "account_tasks",

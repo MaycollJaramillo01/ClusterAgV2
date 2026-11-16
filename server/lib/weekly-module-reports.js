@@ -117,16 +117,17 @@ export const getModuleLaneByStatus = (taskType, statusValue = '') => {
     if (taskType === 'editingTask') {
         const normalizedEditing = normalizeEditingWorkflowStatus(normalizedStatus);
         if (normalizedEditing === 'editar') return 'start';
-        if (['en_edicion', 'revision_interna'].includes(normalizedEditing)) return 'production';
+        if (normalizedEditing === 'revision_interna') return 'review';
+        if (normalizedEditing === 'en_edicion') return 'production';
         return 'ready';
     }
     if (['programado', 'pendiente'].includes(normalizedStatus)) return 'start';
+    if (normalizedStatus === 'revision') return 'review';
     if ([
         'grabando',
         'en_produccion',
         'editando',
         'post_produccion',
-        'revision',
         'en_proceso',
         'en_espera'
     ].includes(normalizedStatus)) {

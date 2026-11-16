@@ -132,7 +132,12 @@ export const createApp = async () => {
 
     const publicDir = path.join(env.rootDir, 'public');
     app.use(express.static(publicDir, {
-        extensions: ['html']
+        extensions: ['html'],
+        setHeaders(res, filePath) {
+            if (filePath.endsWith('manifest.webmanifest')) {
+                res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+            }
+        }
     }));
 
     app.get('*', (req, res, next) => {

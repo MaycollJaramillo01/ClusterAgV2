@@ -2,7 +2,16 @@
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js');
 
-const config = JSON.parse(new URL(self.location.href).searchParams.get('config') || '{}');
+const SHELL_CACHE = 'cluster-shell-v1';
+const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg'];
+
+const readQueryConfig = () => {
+    try {
+        return JSON.parse(new URL(self.location.href).searchParams.get('config') || '{}');
+    } catch {
+        return {};
+    }
+};
 
 const showGroupedNotification = async ({ title, body, data = {} }) => {
     const isCompliance = data.type === 'compliance';
@@ -27,7 +36,10 @@ const showGroupedNotification = async ({ title, body, data = {} }) => {
     });
 };
 
-if (config.projectId && config.messagingSenderId && config.appId) {
+let messagingReady = false;
+const startFirebaseMessaging = (config) => {
+    if (messagingReady || !config?.projectId || !config?.messagingSenderId || !config?.appId) return;
+    messagingReady = true;
     firebase.initializeApp(config);
     const messaging = firebase.messaging();
     messaging.onBackgroundMessage((payload) => {
@@ -38,9 +50,71 @@ if (config.projectId && config.messagingSenderId && config.appId) {
             data
         });
     });
-}
+};
+
+startFirebaseMessaging(readQueryConfig());
+
+self.addEventListener('install', (event) => {
+    event.waitUntil((async () => {
+        const cache = await caches.open(SHELL_CACHE);
+        await Promise.all(SHELL_URLS.map((url) => cache.add(url).catch(() => {})));
+        await self.skipWaiting();
+    })());
+});
+
+self.addEventListener('activate', (event) => {
+    event.waitUntil((async () => {
+        const keys = await caches.keys();
+        await Promise.all(keys.filter((key) => key !== SHELL_CACHE).map((key) => caches.delete(key)));
+        await self.clients.claim();
+    })());
+});
+
+self.addEventListener('fetch', (event) => {
+    const request = event.request;
+    if (request.method !== 'GET') return;
+    const url = new URL(request.url);
+    if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
+
+    if (request.mode === 'navigate') {
+        event.respondWith((async () => {
+            try {
+                const response = await fetch(request);
+                const cache = await caches.open(SHELL_CACHE);
+                cache.put('/index.html', response.clone()).catch(() => {});
+                return response;
+            } catch {
+                return (await caches.match('/index.html'))
+                    || (await caches.match('/'))
+                    || Response.error();
+            }
+        })());
+        return;
+    }
+
+    const isShellAsset = url.pathname.startsWith('/src/')
+        || url.pathname === '/favicon.svg'
+        || url.pathname === '/manifest.webmanifest'
+        || url.pathname === '/app-config.js';
+    if (!isShellAsset) return;
+
+    event.respondWith((async () => {
+        const cached = await caches.match(request);
+        const network = fetch(request).then((response) => {
+            if (response && response.ok) {
+                caches.open(SHELL_CACHE).then((cache) => cache.put(request, response.clone())).catch(() => {});
+            }
+            return response;
+        }).catch(() => cached);
+        return cached || network;
+    })());
+});
 
 self.addEventListener('message', (event) => {
+    if (event.data?.type === 'firebase-config') {
+        startFirebaseMessaging(event.data.config || {});
+        return;
+    }
     if (event.data?.type !== 'cluster:show-notification') return;
     event.waitUntil(showGroupedNotification(event.data.notification || {}));
 });

@@ -32,6 +32,7 @@ resetDir(publicDir);
 copyIntoPublic('index.html');
 copyIntoPublic('app-config.js');
 copyIntoPublic('favicon.svg');
+copyIntoPublic('manifest.webmanifest');
 copyIntoPublic('firebase-messaging-sw.js');
 copyIntoPublic('src/app/main.compiled.js');
 copyIntoPublic('src/app/boot.js');

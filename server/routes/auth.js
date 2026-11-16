@@ -200,7 +200,7 @@ router.post('/firebase/session', asyncHandler(async (req, res) => {
         throw createHttpError(401, 'El token de Firebase no es valido.', 'auth/invalid-id-token');
     }
 
-    const email = normalizeEmail(decodedToken?.email || req.body?.email);
+    const email = normalizeEmail(decodedToken?.email);
     if (!email) {
         throw createHttpError(400, 'Firebase no devolvio un correo valido.', 'auth/invalid-email');
     }
@@ -211,7 +211,7 @@ router.post('/firebase/session', asyncHandler(async (req, res) => {
         name: decodedToken?.name || '',
         provider,
         authUid: decodedToken?.uid || email,
-        verified: decodedToken?.email_verified !== false
+        verified: decodedToken?.email_verified === true
     });
 
     if (!userRecord || userRecord.isActive === false) {

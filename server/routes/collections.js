@@ -17,12 +17,9 @@ import { DEFAULT_TASK_DUE_TIME, prepareManagementTaskPayload } from '../lib/mana
 import { requireAuthenticatedUser } from '../lib/sessions.js';
 import { normalizeEmail } from '../lib/text.js';
 import { sendClientChatPush } from '../lib/push-notifications.js';
-import {
-    buildChatGroups,
-    canManageChatGroups,
-    isDmParticipant,
-    parseDmClientId
-} from '../lib/chat-groups.js';
+import { canManageChatGroups, parseDmClientId } from '../lib/chat-groups.js';
+import { ensureChatClientAccess, loadChatGroupAccess } from '../lib/chat-access.js';
+import { getStatusTimestampPatch } from '../../src/app/utils/kpi.js';
 import { nowIso } from '../lib/time.js';
 import { writeAuditLog } from '../lib/audit.js';
 import { recordTaskActivity } from '../lib/task-activity.js';
@@ -221,6 +218,7 @@ const validateReferences = async ({ collectionName, existing = null, payload, tr
         await requireReference('clientId', ['clients']);
         await requireReference('contextId', PEOPLE_COLLECTIONS);
         await requireReference('assigneeUserId', PEOPLE_COLLECTIONS);
+        await requireReference('accountId', ['managers']);
         const existingAssigneeIds = new Set([
             ...(Array.isArray(existing?.assignees) ? existing.assignees : []),
             existing?.contextId,
@@ -443,48 +441,6 @@ const ensureCollectionReadPermission = (req) => {
     return ensureCollectionPermission(req, 'read');
 };
 
-const loadChatGroupAccess = async (
-    userRecord,
-    messages = null,
-    allowOversight = true,
-    includeContext = false
-) => {
-    const canAccessAll = allowOversight && canManageChatGroups(userRecord);
-    if (canAccessAll && !includeContext) {
-        return { canAccessAll: true, clientIds: new Set(), context: null };
-    }
-    const [clients, allMessages, membershipRecords, users, managers, editors, teamGroups] = await Promise.all([
-        listRecords({ collectionName: 'clients' }),
-        messages ? Promise.resolve(messages) : listRecords({ collectionName: 'client_chats' }),
-        listRecords({ collectionName: 'chat_group_memberships' }),
-        listRecords({ collectionName: 'users' }),
-        listRecords({ collectionName: 'managers' }),
-        listRecords({ collectionName: 'editors' }),
-        listRecords({ collectionName: 'team_groups' })
-    ]);
-    const context = buildChatGroups({
-        clients,
-        messages: allMessages,
-        membershipRecords,
-        users,
-        managers,
-        editors,
-        teamGroups
-    });
-    const actorId = context.resolvePersonId({
-        id: userRecord?.id,
-        email: userRecord?.email,
-        name: userRecord?.name
-    });
-    return {
-        canAccessAll,
-        clientIds: new Set(context.groups
-            .filter((group) => group.memberIds.map(String).includes(String(actorId)))
-            .map((group) => String(group.clientId))),
-        context
-    };
-};
-
 const normalizeMentionIds = (value) => {
     if (value === undefined || value === null) return [];
     if (!Array.isArray(value) || value.length > 50) {
@@ -524,21 +480,6 @@ const ensureChatMentionsAllowed = async ({ userRecord, clientId, mentionedIds, i
         );
     }
     return ids;
-};
-
-const ensureChatClientAccess = async (userRecord, clientId, { allowOversight = false } = {}) => {
-    const access = await loadChatGroupAccess(userRecord, null, allowOversight, true);
-    if (access.canAccessAll || access.clientIds.has(String(clientId || ''))) return;
-    const actorCandidates = [
-        access.context?.resolvePersonId?.({
-            id: userRecord?.id,
-            email: userRecord?.email,
-            name: userRecord?.name
-        }),
-        userRecord?.id
-    ];
-    if (isDmParticipant(clientId, actorCandidates)) return;
-    throw createHttpError(403, 'No perteneces a este grupo.', 'chat-groups/membership-required');
 };
 
 const ensureChatContextAccess = async (userRecord, collectionName, record = {}) => {
@@ -907,16 +848,8 @@ router.post('/_kanban/move', asyncHandler(async (req, res) => {
     const taskId = assertRecordId(req.body?.taskId);
     const targetStatus = String(req.body?.targetStatus || '').trim();
     const beforeId = req.body?.beforeId ? assertRecordId(req.body.beforeId) : '';
-    const statusPatch = req.body?.statusPatch && typeof req.body.statusPatch === 'object'
-        && !Array.isArray(req.body.statusPatch) ? req.body.statusPatch : {};
     if (!TASK_COLLECTIONS.has(collectionName) || !KANBAN_STATUSES[collectionName]?.has(targetStatus)) {
         throw createHttpError(400, 'La columna de destino no es válida.', 'kanban/invalid-column');
-    }
-    if (Object.keys(statusPatch).some((field) => !KANBAN_STATUS_PATCH_FIELDS.has(field))) {
-        throw createHttpError(400, 'Los datos del cambio de estado no son válidos.', 'kanban/invalid-status-data');
-    }
-    if (statusPatch.status && statusPatch.status !== targetStatus) {
-        throw createHttpError(400, 'El estado no coincide con la columna de destino.', 'kanban/status-mismatch');
     }
     const permission = getCollectionPermission(collectionName, 'update');
     if (!permission || !hasPermission(actor, permission)) {
@@ -957,6 +890,17 @@ router.post('/_kanban/move', asyncHandler(async (req, res) => {
                 const statusChanged = isMovingTask && sourceStatus !== targetStatus;
                 if (!statusChanged && Number(item.boardOrder) === boardOrder) continue;
 
+                const workflow = collectionName === 'editing'
+                    ? 'editing'
+                    : collectionName === 'management_tasks'
+                        ? 'management'
+                        : '';
+                const statusPatch = statusChanged
+                    ? getStatusTimestampPatch(movingTask, targetStatus, stamp, actor.id, workflow)
+                    : {};
+                if (Object.keys(statusPatch).some((field) => !KANBAN_STATUS_PATCH_FIELDS.has(field))) {
+                    throw createHttpError(500, 'No se pudo registrar el cambio de estado.', 'kanban/invalid-status-data');
+                }
                 const incoming = isMovingTask
                     ? { ...statusPatch, ...(statusChanged ? { status: targetStatus } : {}), boardOrder, updatedAt: stamp }
                     : { boardOrder, updatedAt: stamp };

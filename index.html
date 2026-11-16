@@ -3,9 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#151a16">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Cluster">
     <title>Cluster Agency OS</title>
+    <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" type="image/webp" href="/src/app/assets/cluster-symbol.webp">
-    <script src="/src/app/boot.js?v=20260811-security"></script>
+    <link rel="apple-touch-icon" href="/src/app/assets/pwa-icon-192.png">
+    <script src="/src/app/boot.js?v=20261116-pwa"></script>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet">
     
@@ -17,7 +23,7 @@
 <body class="app-body">
     <div id="root"></div>
 
-    <script type="module" src="/src/app/main.compiled.js?v=20261116-client-account"></script>
+    <script type="module" src="/src/app/main.compiled.js?v=20261116-pwa"></script>
 </body>
 </html>
 

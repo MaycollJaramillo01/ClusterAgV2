@@ -81,6 +81,7 @@ export const assertTaskPrivilegedFields = ({
         (Object.hasOwn(incoming, 'assignees') && asSortedIds(incoming.assignees).join('|') !== existingAssigneeIds(existing).join('|'))
         || (Object.hasOwn(incoming, 'contextId') && !sameText(incoming.contextId, existing.contextId))
         || (Object.hasOwn(incoming, 'assigneeUserId') && !sameText(incoming.assigneeUserId, existing.assigneeUserId || existing.contextId))
+        || (Object.hasOwn(incoming, 'accountId') && !sameText(incoming.accountId, existing.accountId))
     );
     if (assigneesChanged && !hasPermission(actor, 'assign_tasks')) {
         throw createHttpError(403, 'No tienes permiso para cambiar las asignaciones.', 'tasks/assign-forbidden');

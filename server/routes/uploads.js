@@ -14,6 +14,8 @@ import {
 } from '../lib/attachments.js';
 import { getCollectionPermission, hasPermission } from '../lib/permissions.js';
 import { getRecord } from '../lib/records.js';
+import { ensureChatClientAccess } from '../lib/chat-access.js';
+import { parseDmClientId } from '../lib/chat-groups.js';
 import { env } from '../config/env.js';
 import { deleteObject, getR2MaxFileBytes, isR2Configured, publicObjectUrl, signDownloadUrl, signUploadUrl } from '../lib/r2.js';
 import { requireAuthenticatedUser } from '../lib/sessions.js';
@@ -23,11 +25,21 @@ import { nowIso } from '../lib/time.js';
 const router = express.Router();
 const DATABASE_UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024;
 
+const authorizeChatParent = async (userRecord, clientId, action) => {
+    requireChatPermission(userRecord, action === 'read' ? 'read' : 'update');
+    await ensureChatClientAccess(userRecord, clientId, { allowOversight: true });
+    const [client, teamGroup] = await Promise.all([
+        getRecord({ collectionName: 'clients', recordId: clientId }),
+        getRecord({ collectionName: 'team_groups', recordId: clientId })
+    ]);
+    if (!client && !teamGroup && !parseDmClientId(clientId)) {
+        throw createHttpError(404, 'El cliente no existe.', 'document/not-found');
+    }
+};
+
 const authorizeAttachmentParent = async (userRecord, parsed, action) => {
     if (parsed.kind === 'chat') {
-        requireChatPermission(userRecord, action === 'read' ? 'read' : 'update');
-        const client = await getRecord({ collectionName: 'clients', recordId: parsed.clientId });
-        if (!client) throw createHttpError(404, 'El cliente no existe.', 'document/not-found');
+        await authorizeChatParent(userRecord, parsed.clientId, action);
         return;
     }
     requireTaskPermission(userRecord, parsed.collectionName, action === 'read' ? 'read' : 'update');
@@ -104,11 +116,7 @@ router.post('/sign', asyncHandler(async (req, res) => {
     }
 
     if (collectionName === CHAT_ATTACHMENT_COLLECTION) {
-        requireChatPermission(userRecord, 'update');
-        const client = await getRecord({ collectionName: 'clients', recordId: parentId });
-        if (!client) {
-            throw createHttpError(404, 'El cliente no existe.', 'document/not-found');
-        }
+        await authorizeChatParent(userRecord, parentId, 'update');
     } else {
         requireTaskPermission(userRecord, collectionName, 'update');
         const task = await getRecord({ collectionName, recordId: parentId });

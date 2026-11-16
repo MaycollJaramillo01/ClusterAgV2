@@ -4,6 +4,7 @@ import {
     getWeeklyModuleReportWindow,
     shouldSendWeeklyModuleReport,
     isModuleItem,
+    getModuleLaneByStatus,
     isReadyStatus,
     summarizeModuleWeek,
     mergeRosterPeople
@@ -38,6 +39,10 @@ test('isModuleItem classifies by type and keywords', () => {
 test('isReadyStatus matches Kanban ready lane', () => {
     assert.equal(isReadyStatus('editingTask', 'aprobado'), true);
     assert.equal(isReadyStatus('editingTask', 'en_edicion'), false);
+    assert.equal(isReadyStatus('editingTask', 'revision_interna'), false);
+    assert.equal(getModuleLaneByStatus('editingTask', 'revision_interna'), 'review');
+    assert.equal(getModuleLaneByStatus('event', 'revision'), 'review');
+    assert.equal(getModuleLaneByStatus('editingTask', 'en_edicion'), 'production');
     assert.equal(isReadyStatus('accountTask', 'aprobado_internamente'), true);
     assert.equal(isReadyStatus('accountTask', 'por_disenar'), false);
     assert.equal(isReadyStatus('event', 'publicado'), true);

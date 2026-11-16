@@ -207,3 +207,42 @@ test('task activity records opens and field names for task updates', async () =>
     assert.deepEqual(activity.payload.events[0].fields, ['title']);
     assert.ok(Number.isFinite(Date.parse(activity.payload.events[0].createdAt)));
 });
+
+test('chat uploads require membership in the conversation', async () => {
+    await createRecord({
+        collectionName: 'clients',
+        recordId: 'client-chat-upload',
+        payload: { name: 'Cliente chat', managerId: '' }
+    });
+    const body = {
+        collectionName: 'client_chats',
+        clientId: 'client-chat-upload',
+        fileName: 'nota.png',
+        contentType: 'image/png',
+        size: 4
+    };
+    const denied = await request('/api/uploads/sign', {
+        token: editorToken,
+        method: 'POST',
+        body
+    });
+    assert.equal(denied.status, 403);
+    assert.equal(denied.payload?.error?.code, 'chat-groups/membership-required');
+
+    await createRecord({
+        collectionName: 'chat_group_memberships',
+        recordId: 'client-chat-upload',
+        payload: {
+            clientId: 'client-chat-upload',
+            memberIds: ['editor-uploads'],
+            updatedAt: nowIso()
+        }
+    });
+    const allowed = await request('/api/uploads/sign', {
+        token: editorToken,
+        method: 'POST',
+        body
+    });
+    assert.equal(allowed.status, 200);
+    assert.ok(String(allowed.payload?.key || '').startsWith('chats/client-chat-upload/'));
+});

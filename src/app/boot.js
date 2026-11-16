@@ -15,4 +15,9 @@
         'dark',
         localStorage.getItem(themeKey) !== 'light'
     );
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' }).catch(() => {});
+        });
+    }
 })();

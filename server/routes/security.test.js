@@ -746,13 +746,20 @@ test('kanban task moves persist column and vertical order for the shared board',
             collectionName: 'account_tasks',
             taskId: 'kanban-b',
             targetStatus: 'publicado',
-            statusPatch: { publishedAt: nowIso(), completedAt: nowIso() }
+            statusPatch: {
+                publishedAt: '2000-01-01T00:00:00.000Z',
+                completedAt: '2000-01-01T00:00:00.000Z'
+            }
         }
     });
     assert.equal(horizontal.status, 200);
     const moved = await getRecord({ collectionName: 'account_tasks', recordId: 'kanban-b' });
     assert.equal(moved.status, 'publicado');
     assert.equal(moved.boardOrder, 10);
+    assert.notEqual(moved.publishedAt, '2000-01-01T00:00:00.000Z');
+    assert.notEqual(moved.completedAt, '2000-01-01T00:00:00.000Z');
+    assert.equal(typeof moved.publishedAt, 'string');
+    assert.ok(moved.publishedAt);
 
     const forbidden = await request('/api/collections/_kanban/move', {
         token: viewerToken,

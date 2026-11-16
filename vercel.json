@@ -45,6 +45,14 @@
       "maxDuration": 30
     }
   },
+  "headers": [
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json; charset=utf-8" }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/auth/google/:path*",
@@ -91,7 +99,7 @@
       "destination": "/index.html"
     },
     {
-      "source": "/:path((?!api/|src/|favicon\\.svg|app-config\\.js|firebase-messaging-sw\\.js).*)",
+      "source": "/:path((?!api/|src/|favicon\\.svg|app-config\\.js|firebase-messaging-sw\\.js|manifest\\.webmanifest).*)",
       "destination": "/index.html"
     }
   ]
