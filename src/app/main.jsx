@@ -753,7 +753,7 @@ const resolveLiveAssigneeUserId = (person, users = []) => {
         (authUid && (id === authUid || id === `auth_${authUid}`)),
     );
   });
-  return match?.id || "";
+  return match?.id || String(person.assigneeUserId || "").trim();
 };
 
 const findCurrentUserTaskAssignee = (profile, assignees = []) => {
@@ -12902,9 +12902,9 @@ const AccountRoomView = ({
       stages: [{ ...columns[0], tasks: tasksForStatus(columns[0].id) }],
     },
     {
-      id: "production",
-      title: "En producción",
-      subtitle: "Validación y aprobación interna",
+      id: "review",
+      title: "En revisión",
+      subtitle: "Pendientes de aprobación",
       color: "blue",
       stages: [{ ...columns[1], tasks: tasksForStatus(columns[1].id) }],
     },
@@ -25234,7 +25234,8 @@ const getModuleLaneByStatus = (taskType, statusValue = "") => {
   if (taskType === "accountTask") {
     if (normalizedStatus === "por_disenar" || normalizedStatus === "pendiente")
       return "start";
-    if (["aprobacion_interna", "en_proceso", "en_espera"].includes(normalizedStatus))
+    if (normalizedStatus === "aprobacion_interna") return "review";
+    if (["en_proceso", "en_espera"].includes(normalizedStatus))
       return "production";
     return "ready";
   }
@@ -25266,7 +25267,8 @@ const getModuleDropStatus = (taskType, laneId, currentStatus = "") => {
   const maps = {
     accountTask: {
       start: "por_disenar",
-      production: "aprobacion_interna",
+      production: "por_disenar",
+      review: "aprobacion_interna",
       ready: "aprobado_internamente",
     },
     editingTask: {

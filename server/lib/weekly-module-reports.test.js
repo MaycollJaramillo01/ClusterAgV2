@@ -41,6 +41,7 @@ test('isReadyStatus matches Kanban ready lane', () => {
     assert.equal(isReadyStatus('editingTask', 'en_edicion'), false);
     assert.equal(isReadyStatus('editingTask', 'revision_interna'), false);
     assert.equal(getModuleLaneByStatus('editingTask', 'revision_interna'), 'review');
+    assert.equal(getModuleLaneByStatus('accountTask', 'aprobacion_interna'), 'review');
     assert.equal(getModuleLaneByStatus('event', 'revision'), 'review');
     assert.equal(getModuleLaneByStatus('editingTask', 'en_edicion'), 'production');
     assert.equal(isReadyStatus('accountTask', 'aprobado_internamente'), true);

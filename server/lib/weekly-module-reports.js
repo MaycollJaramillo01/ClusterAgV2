@@ -111,7 +111,8 @@ export const getModuleLaneByStatus = (taskType, statusValue = '') => {
     const normalizedStatus = String(statusValue || '').trim().toLowerCase();
     if (taskType === 'accountTask') {
         if (normalizedStatus === 'por_disenar' || normalizedStatus === 'pendiente') return 'start';
-        if (['aprobacion_interna', 'en_proceso', 'en_espera'].includes(normalizedStatus)) return 'production';
+        if (normalizedStatus === 'aprobacion_interna') return 'review';
+        if (['en_proceso', 'en_espera'].includes(normalizedStatus)) return 'production';
         return 'ready';
     }
     if (taskType === 'editingTask') {
