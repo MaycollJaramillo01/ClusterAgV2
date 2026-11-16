@@ -5746,12 +5746,30 @@ function App() {
     const trimmed = String(title || "").trim();
     if (!trimmed) return null;
     const ids = [...new Set((assigneeIds || []).map(String).filter(Boolean))];
+    const resolvedClientId =
+      clientId || (conversation?.isTeamGroup ? "" : conversation?.id) || "";
+    const clientRecord = clients.find(
+      (item) => String(item.id) === String(resolvedClientId),
+    );
+    const responsible = managers.find(
+      (person) =>
+        String(person.id) === String(clientRecord?.managerId || "") &&
+        person.isActive !== false,
+    );
+    const assignedIds =
+      ids.length || taskType !== "accountTask" || !responsible
+        ? ids
+        : [responsible.id];
     const payload = {
       title: trimmed,
       date: getHondurasTodayStr(),
-      contextId: ids[0] || "",
-      assignees: ids,
-      clientId: clientId || (conversation?.isTeamGroup ? "" : conversation?.id) || "",
+      contextId: assignedIds[0] || "",
+      assignees: assignedIds,
+      accountId:
+        responsible && (taskType === "accountTask" || taskType === "editingTask")
+          ? responsible.id
+          : "",
+      clientId: resolvedClientId,
       notes: conversation?.isTeamGroup
         ? `Asignada desde el grupo ${conversation.name}`
         : `Asignada desde el chat de ${conversation?.name || "cliente"}`,
@@ -12462,7 +12480,7 @@ const TaskRoomWorkspace = ({
   inspector,
 }) => (
   <div className="task-room-workspace grid min-h-0 flex-1 gap-3">
-    <div className="task-room-board flex min-h-0 gap-3 overflow-x-auto pb-4 snap-x snap-mandatory kanban-mobile-scroll lg:grid lg:grid-cols-3 lg:overflow-hidden lg:pb-0">
+    <div className={`task-room-board flex min-h-0 gap-3 overflow-x-auto pb-4 snap-x snap-mandatory kanban-mobile-scroll lg:grid lg:overflow-hidden lg:pb-0 ${groups.length > 3 ? "task-room-board-4 lg:grid-cols-4" : "lg:grid-cols-3"}`}>
       {groups.map((group) => {
         const count = group.stages.reduce((total, stage) => total + stage.tasks.length, 0);
         return (
@@ -13182,12 +13200,22 @@ const EditionsRoomView = ({
     {
       id: "production",
       title: "En producción",
-      subtitle: "En edición o en revisión",
+      subtitle: "En edición",
       color: "amber",
-      stages: columns.slice(1, 3).map((column) => ({
-        ...column,
-        tasks: tasksForStatus(column.id),
-      })),
+      stages: [{
+        ...columns[1],
+        tasks: tasksForStatus(columns[1].id),
+      }],
+    },
+    {
+      id: "review",
+      title: "En revisión",
+      subtitle: "Pendientes de aprobación",
+      color: "blue",
+      stages: [{
+        ...columns[2],
+        tasks: tasksForStatus(columns[2].id),
+      }],
     },
     {
       id: "ready",
@@ -22617,9 +22645,25 @@ const CreateTaskModal = ({
         setTitle("");
         setNotes("");
         setShowDesc(false);
-        setAssigneeId(data?.contextId || "");
-        setAssigneeIds(data?.contextId ? [data.contextId] : []);
-        setAccountId(data?.accountId || "");
+        const presetClient = clients.find(
+          (item) => String(item.id) === String(data?.clientId || ""),
+        );
+        const presetResponsible = managers.find(
+          (person) =>
+            String(person.id) === String(presetClient?.managerId || "") &&
+            person.isActive !== false,
+        );
+        const presetAssigneeId =
+          data?.contextId ||
+          (type === "accountTask" ? presetResponsible?.id || "" : "");
+        setAssigneeId(presetAssigneeId);
+        setAssigneeIds(presetAssigneeId ? [presetAssigneeId] : []);
+        setAccountId(
+          data?.accountId ||
+            (type === "accountTask" || type === "editingTask"
+              ? presetResponsible?.id || ""
+              : ""),
+        );
         setClientId(data?.clientId || "");
         {
           const seedDate = data?.date || "";
@@ -23780,23 +23824,46 @@ const CreateTaskModal = ({
                           .includes(clientSearch.toLowerCase()),
                     )
                     .slice(0, 8)
-                    .map((c) => (
+                    .map((c) => {
+                      const responsible = managers.find(
+                        (person) =>
+                          String(person.id) === String(c.managerId || "") &&
+                          person.isActive !== false,
+                      );
+                      return (
                       <button
                         key={c.id}
                         onClick={() => {
                           setClientId(c.id);
                           setClientOpen(false);
                           setClientSearch("");
+                          if (
+                            !canAssign ||
+                            !responsible ||
+                            (type !== "accountTask" && type !== "editingTask")
+                          ) {
+                            return;
+                          }
+                          setAccountId(responsible.id);
+                          if (type === "accountTask") {
+                            setAssigneeId(responsible.id);
+                            setAssigneeIds([responsible.id]);
+                          }
                         }}
                         className={`w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${clientId === c.id ? "bg-purple-50 dark:bg-purple-500/10" : ""}`}
                       >
                         <div className="w-6 h-6 rounded-lg bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center font-black text-[10px] shrink-0">
                           {c.name.charAt(0).toUpperCase()}
                         </div>
-                        <span
-                          className={`text-sm font-semibold flex-1 text-left truncate ${clientId === c.id ? "text-purple-600 dark:text-purple-400" : "text-slate-700 dark:text-slate-200"}`}
-                        >
-                          {c.name}
+                        <span className="min-w-0 flex-1 text-left">
+                          <span
+                            className={`block truncate text-sm font-semibold ${clientId === c.id ? "text-purple-600 dark:text-purple-400" : "text-slate-700 dark:text-slate-200"}`}
+                          >
+                            {c.name}
+                          </span>
+                          <span className="block truncate text-[10px] font-semibold text-slate-400">
+                            {responsible ? `Account · ${responsible.name}` : "Sin responsable"}
+                          </span>
                         </span>
                         {clientId === c.id && (
                           <Icon
@@ -23806,7 +23873,8 @@ const CreateTaskModal = ({
                           />
                         )}
                       </button>
-                    ))}
+                      );
+                    })}
                   {clientSearch &&
                     clients.filter((c) =>
                       c.name.toLowerCase().includes(clientSearch.toLowerCase()),
@@ -24283,7 +24351,7 @@ const Modal = ({
                   defaultValue={data?.managerId}
                   className="w-full p-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-purple-500 outline-none"
                 >
-                  <option value="">Asignar Manager (Opcional)</option>
+                  <option value="">Responsable (opcional)</option>
                   {managers
                     .filter((manager) => manager.isActive !== false)
                     .map((m) => (
@@ -24897,18 +24965,18 @@ const getModuleLaneByStatus = (taskType, statusValue = "") => {
   if (taskType === "editingTask") {
     const normalizedEditing = normalizeEditingWorkflowStatus(normalizedStatus);
     if (normalizedEditing === "editar") return "start";
-    if (["en_edicion", "revision_interna"].includes(normalizedEditing))
-      return "production";
+    if (normalizedEditing === "revision_interna") return "review";
+    if (normalizedEditing === "en_edicion") return "production";
     return "ready";
   }
   if (["programado", "pendiente"].includes(normalizedStatus)) return "start";
+  if (normalizedStatus === "revision") return "review";
   if (
     [
       "grabando",
       "en_produccion",
       "editando",
       "post_produccion",
-      "revision",
       "en_proceso",
       "en_espera",
     ].includes(normalizedStatus)
@@ -24925,8 +24993,18 @@ const getModuleDropStatus = (taskType, laneId, currentStatus = "") => {
       production: "aprobacion_interna",
       ready: "aprobado_internamente",
     },
-    editingTask: { start: "editar", production: "en_edicion", ready: "aprobado" },
-    event: { start: "programado", production: "en_produccion", ready: "publicado" },
+    editingTask: {
+      start: "editar",
+      production: "en_edicion",
+      review: "revision_interna",
+      ready: "aprobado",
+    },
+    event: {
+      start: "programado",
+      production: "en_produccion",
+      review: "revision",
+      ready: "publicado",
+    },
   };
   const laneMap = maps[taskType] || maps.event;
   const nextStatus = laneMap[laneId] || "";
@@ -24943,6 +25021,7 @@ const getModuleStatusOptions = (taskType, moduleKey = "") => {
   if (moduleKey === "production") {
     return [
       { id: "en_produccion", label: "En producción" },
+      { id: "revision", label: "En revisión" },
       { id: "publicado", label: "Listo" },
     ];
   }
@@ -25275,6 +25354,7 @@ const UnifiedModuleKanbanView = ({
   const filteredByLane = {
     start: filteredItems.filter((item) => item._lane === "start"),
     production: filteredItems.filter((item) => item._lane === "production"),
+    review: filteredItems.filter((item) => item._lane === "review"),
     ready: filteredItems.filter((item) => item._lane === "ready"),
   };
   const itemByKey = useMemo(
@@ -25337,6 +25417,20 @@ const UnifiedModuleKanbanView = ({
             ],
           },
           {
+            id: "review",
+            title: "En revisión",
+            subtitle: "Pendientes de aprobación",
+            color: "blue",
+            stages: [
+              {
+                id: "review",
+                title: "En revisión",
+                color: "blue",
+                tasks: filteredByLane.review,
+              },
+            ],
+          },
+          {
             id: "ready",
             title: "Listo",
             subtitle: "Entregado o publicado",
@@ -25376,7 +25470,7 @@ const UnifiedModuleKanbanView = ({
           id: "production",
           title: "En curso",
           color: moduleKey === "podcast" ? "rose" : "cyan",
-          tasks: filteredByLane.production,
+          tasks: [...filteredByLane.production, ...filteredByLane.review],
         },
       ],
     },
@@ -25673,7 +25767,9 @@ const UnifiedModuleKanbanView = ({
             moduleKey === "production" && task._taskType === "event"
               ? ["publicado", "cerrado", "aprobado"].includes(task._status)
                 ? "publicado"
-                : "en_produccion"
+                : task._status === "revision"
+                  ? "revision"
+                  : "en_produccion"
               : task._status;
           const laneStatus = stage?.id || task._lane;
           const isOverdue =
@@ -25777,6 +25873,18 @@ const UnifiedModuleKanbanView = ({
                     handleStatusChange(
                       task,
                       getModuleDropStatus(task._taskType, "production", task._status),
+                    ),
+                },
+                moduleKey === "production" &&
+                laneStatus !== "review" &&
+                getModuleDropStatus(task._taskType, "review", task._status) && {
+                  key: "move-review",
+                  label: "Mover a En revisión",
+                  icon: "Search",
+                  onClick: () =>
+                    handleStatusChange(
+                      task,
+                      getModuleDropStatus(task._taskType, "review", task._status),
                     ),
                 },
                 laneStatus !== "ready" && {

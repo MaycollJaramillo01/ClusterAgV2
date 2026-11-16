@@ -2242,6 +2242,11 @@ textarea:focus-visible,
 .production-room .task-room-board {
     gap: 10px;
 }
+@media (min-width: 1024px) {
+    .task-room-board.task-room-board-4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
 .production-room .task-room-board > section {
     border-color: var(--border);
     border-radius: 14px;
