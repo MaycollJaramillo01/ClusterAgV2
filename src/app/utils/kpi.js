@@ -168,6 +168,160 @@ export const getKpiHistoryPatch = (task = {}, kind) => {
   return patch;
 };
 
+export const STAGE_DEFINITIONS = {
+  editing: [
+    { id: "editar", label: "Espera para editar", owner: "Editor" },
+    { id: "en_edicion", label: "Producción del editor", owner: "Editor" },
+    { id: "revision_interna", label: "Revisión de account", owner: "Account" },
+    { id: "aprobado", label: "Aprobación", owner: "Account" },
+    { id: "publicado", label: "Publicado", owner: "Account" },
+  ],
+  account: [
+    { id: "por_disenar", label: "Elaboración de account", owner: "Account" },
+    { id: "aprobacion_interna", label: "Revisión del supervisor", owner: "Supervisor" },
+    { id: "aprobado_internamente", label: "Aprobación", owner: "Account" },
+    { id: "publicado", label: "Publicado", owner: "Account" },
+  ],
+  management: [
+    { id: "pendiente", label: "Espera de inicio", owner: "Gestión" },
+    { id: "en_proceso", label: "Elaboración", owner: "Gestión" },
+    { id: "en_espera", label: "En espera", owner: "Gestión" },
+    { id: "cerrado", label: "Cerrado", owner: "Gestión" },
+  ],
+};
+
+const stageStatusId = (status = "") => (
+  normalizeEditingWorkflowStatus(String(status || "").trim())
+);
+
+export const sanitizeStageLog = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value.slice(-80).map((entry) => ({
+    status: stageStatusId(entry?.status).slice(0, 40),
+    enteredAt: String(entry?.enteredAt || "").slice(0, 40),
+    leftAt: String(entry?.leftAt || "").slice(0, 40),
+    durationMs: Math.max(0, Number(entry?.durationMs) || 0),
+    actorId: String(entry?.actorId || "").slice(0, 120),
+    closedById: String(entry?.closedById || "").slice(0, 120),
+  })).filter((entry) => entry.status && entry.enteredAt);
+};
+
+const stageDurationMs = (enteredAt, leftAt) => {
+  const start = Date.parse(enteredAt);
+  const end = Date.parse(leftAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 0;
+  return end - start;
+};
+
+export const appendStageTransition = ({
+  task = {},
+  nextStatus = "",
+  stamp = new Date().toISOString(),
+  actorUserId = "",
+} = {}) => {
+  const status = stageStatusId(nextStatus);
+  const stageLog = sanitizeStageLog(task.stageLog);
+  if (!status) return { stageLog };
+  const previousStatus = stageStatusId(task.status);
+  const closeOpenStage = () => {
+    let openIndex = -1;
+    for (let index = stageLog.length - 1; index >= 0; index -= 1) {
+      if (stageLog[index].status === previousStatus && !stageLog[index].leftAt) {
+        openIndex = index;
+        break;
+      }
+    }
+    if (openIndex >= 0) {
+      const enteredAt = stageLog[openIndex].enteredAt;
+      stageLog[openIndex] = {
+        ...stageLog[openIndex],
+        leftAt: stamp,
+        durationMs: stageDurationMs(enteredAt, stamp),
+        closedById: String(actorUserId || ""),
+      };
+      return;
+    }
+    if (!previousStatus || previousStatus === status) return;
+    const enteredAt = task.lastStatusChangedAt
+      || task.statusTimestamps?.[task.status]
+      || task.statusTimestamps?.[previousStatus]
+      || task.createdAt
+      || stamp;
+    stageLog.push({
+      status: previousStatus,
+      enteredAt,
+      leftAt: stamp,
+      durationMs: stageDurationMs(enteredAt, stamp),
+      actorId: "",
+      closedById: String(actorUserId || ""),
+    });
+  };
+  if (previousStatus && previousStatus !== status) closeOpenStage();
+  const hasOpenCurrent = stageLog.some((entry) => entry.status === status && !entry.leftAt);
+  if (!hasOpenCurrent) {
+    stageLog.push({
+      status,
+      enteredAt: stamp,
+      leftAt: "",
+      durationMs: 0,
+      actorId: String(actorUserId || ""),
+    });
+  }
+  return { stageLog: stageLog.slice(-80) };
+};
+
+const inferStageLog = (task = {}, now = Date.now()) => {
+  const points = Object.entries(task.statusTimestamps || {})
+    .map(([status, enteredAt]) => ({ status: stageStatusId(status), enteredAt: String(enteredAt || "") }))
+    .filter((entry) => entry.status && Number.isFinite(Date.parse(entry.enteredAt)))
+    .sort((left, right) => Date.parse(left.enteredAt) - Date.parse(right.enteredAt));
+  const current = stageStatusId(task.status);
+  if (current && !points.some((entry) => entry.status === current)) {
+    points.push({
+      status: current,
+      enteredAt: task.lastStatusChangedAt || task.createdAt || new Date(now).toISOString(),
+    });
+    points.sort((left, right) => Date.parse(left.enteredAt) - Date.parse(right.enteredAt));
+  }
+  return points.map((entry, index) => {
+    const next = points[index + 1];
+    const isCurrent = !next && entry.status === current;
+    const leftAt = isCurrent ? "" : (next?.enteredAt || "");
+    return {
+      ...entry,
+      leftAt,
+      durationMs: leftAt ? stageDurationMs(entry.enteredAt, leftAt) : 0,
+      actorId: "",
+      closedById: "",
+    };
+  });
+};
+
+export const buildStageTimeline = (task = {}, workflow = "account", now = Date.now()) => {
+  const recorded = sanitizeStageLog(task.stageLog);
+  const estimated = recorded.length === 0;
+  const entries = estimated ? inferStageLog(task, now) : recorded;
+  const definitions = STAGE_DEFINITIONS[workflow] || [];
+  const stages = definitions.map((stage) => {
+    const visits = entries.filter((entry) => entry.status === stage.id);
+    let totalMs = 0;
+    let open = false;
+    let lastActorId = "";
+    visits.forEach((entry) => {
+      if (entry.closedById || entry.actorId) lastActorId = entry.closedById || entry.actorId;
+      if (entry.leftAt) {
+        totalMs += Number(entry.durationMs) || stageDurationMs(entry.enteredAt, entry.leftAt);
+        return;
+      }
+      open = true;
+      const entered = Date.parse(entry.enteredAt);
+      if (Number.isFinite(entered)) totalMs += Math.max(0, now - entered);
+    });
+    return { ...stage, totalMs, open, visits: visits.length, lastActorId };
+  }).filter((stage) => stage.visits > 0);
+  return { estimated, entries, stages };
+};
+
 export const getStatusTimestampPatch = (
   task = {},
   newStatus = "",
@@ -224,6 +378,12 @@ export const getStatusTimestampPatch = (
       patch.lastEditorReworkAt = stamp;
     }
   }
+  Object.assign(patch, appendStageTransition({
+    task,
+    nextStatus: newStatus,
+    stamp,
+    actorUserId,
+  }));
   return patch;
 };
 

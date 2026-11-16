@@ -8,6 +8,7 @@ import {
   getKpiHistoryPatch,
   getKpiPeriod,
   getKpiTaskMeta,
+  buildStageTimeline,
   getStatusTimestampPatch,
 } from "./kpi.js";
 
@@ -222,6 +223,33 @@ test("el ranking de managers utiliza el mismo cálculo ponderado", () => {
     rankingPeriod: period, today });
   assertSameKpi(personal(tasks), ranking);
   assert.equal(ranking.score, 93);
+});
+
+test("el registro de etapas suma la producción del editor y la revisión de account", () => {
+  const created = "2026-06-10T12:00:00.000Z";
+  const editingDone = "2026-06-10T15:00:00.000Z";
+  const approved = "2026-06-10T16:30:00.000Z";
+  let task = {
+    status: "en_edicion",
+    createdAt: created,
+    stageLog: [{
+      status: "en_edicion",
+      enteredAt: created,
+      leftAt: "",
+      durationMs: 0,
+      actorId: "editor-1",
+    }],
+  };
+  task = { ...task, status: "revision_interna", ...getStatusTimestampPatch(task, "revision_interna", editingDone, "editor-1", "editing") };
+  task = { ...task, ...getStatusTimestampPatch(task, "aprobado", approved, "account-1", "editing") };
+  const timeline = buildStageTimeline(task, "editing", Date.parse(approved));
+  const production = timeline.stages.find((stage) => stage.id === "en_edicion");
+  const review = timeline.stages.find((stage) => stage.id === "revision_interna");
+  assert.equal(timeline.estimated, false);
+  assert.equal(production.totalMs, 3 * 60 * 60 * 1000);
+  assert.equal(review.totalMs, 90 * 60 * 1000);
+  assert.equal(review.lastActorId, "account-1");
+  assert.equal(timeline.stages.find((stage) => stage.id === "aprobado").open, true);
 });
 
 test("las transiciones guardan responsables y vencimiento antes de modificaciones posteriores", () => {

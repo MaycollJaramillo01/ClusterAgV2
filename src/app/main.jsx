@@ -175,6 +175,7 @@ import {
   getKpiPeriod,
   getKpiTaskMeta,
   getKpiHistoryPatch,
+  buildStageTimeline,
   getStatusTimestampPatch,
   getMeasuredCompletionIso,
   isEditingDelivered,
@@ -7437,6 +7438,11 @@ function App() {
     if (!col || !file) return;
     const contentType = inferFileType(file);
     const asEditedVideo = Boolean(options.asEditedVideo);
+    const uploadRole = asEditedVideo
+      ? "edited_video"
+      : options.role === "editor"
+        ? "editor"
+        : "material";
     if (asEditedVideo && !String(contentType || "").startsWith("video/")) {
       alert("El video editado debe ser un archivo de video.");
       return;
@@ -7471,7 +7477,7 @@ function App() {
       storage: signed.storage || (status.r2 ? "r2" : "database"),
       uploadedBy,
       uploadedAt: nowIso(),
-      role: asEditedVideo ? "edited_video" : "attachment",
+      role: uploadRole,
       ...(options.isVoiceNote || isVoiceNoteAttachment({ name: file.name, type: contentType })
         ? {
             isVoiceNote: true,
@@ -7542,6 +7548,7 @@ function App() {
     const removed = currentAttachments.find((item) => item.id === attachmentId);
     await updateDoc(dataDoc(col, task.id), {
       attachments: currentAttachments.filter((a) => a.id !== attachmentId),
+      ...(task.editedVideo?.id === attachmentId ? { editedVideo: null } : {}),
       updatedAt: nowIso(),
     });
     if (removed?.key) await deleteStoredAttachment(removed.key, removed.storage);
@@ -19735,6 +19742,11 @@ const relativeTime = (iso) => {
   return `hace ${Math.floor(hrs / 24)}d`;
 };
 
+const taskFileBucket = (att = {}) => {
+  if (isVoiceNoteAttachment(att)) return "voice";
+  if (att.role === "editor" || att.role === "edited_video") return "editor";
+  return "material";
+};
 const isImageAttachment = (att) => Boolean(att?.type && att.type.startsWith("image/"));
 const isVideoAttachment = (att) => Boolean(att?.type && att.type.startsWith("video/"));
 const isAudioAttachment = (att) => Boolean(att?.type && att.type.startsWith("audio/"));
@@ -19954,6 +19966,7 @@ const TaskDetailModal = ({
   const [attachmentUrls, setAttachmentUrls] = useState({});
   const [fileOver, setFileOver] = useState(false);
   const fileInputRef = useRef(null);
+  const uploadBucketRef = useRef("material");
   const [timerRunning, setTimerRunning] = useState(false);
   const [timerElapsed, setTimerElapsed] = useState(0);
   const [savingTime, setSavingTime] = useState(false);
@@ -20101,6 +20114,14 @@ const TaskDetailModal = ({
     setDevStatusLabel("");
     setDevStatusNote("");
   }, [config.isOpen, config.task?.id]);
+
+  const [stageNow, setStageNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!config.isOpen) return undefined;
+    setStageNow(Date.now());
+    const timerId = window.setInterval(() => setStageNow(Date.now()), 30000);
+    return () => window.clearInterval(timerId);
+  }, [config.isOpen, config.task?.id, config.task?.status]);
 
   useEffect(() => {
     if (!config.isOpen || !config.task) {
@@ -20499,7 +20520,9 @@ const TaskDetailModal = ({
           setUploadProgress(0);
           try {
             for (const file of files) {
-              await onAddAttachment(task, type, file, setUploadProgress);
+              await onAddAttachment(task, type, file, setUploadProgress, {
+                role: "material",
+              });
             }
           } catch (error) {
             alert(error?.message || "No se pudo subir el archivo.");
@@ -20509,7 +20532,10 @@ const TaskDetailModal = ({
           }
         }}
       >
-        <FileDropHint active={fileOver && canAct} label="Suelta para adjuntar a esta tarea" />
+        <FileDropHint
+          active={fileOver && canAct}
+          label={type === "editingTask" ? "Suelta el material de la tarea" : "Suelta para adjuntar a esta tarea"}
+        />
         {/* Barra superior */}
         <div className="flex min-h-[68px] shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--surface-subtle)] px-4 dark:border-white/10 dark:bg-[var(--surface)] md:px-5">
           <div
@@ -20735,13 +20761,16 @@ const TaskDetailModal = ({
               >
                 {[
                   { id: "task-summary", label: "Resumen" },
+                  { id: "task-times", label: "Tiempos" },
                   ...(isDevTask
                     ? [{ id: "task-dev-status", label: "Estados" }]
                     : []),
                   { id: "task-activity", label: "Actividad" },
                   {
                     id: "task-files",
-                    label: `Archivos (${Array.isArray(task.attachments) ? task.attachments.length : 0})`,
+                    label: type === "editingTask"
+                      ? `Material ${ticketAttachments.filter((att) => taskFileBucket(att) === "material").length} · Editor ${ticketAttachments.filter((att) => taskFileBucket(att) === "editor").length}`
+                      : `Archivos (${ticketAttachments.filter((att) => taskFileBucket(att) !== "voice").length})`,
                   },
                 ].map((item, index) => (
                   <button
@@ -20907,6 +20936,48 @@ const TaskDetailModal = ({
                     </button>
                   </div>
                 )}
+                {ticketAttachments.some((att) => isImageAttachment(att) || isVideoAttachment(att)) && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {ticketAttachments
+                      .filter((att) => isImageAttachment(att) || isVideoAttachment(att))
+                      .map((att) => {
+                        const src = att.data || attachmentUrls[att.id] || "";
+                        const bucket = taskFileBucket(att);
+                        return (
+                          <button
+                            key={att.id}
+                            type="button"
+                            onClick={async () => {
+                              const nextIndex = ticketAttachments.findIndex((item) => item.id === att.id);
+                              if (nextIndex < 0) return;
+                              if (!src && (att.key || att.hasData)) {
+                                try {
+                                  const url = await resolveAttachmentUrl(att);
+                                  if (url) setAttachmentUrls((prev) => ({ ...prev, [att.id]: url }));
+                                } catch { /* noop */ }
+                              }
+                              setLightboxIndex(nextIndex);
+                            }}
+                            className="group relative overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-left dark:border-white/10 dark:bg-slate-900"
+                            title={att.name || "Previsualización"}
+                          >
+                            {isImageAttachment(att) && src ? (
+                              <img src={src} alt={att.name || ""} className="aspect-video w-full object-cover" />
+                            ) : isVideoAttachment(att) && src ? (
+                              <video src={src} muted playsInline preload="metadata" className="aspect-video w-full object-cover" />
+                            ) : (
+                              <span className="flex aspect-video w-full items-center justify-center text-slate-400">
+                                <Icon name={isVideoAttachment(att) ? "Video" : "Image"} size={22} />
+                              </span>
+                            )}
+                            <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                              {bucket === "editor" ? "Editor" : "Material"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                )}
                 {ticketAttachments.some((att) => isVoiceNoteAttachment(att) || isAudioAttachment(att)) && (
                   <div className="mt-3 space-y-2">
                     {ticketAttachments
@@ -20926,6 +20997,93 @@ const TaskDetailModal = ({
                   </div>
                 )}
               </section>
+
+              {(() => {
+                const stageWorkflow = type === "editingTask"
+                  ? "editing"
+                  : type === "managementTask"
+                    ? "management"
+                    : "account";
+                const timeline = buildStageTimeline(task, stageWorkflow, stageNow);
+                const people = [...managers, ...editors, ...users];
+                const personName = (id) => people.find((person) => (
+                  String(person?.id || "") === String(id || "")
+                  || String(person?.userId || "") === String(id || "")
+                ))?.name || "";
+                const formatStageWhen = (iso) => {
+                  const parsed = Date.parse(iso || "");
+                  if (!Number.isFinite(parsed)) return "";
+                  return new Date(parsed).toLocaleString("es-HN", {
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+                };
+                const stageLabel = (status) => timeline.stages.find((stage) => stage.id === status)?.label
+                  || status;
+                return (
+                  <section
+                    id="task-times"
+                    className="mb-4 scroll-mt-16 rounded-xl border border-[var(--border)] bg-white p-5 dark:border-white/10 dark:bg-[var(--surface-raised)]"
+                  >
+                    <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                      Tiempos de elaboración
+                    </p>
+                    <p className="mb-4 mt-1 text-xs text-slate-500">
+                      {timeline.estimated
+                        ? "Estimado con los cambios de columna que ya tenía la tarea. Los próximos movimientos quedan registrados uno por uno."
+                        : "Cada movimiento de columna suma el tiempo de esa parte."}
+                    </p>
+                    {timeline.stages.length > 0 ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {timeline.stages.map((stage) => {
+                          const actorName = personName(stage.lastActorId);
+                          return (
+                            <div
+                              key={stage.id}
+                              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/10 dark:bg-slate-900/50"
+                            >
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                {stage.owner}
+                              </p>
+                              <p className="mt-0.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                {stage.label}
+                              </p>
+                              <p className="mt-1 text-sm font-bold tabular-nums text-slate-700 dark:text-slate-200">
+                                {stage.totalMs > 0 ? formatDuration(stage.totalMs) : "Recién empezó"}
+                                {stage.open ? " · en curso" : ""}
+                              </p>
+                              <p className="mt-0.5 text-[11px] text-slate-500">
+                                {stage.visits} {stage.visits === 1 ? "pasada" : "pasadas"}
+                                {actorName ? ` · ${actorName}` : ""}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500">Todavía no hay movimientos para medir.</p>
+                    )}
+                    {timeline.entries.length > 0 && (
+                      <ol className="mt-4 space-y-2">
+                        {[...timeline.entries].reverse().slice(0, 8).map((entry, index) => (
+                          <li key={`${entry.status}-${entry.enteredAt}-${index}`} className="text-xs text-slate-600 dark:text-slate-300">
+                            <span className="font-semibold text-slate-800 dark:text-slate-100">{stageLabel(entry.status)}</span>
+                            {" · "}
+                            {entry.leftAt ? formatDuration(entry.durationMs) : "en curso"}
+                            {formatStageWhen(entry.enteredAt) ? ` · ${formatStageWhen(entry.enteredAt)}` : ""}
+                            {entry.leftAt ? ` → ${formatStageWhen(entry.leftAt)}` : ""}
+                            {personName(entry.closedById || entry.actorId)
+                              ? ` · ${personName(entry.closedById || entry.actorId)}`
+                              : ""}
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </section>
+                );
+              })()}
 
               {isDevTask && (
                 <section
@@ -21166,11 +21324,12 @@ const TaskDetailModal = ({
                 const uploadFiles = async (fileList) => {
                   const files = Array.from(fileList || []).filter(Boolean);
                   if (!files.length) return;
+                  const role = uploadBucketRef.current === "editor" ? "editor" : "material";
                   setUploadingFile(true);
                   setUploadProgress(0);
                   try {
                     for (const file of files) {
-                      await onAddAttachment(task, type, file, setUploadProgress);
+                      await onAddAttachment(task, type, file, setUploadProgress, { role });
                     }
                   } catch (error) {
                     alert(error?.message || "No se pudo subir el archivo.");
@@ -21178,6 +21337,10 @@ const TaskDetailModal = ({
                     setUploadingFile(false);
                     setUploadProgress(0);
                   }
+                };
+                const openFilePicker = (role) => {
+                  uploadBucketRef.current = role;
+                  fileInputRef.current?.click();
                 };
                 const handleFileChange = async (e) => {
                   await uploadFiles(e.target.files);
@@ -21218,6 +21381,40 @@ const TaskDetailModal = ({
                   }
                   setLightboxIndex(nextIndex);
                 };
+                const fileGroups = (type === "editingTask"
+                  ? [
+                      {
+                        id: "material",
+                        title: "Material",
+                        hint: "Archivos de origen para editar.",
+                        role: "material",
+                        canUpload: canAct,
+                      },
+                      {
+                        id: "editor",
+                        title: "Entrega del editor",
+                        hint: "Lo que sube el editor.",
+                        role: "editor",
+                        canUpload: canUploadEditedVideo,
+                      },
+                    ]
+                  : [
+                      {
+                        id: "files",
+                        title: "Archivos",
+                        hint: "",
+                        role: "material",
+                        canUpload: canAct,
+                      },
+                    ]
+                ).map((group) => ({
+                  ...group,
+                  files: attachments.filter((att) => (
+                    group.id === "files"
+                      ? taskFileBucket(att) !== "voice"
+                      : taskFileBucket(att) === group.id
+                  )),
+                }));
                 const limitLabel = formatUploadLimit(uploadStatus.taskMaxBytes || uploadStatus.maxBytes || DEFAULT_TASK_UPLOAD_MAX_BYTES);
                 const retentionLabel = uploadStatus.r2
                   ? ` · retención ${uploadStatus.retentionDays || 5} días`
@@ -21230,33 +21427,8 @@ const TaskDetailModal = ({
                     <div className="mb-4 flex items-center gap-2">
                       <Icon name="Inbox" size={13} className="text-slate-500" />
                       <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                        Archivos
+                        {type === "editingTask" ? "Archivos de la tarea" : "Archivos"}
                       </p>
-                      {attachments.length > 0 && (
-                        <span className="text-xs text-slate-500 ml-1">
-                          {attachments.length}
-                        </span>
-                      )}
-                      {canAct && attachments.length > 0 && (
-                        <button
-                          onClick={() =>
-                            fileInputRef.current && fileInputRef.current.click()
-                          }
-                          disabled={uploadingFile}
-                          className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
-                        >
-                          {uploadingFile ? (
-                            <Icon
-                              name="Loader2"
-                              size={11}
-                              className="animate-spin"
-                            />
-                          ) : (
-                            <Icon name="Plus" size={11} />
-                          )}
-                          {uploadingFile ? "Subiendo..." : "Adjuntar"}
-                        </button>
-                      )}
                     </div>
                     <input
                       ref={fileInputRef}
@@ -21280,9 +21452,31 @@ const TaskDetailModal = ({
                         </div>
                       </div>
                     )}
-                    {attachments.length > 0 && (
+                    {fileGroups.map((group) => (
+                      <div key={group.id} className="mb-5 last:mb-0">
+                        <div className="mb-2 flex items-center gap-2">
+                          <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                            {group.title}
+                          </p>
+                          <span className="text-xs text-slate-500">{group.files.length}</span>
+                          {group.canUpload && (
+                            <button
+                              type="button"
+                              onClick={() => openFilePicker(group.role)}
+                              disabled={uploadingFile}
+                              className="ml-auto flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                            >
+                              <Icon name={uploadingFile ? "Loader2" : "Plus"} size={11} className={uploadingFile ? "animate-spin" : ""} />
+                              {uploadingFile ? "Subiendo..." : "Subir"}
+                            </button>
+                          )}
+                        </div>
+                        {group.hint ? (
+                          <p className="mb-2 text-xs text-slate-500">{group.hint}</p>
+                        ) : null}
+                        {group.files.length > 0 ? (
                       <div className="space-y-2">
-                        {attachments.map((att) => (
+                        {group.files.map((att) => (
                           <div
                             key={att.id}
                             className="group rounded-lg border border-[var(--border)] bg-[var(--surface-subtle)] p-3 transition-colors hover:border-[var(--border-strong)] dark:border-white/10 dark:bg-[var(--surface-muted)] dark:hover:border-white/20"
@@ -21306,7 +21500,7 @@ const TaskDetailModal = ({
                                   >
                                     <Icon name="ArrowRight" size={13} />
                                   </button>
-                                  {canAct && (
+                                  {(canAct || (taskFileBucket(att) === "editor" && canUploadEditedVideo)) && (
                                     <button
                                       type="button"
                                       onClick={() => onRemoveAttachment(task, type, att.id)}
@@ -21381,7 +21575,7 @@ const TaskDetailModal = ({
                               >
                                 <Icon name="ArrowRight" size={13} />
                               </button>
-                              {canAct && (
+                              {(canAct || (taskFileBucket(att) === "editor" && canUploadEditedVideo)) && (
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -21399,27 +21593,25 @@ const TaskDetailModal = ({
                           </div>
                         ))}
                       </div>
-                    )}
-                    {attachments.length === 0 && (
+                        ) : (
                       <button
-                        onClick={() =>
-                          canAct &&
-                          fileInputRef.current &&
-                          fileInputRef.current.click()
-                        }
-                        className={`flex min-h-[76px] w-full items-center justify-center gap-3 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface-subtle)] px-4 py-3 text-sm text-slate-500 transition-colors hover:border-blue-400 hover:text-slate-700 dark:border-white/15 dark:bg-[var(--surface)] dark:hover:border-blue-500/60 dark:hover:text-slate-200 ${!canAct ? "cursor-default opacity-40" : ""}`}
+                        type="button"
+                        onClick={() => group.canUpload && openFilePicker(group.role)}
+                        className={`flex min-h-[76px] w-full items-center justify-center gap-3 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface-subtle)] px-4 py-3 text-sm text-slate-500 transition-colors hover:border-blue-400 hover:text-slate-700 dark:border-white/15 dark:bg-[var(--surface)] dark:hover:border-blue-500/60 dark:hover:text-slate-200 ${!group.canUpload ? "cursor-default opacity-40" : ""}`}
                       >
                         <Icon name="Paperclip" size={16} />
                         <span className="text-left">
                           <strong className="block font-semibold text-slate-700 dark:text-slate-200">
-                            Selecciona o suelta un archivo
+                            {group.id === "editor" ? "Subir la entrega del editor" : group.id === "material" ? "Subir material" : "Selecciona o suelta un archivo"}
                           </strong>
                           <span className="mt-0.5 block text-xs text-slate-500">
                             Hasta {limitLabel} por archivo{retentionLabel}
                           </span>
                         </span>
                       </button>
-                    )}
+                        )}
+                      </div>
+                    ))}
                   </section>
                 );
               })()}
@@ -22593,6 +22785,7 @@ const CreateTaskModal = ({
   const [recordingPaused, setRecordingPaused] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const createFileInputRef = useRef(null);
+  const createUploadRoleRef = useRef("material");
   const voiceRecorderRef = useRef(null);
   const voiceTimerRef = useRef(null);
 
@@ -22870,7 +23063,7 @@ const CreateTaskModal = ({
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
   const limitLabel = formatUploadLimit(uploadStatus.taskMaxBytes || uploadStatus.maxBytes || DEFAULT_TASK_UPLOAD_MAX_BYTES);
-  const queueCreateFiles = (fileList) => {
+  const queueCreateFiles = (fileList, role = "material") => {
     const incoming = Array.from(fileList || []).filter(Boolean);
     if (!incoming.length) return;
     const maxBytes = Number(uploadStatus.taskMaxBytes || uploadStatus.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES;
@@ -22894,6 +23087,7 @@ const CreateTaskModal = ({
           preview: (inferFileType(file) || file.type || "").startsWith("image/")
             ? URL.createObjectURL(file)
             : "",
+          role: role === "editor" ? "editor" : "material",
         });
       }
       return next;
@@ -22914,6 +23108,7 @@ const CreateTaskModal = ({
         file: item.file,
         isVoiceNote: Boolean(item.isVoiceNote) || String(item.type || "").startsWith("audio/"),
         duration: Number(item.duration) || 0,
+        role: item.role === "editor" ? "editor" : "material",
       }))
       .filter((item) => item.file);
     const payload = { pendingFiles: files.map((item) => item.file) };
@@ -23058,6 +23253,7 @@ const CreateTaskModal = ({
               {
                 isVoiceNote: item.isVoiceNote,
                 duration: item.duration,
+                role: item.role,
               },
             );
           }
@@ -23350,14 +23546,41 @@ const CreateTaskModal = ({
             className="hidden"
             accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.mp4,.mov,.webm,.mp3,.wav,.m4a,.ogg"
             onChange={(event) => {
-              queueCreateFiles(event.target.files);
+              queueCreateFiles(event.target.files, createUploadRoleRef.current);
               event.target.value = "";
             }}
           />
           {pendingFiles.length === 0 ? (
+            type === "editingTask" ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  ["material", "Subir material", "Archivos de origen para editar."],
+                  ["editor", "Entrega del editor", "Lo que sube el editor."],
+                ].map(([role, title, hint]) => (
+                  <button
+                    key={role}
+                    type="button"
+                    onClick={() => {
+                      createUploadRoleRef.current = role;
+                      createFileInputRef.current?.click();
+                    }}
+                    className="flex min-h-[72px] items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm text-slate-500 transition-colors hover:border-blue-400 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:hover:border-blue-500/60 dark:hover:text-slate-200"
+                  >
+                    <Icon name={role === "editor" ? "Video" : "Paperclip"} size={16} />
+                    <span>
+                      <strong className="block font-semibold text-slate-700 dark:text-slate-200">{title}</strong>
+                      <span className="mt-0.5 block text-xs text-slate-500">{hint}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
             <button
               type="button"
-              onClick={() => createFileInputRef.current?.click()}
+              onClick={() => {
+                createUploadRoleRef.current = "material";
+                createFileInputRef.current?.click();
+              }}
               className={`flex min-h-[64px] w-full items-center justify-center gap-3 rounded-xl border border-dashed px-4 py-3 text-sm transition-colors ${
                 fileOver
                   ? "border-blue-400 bg-blue-50 text-slate-700 dark:border-blue-500/60 dark:bg-blue-500/10 dark:text-slate-200"
@@ -23376,6 +23599,7 @@ const CreateTaskModal = ({
                 </span>
               </span>
             </button>
+            )
           ) : (
             <div className="space-y-2">
               {pendingFiles.map((item) => (
@@ -23412,7 +23636,7 @@ const CreateTaskModal = ({
                         <img
                           src={item.preview}
                           alt=""
-                          className="h-9 w-9 rounded-lg object-cover"
+                          className="h-16 w-16 rounded-lg object-cover"
                         />
                       ) : (
                         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700">
@@ -23428,6 +23652,7 @@ const CreateTaskModal = ({
                           {item.name}
                         </p>
                         <p className="text-[11px] text-slate-500">
+                          {type === "editingTask" ? `${item.role === "editor" ? "Editor" : "Material"} · ` : ""}
                           {formatCreateFileSize(item.size)}
                         </p>
                       </div>
@@ -23445,14 +23670,44 @@ const CreateTaskModal = ({
                 </div>
               ))}
               {pendingFiles.length < MAX_TASK_ATTACHMENTS && (
+                type === "editingTask" ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        createUploadRoleRef.current = "material";
+                        createFileInputRef.current?.click();
+                      }}
+                      disabled={submitting}
+                      className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:border-blue-400 hover:text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:hover:border-blue-500/60"
+                    >
+                      <Icon name="Plus" size={12} /> Más material
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        createUploadRoleRef.current = "editor";
+                        createFileInputRef.current?.click();
+                      }}
+                      disabled={submitting}
+                      className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:border-blue-400 hover:text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:hover:border-blue-500/60"
+                    >
+                      <Icon name="Plus" size={12} /> Entrega del editor
+                    </button>
+                  </div>
+                ) : (
                 <button
                   type="button"
-                  onClick={() => createFileInputRef.current?.click()}
+                  onClick={() => {
+                    createUploadRoleRef.current = "material";
+                    createFileInputRef.current?.click();
+                  }}
                   disabled={submitting}
                   className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:border-blue-400 hover:text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:hover:border-blue-500/60"
                 >
                   <Icon name="Plus" size={12} /> Agregar otro archivo
                 </button>
+                )
               )}
             </div>
           )}

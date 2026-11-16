@@ -19,7 +19,7 @@ import { normalizeEmail } from '../lib/text.js';
 import { sendClientChatPush } from '../lib/push-notifications.js';
 import { canManageChatGroups, parseDmClientId } from '../lib/chat-groups.js';
 import { ensureChatClientAccess, loadChatGroupAccess } from '../lib/chat-access.js';
-import { getStatusTimestampPatch } from '../../src/app/utils/kpi.js';
+import { appendStageTransition, getStatusTimestampPatch } from '../../src/app/utils/kpi.js';
 import { nowIso } from '../lib/time.js';
 import { writeAuditLog } from '../lib/audit.js';
 import { recordTaskActivity } from '../lib/task-activity.js';
@@ -68,7 +68,7 @@ const KANBAN_STATUS_PATCH_FIELDS = new Set([
     'closedAt', 'editorCompletedAt', 'editorCompletedByUserId',
     'editorOwnerAtCompletionId', 'editorAssigneeUserAtCompletionId',
     'editorAssigneesAtCompletion', 'editorDueDateAtCompletion',
-    'editorReworkCount', 'lastEditorReworkAt'
+    'editorReworkCount', 'lastEditorReworkAt', 'stageLog'
 ]);
 const BATCH_COLLECTIONS = new Set([
     'clients',
@@ -498,6 +498,25 @@ const isOwnedChange = (change, userRecord) => {
     return Boolean(userId && (recordId.startsWith(`${userId}__`) || recordId.endsWith(`__${userId}`)));
 };
 
+const applyStageLog = (collectionName, payload, existing, actor, stamp, isCreate) => {
+    if (!TASK_COLLECTIONS.has(collectionName)) return payload;
+    const nextStatus = String(payload.status ?? existing?.status ?? '').trim();
+    const previousStatus = String(existing?.status || '').trim();
+    if (!nextStatus) return payload;
+    if (!isCreate && nextStatus === previousStatus) {
+        return existing?.stageLog ? { ...payload, stageLog: existing.stageLog } : payload;
+    }
+    return {
+        ...payload,
+        ...appendStageTransition({
+            task: existing || {},
+            nextStatus,
+            stamp: payload.lastStatusChangedAt || payload.updatedAt || stamp,
+            actorUserId: actor?.id || ''
+        })
+    };
+};
+
 const prepareCollectionPayload = ({ collectionName, payload, existing = null, actor = null, isCreate = false, recordId = null }) => {
     let safePayload = assertPayload(payload || {});
     if (Object.hasOwn(safePayload, 'attachments')) {
@@ -515,16 +534,23 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         throw createHttpError(403, 'La auditoria solo puede escribirla el servidor.', 'audit/server-only');
     }
     if (collectionName === 'management_tasks') {
-        return prepareManagementTaskPayload({
-            payload: {
-                ...safePayload,
-                createdAt: existing?.createdAt || safePayload.createdAt || stamp,
-                updatedAt: stamp
-            },
+        return applyStageLog(
+            collectionName,
+            prepareManagementTaskPayload({
+                payload: {
+                    ...safePayload,
+                    createdAt: existing?.createdAt || safePayload.createdAt || stamp,
+                    updatedAt: stamp
+                },
+                existing,
+                actor,
+                isCreate
+            }),
             existing,
             actor,
+            stamp,
             isCreate
-        });
+        );
     }
     if (TASK_COLLECTIONS.has(collectionName)) {
         const title = String(safePayload.title ?? existing?.title ?? '').trim();
@@ -533,7 +559,7 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         }
         const assignerName = String(actor?.name || actor?.email || existing?.assignedByName || '').trim();
         const shouldStampAssigner = isCreate || !String(existing?.assignedByEmail || '').trim();
-        return {
+        return applyStageLog(collectionName, {
             ...safePayload,
             ...normalizeTaskAssignees(safePayload, existing),
             ...(isCreate && String(safePayload.date || '').trim() && !String(safePayload.time || '').trim()
@@ -547,7 +573,7 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
             title,
             createdAt: existing?.createdAt || safePayload.createdAt || stamp,
             updatedAt: stamp
-        };
+        }, existing, actor, stamp, isCreate);
     }
     if (collectionName === 'clients') {
         const name = String(safePayload.name ?? existing?.name ?? '').trim();
