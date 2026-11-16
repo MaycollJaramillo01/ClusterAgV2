@@ -205,6 +205,16 @@ const validateReferences = async ({ collectionName, existing = null, payload, tr
         await requireReferenceValue(recordId, collections);
     };
 
+    const findPerson = async (recordId) => {
+        const id = String(recordId || '').trim();
+        if (!id) return null;
+        for (const name of PEOPLE_COLLECTIONS) {
+            const found = await getRecord({ collectionName: name, recordId: id, trx });
+            if (found) return found;
+        }
+        return null;
+    };
+
     const requireReferenceValue = async (recordId, collections) => {
         const id = String(recordId || '').trim();
         if (!id) return;
@@ -217,16 +227,38 @@ const validateReferences = async ({ collectionName, existing = null, payload, tr
     if (TASK_COLLECTIONS.has(collectionName)) {
         await requireReference('clientId', ['clients']);
         await requireReference('contextId', PEOPLE_COLLECTIONS);
-        await requireReference('assigneeUserId', PEOPLE_COLLECTIONS);
-        await requireReference('accountId', ['managers']);
+        // El selector mezcla fichas de la sala con usuarios de la app. El
+        // account puede ser cualquiera de los dos, no solo un manager.
+        await requireReference('accountId', PEOPLE_COLLECTIONS);
+        // Un userId viejo en la ficha (la persona se re-creó con otro id) no
+        // debe impedir crear la tarea: el responsable visible es contextId.
+        const assigneeUserId = String(record.assigneeUserId || '');
+        const assigneeUnchanged = Boolean(
+            existing && assigneeUserId === String(existing.assigneeUserId || '')
+        );
+        if (assigneeUserId && !assigneeUnchanged && !(await findPerson(assigneeUserId))) {
+            delete payload.assigneeUserId;
+            record.assigneeUserId = '';
+        }
         const existingAssigneeIds = new Set([
             ...(Array.isArray(existing?.assignees) ? existing.assignees : []),
             existing?.contextId,
             existing?.assigneeUserId
         ].map((value) => String(value || '')).filter(Boolean));
+        const nextAssignees = [];
+        let droppedAssignee = false;
         for (const assigneeId of (Array.isArray(record.assignees) ? record.assignees : [])) {
-            if (existing && existingAssigneeIds.has(String(assigneeId))) continue;
-            await requireReferenceValue(assigneeId, PEOPLE_COLLECTIONS);
+            const id = String(assigneeId || '');
+            if (!id) continue;
+            if ((existing && existingAssigneeIds.has(id)) || await findPerson(id)) {
+                nextAssignees.push(id);
+            } else {
+                droppedAssignee = true;
+            }
+        }
+        if (droppedAssignee) {
+            payload.assignees = nextAssignees;
+            record.assignees = nextAssignees;
         }
     }
     if (collectionName === 'clients') {

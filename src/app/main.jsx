@@ -738,6 +738,24 @@ const buildOrganizationTaskAssignees = (
     }),
   );
 };
+const resolveLiveAssigneeUserId = (person, users = []) => {
+  if (!person) return "";
+  const rawIds = [person.assigneeUserId, person.userId, person.id]
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  const match = users.find((user) => {
+    if (!user?.id || user.isActive === false) return false;
+    const userId = String(user.id);
+    const authUid = String(user.authUid || "").trim();
+    return rawIds.some(
+      (id) =>
+        id === userId ||
+        (authUid && (id === authUid || id === `auth_${authUid}`)),
+    );
+  });
+  return match?.id || "";
+};
+
 const findCurrentUserTaskAssignee = (profile, assignees = []) => {
   if (!profile || profile.isActive === false) return null;
   const profileIds = new Set(
@@ -6008,7 +6026,7 @@ function App() {
               ? taskData.assignees
               : [taskData.contextId].filter(Boolean),
             contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
-          assigneeUserId: assignee?.assigneeUserId || "",
+          assigneeUserId: resolveLiveAssigneeUserId(assignee, appUsers),
             notificationsEnabled: taskData.notificationsEnabled !== false,
           status: "por_disenar",
             ...(series.recurrence
@@ -6047,7 +6065,7 @@ function App() {
           ...taskData,
           ...(Object.hasOwn(taskData, "contextId") ||
           Object.hasOwn(taskData, "assignees")
-            ? { assigneeUserId: assignee?.assigneeUserId || assignee?.id || "" }
+            ? { assigneeUserId: resolveLiveAssigneeUserId(assignee, appUsers) }
             : {}),
           ...historicalOwnerPatch,
           updatedAt: nowIso(),
@@ -6121,7 +6139,7 @@ function App() {
               ? taskData.assignees
               : [taskData.contextId].filter(Boolean),
             contextId: (taskData.assignees && taskData.assignees[0]) || taskData.contextId || "",
-          assigneeUserId: assignee?.assigneeUserId || "",
+          assigneeUserId: resolveLiveAssigneeUserId(assignee, appUsers),
             accountId: taskData.accountId || "",
             editedVideo: taskData.editedVideo || null,
             notificationsEnabled: taskData.notificationsEnabled !== false,
@@ -6159,7 +6177,7 @@ function App() {
             (taskData.assignees && taskData.assignees[0]) ||
             taskData.contextId ||
             "",
-          assigneeUserId: assignee?.assigneeUserId || "",
+          assigneeUserId: resolveLiveAssigneeUserId(assignee, appUsers),
           accountId: taskData.accountId || "",
         },
         "editingTask",
@@ -6201,7 +6219,7 @@ function App() {
           hierarchy: taskData.hierarchy || getEditingHierarchyId(taskData),
           ...(Object.hasOwn(taskData, "contextId") ||
           Object.hasOwn(taskData, "assignees")
-            ? { assigneeUserId: assignee?.assigneeUserId || assignee?.id || "" }
+            ? { assigneeUserId: resolveLiveAssigneeUserId(assignee, appUsers) }
             : {}),
           ...statusPatch,
           ...getKpiHistoryPatch(existingTask, "editor"),
@@ -6479,7 +6497,7 @@ function App() {
     );
     await updateDoc(dataDoc(col, task.id), {
       contextId: contextId || null,
-      assigneeUserId: assignee?.assigneeUserId || assignee?.id || "",
+      assigneeUserId: resolveLiveAssigneeUserId(assignee, appUsers),
       ...historicalOwnerPatch,
       updatedAt: nowIso(),
     });
@@ -6509,7 +6527,7 @@ function App() {
     await updateDoc(dataDoc(col, task.id), {
       assignees: ids,
       contextId: primary || null,
-      assigneeUserId: assignee?.assigneeUserId || assignee?.id || "",
+      assigneeUserId: resolveLiveAssigneeUserId(assignee, appUsers),
       ...getKpiHistoryPatch(task,
         type === "editingTask" ? "editor" : type === "managementTask" ? "management" : "manager",
       ),
