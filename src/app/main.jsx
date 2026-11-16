@@ -1306,6 +1306,46 @@ const isUpcomingOrUndatedOpenTask = (task = {}, period = getRankingMonthPeriod()
   return compareDateOnlyStrings(date, period.end) > 0;
 };
 
+const taskDueDates = (task = {}) => {
+  const stored = normalizeDateOnlyString(task.date || task._date || "");
+  if (!stored) return [];
+  const local = normalizeDateOnlyString(
+    storedDueToViewer({
+      date: stored,
+      time: task.time || task._time || "",
+    }).date,
+  );
+  return [...new Set([stored, local].filter(Boolean))];
+};
+
+const taskMatchesSelectedDay = (task, day) => {
+  const selected = normalizeDateOnlyString(day);
+  if (!selected) return false;
+  return taskDueDates(task).some((date) => date === selected);
+};
+
+const taskIsOverdue = (task, today, doneStatuses = ["publicado"]) => {
+  const dates = taskDueDates(task);
+  if (!dates.length) return false;
+  if (doneStatuses.includes(task.status || task._status)) return false;
+  const todayKey = normalizeDateOnlyString(today) || getHondurasTodayStr();
+  return dates.every((date) => compareDateOnlyStrings(date, todayKey) < 0);
+};
+
+const taskInWorkingBoard = (task, period, today = getHondurasTodayStr()) => {
+  const status = task.status || task._status;
+  const dates = taskDueDates(task);
+  if (!dates.length) return !isCompletedStatus(status);
+  if (dates.some((date) => isDateWithinPeriod(date, period))) return true;
+  if (isCompletedStatus(status)) return false;
+  const todayKey = normalizeDateOnlyString(today) || getHondurasTodayStr();
+  return dates.some(
+    (date) =>
+      compareDateOnlyStrings(date, todayKey) <= 0 ||
+      compareDateOnlyStrings(date, period.end) > 0,
+  );
+};
+
 const toKpiPercent = (value = 0, maxValue = 0) => {
   const numericValue = Number(value);
   const numericMax = Number(maxValue);
@@ -1695,6 +1735,30 @@ const useTaskRoomState = (storageKey, options = {}) => {
       }),
     );
   }, [storageKey, roomState, preferMine]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    let alignedToday = getHondurasTodayStr();
+    const rollDayForward = () => {
+      const today = getHondurasTodayStr();
+      if (today === alignedToday) return;
+      const previousToday = alignedToday;
+      alignedToday = today;
+      setRoomState((current) => {
+        if (current.filterMode !== "date") return current;
+        if (compareDateOnlyStrings(current.currentDate, previousToday) !== 0) {
+          return current;
+        }
+        return { ...current, currentDate: today };
+      });
+    };
+    const timerId = window.setInterval(rollDayForward, 60000);
+    document.addEventListener("visibilitychange", rollDayForward);
+    return () => {
+      window.clearInterval(timerId);
+      document.removeEventListener("visibilitychange", rollDayForward);
+    };
+  }, []);
 
   return {
     currentDate: roomState.currentDate,
@@ -12802,21 +12866,16 @@ const AccountRoomView = ({
       ])
     )
       return false;
-    if (filterMode === "date")
-      return compareDateOnlyStrings(t.date, currentDate) === 0;
-    if (filterMode === "overdue")
-      return (
-        Boolean(normalizeDateOnlyString(t.date)) &&
-        isDateBeforeDateString(t.date, todayStr) && t.status !== "publicado"
-      );
+    if (filterMode === "date") return taskMatchesSelectedDay(t, currentDate);
+    if (filterMode === "overdue") return taskIsOverdue(t, todayStr, ["publicado"]);
     if (filterMode === "range")
-      return (
-        compareDateOnlyStrings(t.date, effectiveRangeStart) >= 0 &&
-        compareDateOnlyStrings(t.date, effectiveRangeEnd) <= 0
+      return taskDueDates(t).some(
+        (date) =>
+          compareDateOnlyStrings(date, effectiveRangeStart) >= 0 &&
+          compareDateOnlyStrings(date, effectiveRangeEnd) <= 0,
       );
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(t.date, currentMonthPeriod)
-      || isUpcomingOrUndatedOpenTask(t, currentMonthPeriod);
+    return taskInWorkingBoard(t, currentMonthPeriod, todayStr);
   });
   const canReorder = userHasPermission(currentUserProfile, "manage_account_tasks");
   const tasksForStatus = (statusId) => sortKanbanColumnTasks(
@@ -13105,16 +13164,10 @@ const EditionsRoomView = ({
       ])
     )
       return false;
-    if (filterMode === "date")
-      return compareDateOnlyStrings(t.date, currentDate) === 0;
-    if (filterMode === "overdue")
-      return (
-        Boolean(normalizeDateOnlyString(t.date)) &&
-        isDateBeforeDateString(t.date, todayStr) && t.status !== "publicado"
-      );
+    if (filterMode === "date") return taskMatchesSelectedDay(t, currentDate);
+    if (filterMode === "overdue") return taskIsOverdue(t, todayStr, ["publicado"]);
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(t.date, currentMonthPeriod)
-      || isUpcomingOrUndatedOpenTask(t, currentMonthPeriod);
+    return taskInWorkingBoard(t, currentMonthPeriod, todayStr);
   });
   const canManageEditingTasks = userHasPermission(
     currentUserProfile,
@@ -13511,16 +13564,10 @@ const ManagementRoomView = ({
       ])
     )
       return false;
-    if (filterMode === "date")
-      return compareDateOnlyStrings(task.date, currentDate) === 0;
-    if (filterMode === "overdue")
-      return (
-        Boolean(normalizeDateOnlyString(task.date)) &&
-        isDateBeforeDateString(task.date, todayStr) && task.status !== "cerrado"
-      );
+    if (filterMode === "date") return taskMatchesSelectedDay(task, currentDate);
+    if (filterMode === "overdue") return taskIsOverdue(task, todayStr, ["cerrado"]);
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(task.date, currentMonthPeriod)
-      || isUpcomingOrUndatedOpenTask(task, currentMonthPeriod);
+    return taskInWorkingBoard(task, currentMonthPeriod, todayStr);
   });
   const canReorder = userHasPermission(currentUserProfile, "manage_management_tasks");
   const tasksForStatus = (statusId) => sortKanbanColumnTasks(
@@ -25615,18 +25662,12 @@ const UnifiedModuleKanbanView = ({
         String(item.assigneeUserId || "") === String(selectedTeamId);
       if (!matchesTeam) return false;
     }
-    if (filterMode === "date") {
-      return compareDateOnlyStrings(item._date, currentDate) === 0;
-    }
+    if (filterMode === "date") return taskMatchesSelectedDay(item, currentDate);
     if (filterMode === "overdue") {
-      return (
-        isDateBeforeDateString(item._date, todayStr) &&
-        !["publicado", "cerrado"].includes(item._status)
-      );
+      return taskIsOverdue(item, todayStr, ["publicado", "cerrado"]);
     }
     if (filterMode === "history") return true;
-    return isDateWithinPeriod(item._date, monthPeriod)
-      || isUpcomingOrUndatedOpenTask(item, monthPeriod);
+    return taskInWorkingBoard(item, monthPeriod, todayStr);
   });
 
   const filteredByLane = {

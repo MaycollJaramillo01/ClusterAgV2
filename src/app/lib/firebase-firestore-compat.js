@@ -7,6 +7,7 @@ import {
 
 const registry = new Map();
 const DEFAULT_POLL_MS = 120000;
+const ROOM_POLL_MS = 30000;
 const CHAT_POLL_MS = 10000;
 const IDLE_AFTER_MS = 240000;
 const TASK_COLLECTIONS = TASK_WINDOW_COLLECTIONS;
@@ -15,6 +16,8 @@ const LIVE_COLLECTION_BY_VIEW = {
     'account-room': ['account_tasks'],
     editions: ['editing'],
     'management-room': ['management_tasks'],
+    production: ['events', 'account_tasks', 'editing'],
+    podcast: ['events', 'account_tasks', 'editing'],
     'control-center': ['audit_logs'],
     chat: ['client_chats'],
     reports: ['account_tasks', 'editing', 'management_tasks', 'users', 'managers', 'editors'],
@@ -195,17 +198,18 @@ const getLiveCollections = () => {
 
 const shouldPollNow = () => {
     if (typeof document === 'undefined' || document.visibilityState !== 'visible') return false;
-    if (isPollingAllowed({
-        visibilityState: 'visible',
-        lastActivity: lastActivityAt
-    })) return true;
-    return hasCollectionListeners('client_chats');
+    // La sala tiene que seguir recibiendo tareas aunque nadie toque la pantalla.
+    // Si el sondeo se duerme, lo asignado a la tarde recién aparece al otro día.
+    return getLiveCollections().length > 0;
 };
 
 const getPollMs = () => {
     const configured = Number(typeof window !== 'undefined' ? window.__cluster_poll_ms : DEFAULT_POLL_MS);
     if (Number.isFinite(configured) && configured >= 10000) return configured;
-    return hasCollectionListeners('client_chats') ? CHAT_POLL_MS : DEFAULT_POLL_MS;
+    if (hasCollectionListeners('client_chats')) return CHAT_POLL_MS;
+    const live = getLiveCollections();
+    if (live.some((name) => TASK_COLLECTIONS.has(name) || name === 'events')) return ROOM_POLL_MS;
+    return DEFAULT_POLL_MS;
 };
 
 const applyServerChanges = (changes) => {
@@ -273,9 +277,18 @@ const startPolling = (key, ref) => {
 
     const run = async () => {
         try {
-            await ensureSyncCursor(getCollectionName(ref));
+            const collectionName = getCollectionName(ref);
+            const cursorBeforeFetch = syncCursors.has(collectionName)
+                ? syncCursors.get(collectionName)
+                : await apiFetch('/api/collections/_sync?latest=1').then((payload) => Number(payload?.cursor || 0));
             const records = await fetchRecords(ref);
+            const knownCursor = syncCursors.get(collectionName);
+            syncCursors.set(
+                collectionName,
+                Number.isFinite(knownCursor) ? Math.min(knownCursor, cursorBeforeFetch) : cursorBeforeFetch,
+            );
             updateEntryRecords(entry, records);
+            await syncCollection(collectionName);
         } catch (error) {
             handleEntryError(entry, error);
             if (error.status !== 401 && error.status !== 403) {
@@ -325,7 +338,12 @@ if (typeof document !== 'undefined') {
         const now = Date.now();
         if (now - lastFocusRefreshAt < 10000) return;
         lastFocusRefreshAt = now;
-        syncCollections([...STATIC_COLLECTIONS].filter(hasCollectionListeners)).catch(() => {});
+        syncCollections([
+            ...new Set([
+                ...[...STATIC_COLLECTIONS].filter(hasCollectionListeners),
+                ...getLiveCollections()
+            ])
+        ]).catch(() => {});
     };
     ['pointerdown', 'keydown', 'touchstart'].forEach((eventName) => {
         window.addEventListener(eventName, markActivity, { passive: true });

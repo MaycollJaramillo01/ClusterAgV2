@@ -18,6 +18,10 @@ assert.deepEqual(
     getLiveCollectionsForView('performance', (collection) => collection !== 'editing'),
     ['account_tasks', 'management_tasks', 'users', 'managers', 'editors']
 );
+assert.deepEqual(
+    getLiveCollectionsForView('production', () => true),
+    ['events', 'account_tasks', 'editing']
+);
 
 const auditRef = {
     __kind: 'query',
