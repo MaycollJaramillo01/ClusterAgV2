@@ -14,6 +14,8 @@ export const MAX_TASK_ATTACHMENTS = 10;
 
 let cachedStatus = null;
 
+const signedUrlCache = new Map();
+
 const EXTENSION_TYPES = {
     gif: 'image/gif',
     jpg: 'image/jpeg',
@@ -144,22 +146,22 @@ export const putFileToSignedUrl = async (uploadUrl, file, headers = {}, onProgre
     }
 };
 
-export const resolveAttachmentUrl = async (attachment, { download = false } = {}) => {
+export const attachmentMediaUrl = (attachment, { download = false } = {}) => {
     if (attachment?.data) return attachment.data;
+    if (attachment?.localPreview) return attachment.localPreview;
+    if (!attachment?.key || attachment.storage === 'r2') return attachment?.url || '';
+    const query = new URLSearchParams({ key: attachment.key });
+    if (download) query.set('download', '1');
+    return buildApiUrl(`/api/uploads/blob?${query.toString()}`);
+};
+
+export const resolveAttachmentUrl = async (attachment, { download = false } = {}) => {
+    const direct = attachmentMediaUrl(attachment, { download });
+    if (direct) return direct;
     if (!attachment?.key) return attachment?.url || '';
-    if (attachment.storage === 'database') {
-        const query = new URLSearchParams({ key: attachment.key });
-        if (download) query.set('download', '1');
-        const response = await fetch(buildApiUrl(`/api/uploads/blob?${query.toString()}`), {
-            credentials: 'include'
-        });
-        if (!response.ok) {
-            const error = new Error('No se pudo descargar el archivo.');
-            error.status = response.status;
-            throw error;
-        }
-        return URL.createObjectURL(await response.blob());
-    }
+    const cacheKey = `${attachment.key}:${download ? '1' : '0'}`;
+    const cached = signedUrlCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.url;
     const payload = await apiFetch('/api/uploads/url', {
         method: 'POST',
         body: JSON.stringify({
@@ -169,7 +171,13 @@ export const resolveAttachmentUrl = async (attachment, { download = false } = {}
             download
         })
     });
-    return payload?.url || '';
+    const url = payload?.url || '';
+    if (url) {
+        const expiresIn = Number(payload?.expiresIn);
+        const ttl = expiresIn > 0 ? Math.max((expiresIn - 60) * 1000, 30_000) : 10 * 60 * 1000;
+        signedUrlCache.set(cacheKey, { url, expiresAt: Date.now() + ttl });
+    }
+    return url;
 };
 
 export const deleteStoredAttachment = async (key, storage = '') => {

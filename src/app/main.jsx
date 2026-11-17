@@ -201,6 +201,7 @@ import {
   DEFAULT_TASK_UPLOAD_MAX_BYTES,
   MAX_TASK_ATTACHMENTS,
   TASK_UPLOAD_COLLECTIONS,
+  attachmentMediaUrl,
   deleteStoredAttachment,
   fetchUploadStatus,
   fileToDataUrl,
@@ -7518,7 +7519,8 @@ function App() {
   const addTaskAttachment = async (task, type, file, onProgress, options = {}) => {
     const col = TASK_UPLOAD_COLLECTIONS[type];
     if (!col || !file) return;
-    const contentType = inferFileType(file);
+    const uploadFile = file;
+    const contentType = inferFileType(uploadFile);
     const asEditedVideo = Boolean(options.asEditedVideo);
     const uploadRole = asEditedVideo
       ? "edited_video"
@@ -7534,33 +7536,33 @@ function App() {
       (authEmail ? authEmail.split("@")[0] : "Usuario");
     const status = await fetchUploadStatus();
     const maxBytes = Number(status.taskMaxBytes || status.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES;
-    if (file.size > maxBytes) {
+    if (uploadFile.size > maxBytes) {
       alert(`El archivo es demasiado grande (máx. ${formatUploadLimit(maxBytes)})`);
       return;
     }
     const signed = await signTaskUpload({
       collectionName: col,
       taskId: task.id,
-      file,
+      file: uploadFile,
     });
     await putFileToSignedUrl(
       signed.uploadUrl,
-      file,
+      uploadFile,
       signed.headers,
       onProgress,
     );
     const voiceDuration = Number(options.duration);
     const newAttachment = {
       id: signed.attachmentId,
-      name: file.name,
+      name: uploadFile.name,
       type: contentType,
-      size: file.size,
+      size: uploadFile.size,
       key: signed.key,
       storage: signed.storage || (status.r2 ? "r2" : "database"),
       uploadedBy,
       uploadedAt: nowIso(),
       role: uploadRole,
-      ...(options.isVoiceNote || isVoiceNoteAttachment({ name: file.name, type: contentType })
+      ...(options.isVoiceNote || isVoiceNoteAttachment({ name: uploadFile.name, type: contentType })
         ? {
             isVoiceNote: true,
             ...(Number.isFinite(voiceDuration) && voiceDuration > 0
@@ -16168,9 +16170,9 @@ const ClientChatView = ({
     const need = messages.filter((message) => {
       const atts = message.attachments || [];
       if (atts.length === 0 || fullMap[message.id]) return false;
-      if (atts.some((a) => a.data)) return false;
+      if (atts.some((a) => a.data || a.key)) return false;
       return atts.some((a) => a.hasData);
-    });
+    }).slice(-8);
     if (need.length === 0) return;
     (async () => {
       const results = await Promise.all(
@@ -16338,58 +16340,36 @@ const ClientChatView = ({
   const handleFiles = async (fileList) => {
     const files = Array.from(fileList || []);
     if (files.length === 0 || !activeClient?.id) return;
-    let pendingSize = pending.reduce(
-      (total, attachment) => total + Number(attachment?.size || 0),
-      0,
-    );
     setUploading(true);
     try {
       const status = await fetchUploadStatus();
       for (const file of files) {
         const contentType = inferFileType(file) || file.type;
-        if (status.r2) {
-          if (file.size > Number(status.maxBytes)) {
-            alert(`El archivo es demasiado grande (máx. ${formatUploadLimit(status.maxBytes)})`);
-            continue;
-          }
-          const signed = await signStoredUpload({
-            collectionName: "client_chats",
-            clientId: activeClient.id,
-            file,
-          });
-          await putFileToSignedUrl(signed.uploadUrl, file, signed.headers);
-          const localPreview =
-            isChatImage(contentType) || isChatVideo(contentType) || isChatAudio(contentType)
-              ? URL.createObjectURL(file)
-              : "";
-          setPending((prev) => [
-            ...prev,
-            {
-              id: signed.attachmentId,
-              name: file.name,
-              type: contentType,
-              size: file.size,
-              key: signed.key,
-              storage: "r2",
-              localPreview,
-            },
-          ]);
+        const maxBytes = Number(status.maxBytes) || DEFAULT_TASK_UPLOAD_MAX_BYTES;
+        if (file.size > maxBytes) {
+          alert(`El archivo es demasiado grande (máx. ${formatUploadLimit(maxBytes)})`);
           continue;
         }
-        if (pendingSize + file.size > EMBEDDED_UPLOAD_MAX_BYTES) {
-          alert("Los archivos pendientes no pueden superar 3 MB en total.");
-          continue;
-        }
-        const data = await chatFileToBase64(file);
-        pendingSize += file.size;
+        const signed = await signStoredUpload({
+          collectionName: "client_chats",
+          clientId: activeClient.id,
+          file,
+        });
+        await putFileToSignedUrl(signed.uploadUrl, file, signed.headers);
+        const localPreview =
+          isChatImage(contentType) || isChatVideo(contentType) || isChatAudio(contentType)
+            ? URL.createObjectURL(file)
+            : "";
         setPending((prev) => [
           ...prev,
           {
-            id: Math.random().toString(36).slice(2, 10),
+            id: signed.attachmentId,
             name: file.name,
             type: contentType,
             size: file.size,
-            data,
+            key: signed.key,
+            storage: signed.storage || (status.r2 ? "r2" : "database"),
+            localPreview,
           },
         ]);
       }
@@ -16667,12 +16647,13 @@ const ClientChatView = ({
 
   const renderAttachment = (
     att,
-    { mine = false, authorName = "Usuario", avatarUrl = "", compact = false } = {},
+    { mine = false, authorName = "Usuario", avatarUrl = "", compact = false, onLoad } = {},
   ) => {
     const key = att.id || att.name;
     const src =
       att.data ||
       att.localPreview ||
+      attachmentMediaUrl(att) ||
       att.url ||
       chatAttachmentUrls[att.id] ||
       chatAttachmentUrls[att.key] ||
@@ -16701,6 +16682,8 @@ const ClientChatView = ({
           <img
             src={src}
             alt={att.name}
+            loading="lazy"
+            decoding="async"
             className="max-h-56 max-w-[260px] rounded-lg border border-slate-200 object-cover dark:border-white/10"
           />
         </a>
@@ -16712,9 +16695,23 @@ const ClientChatView = ({
           key={key}
           src={src}
           controls
-          preload="metadata"
-          className="max-h-60 max-w-[300px] rounded-lg border border-slate-200 dark:border-white/10"
+          preload="none"
+          playsInline
+          className="max-h-60 max-w-[300px] rounded-lg border border-slate-200 bg-black dark:border-white/10"
         />
+      );
+    }
+    if (!src && att.hasData && typeof onLoad === "function") {
+      return (
+        <button
+          key={key}
+          type="button"
+          onClick={onLoad}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200"
+        >
+          <Icon name="Image" size={14} />
+          Ver archivo
+        </button>
       );
     }
     return (
@@ -17583,6 +17580,12 @@ const ClientChatView = ({
                                 {atts.map((att) =>
                                   renderAttachment(att, {
                                     mine,
+                                    onLoad: att.hasData && !att.data && !att.key
+                                      ? async () => {
+                                          const loaded = (await fetchFullMessage(message.id))?.attachments || [];
+                                          setFullMap((prev) => ({ ...prev, [message.id]: loaded }));
+                                        }
+                                      : undefined,
                                     authorName: mine
                                       ? currentUserProfile?.name || "Usuario"
                                       : message.authorName || "Usuario",
@@ -19835,7 +19838,7 @@ const AttachmentLightbox = ({
   const dialogRef = useDialogA11y(isOpen, onClose);
   const dialogTitleId = useId();
   const attachment = isOpen ? attachments[index] : null;
-  const src = attachment ? (attachment.data || urls[attachment.id] || "") : "";
+  const src = attachment ? (attachment.data || urls[attachment.id] || attachmentMediaUrl(attachment) || "") : "";
   const total = attachments.length;
 
   useEffect(() => {
@@ -19927,6 +19930,7 @@ const AttachmentLightbox = ({
                 controls
                 autoPlay
                 playsInline
+                preload="metadata"
                 className="max-h-full max-w-full rounded-lg bg-black shadow-2xl"
               />
             ) : isAudioAttachment(attachment) ? (
@@ -21030,9 +21034,11 @@ const TaskDetailModal = ({
                             title={att.name || "Previsualización"}
                           >
                             {isImageAttachment(att) && src ? (
-                              <img src={src} alt={att.name || ""} className="aspect-video w-full object-cover" />
-                            ) : isVideoAttachment(att) && src ? (
-                              <video src={src} muted playsInline preload="metadata" className="aspect-video w-full object-cover" />
+                              <img src={src} alt={att.name || ""} loading="lazy" decoding="async" className="aspect-video w-full object-cover" />
+                            ) : isVideoAttachment(att) ? (
+                              <span className="flex aspect-video w-full items-center justify-center bg-slate-950 text-white">
+                                <Icon name="Play" size={22} />
+                              </span>
                             ) : (
                               <span className="flex aspect-video w-full items-center justify-center text-slate-400">
                                 <Icon name={isVideoAttachment(att) ? "Video" : "Image"} size={22} />
@@ -21433,9 +21439,9 @@ const TaskDetailModal = ({
                   if (download) a.download = att.name;
                   a.click();
                 };
-                const previewUrl = (att) => att.data || attachmentUrls[att.id] || "";
+                const previewUrl = (att) => att.data || attachmentUrls[att.id] || attachmentMediaUrl(att) || "";
                 const isLoadingData = (att) =>
-                  (att.hasData && !att.data) || (att.key && !previewUrl(att));
+                  (att.hasData && !att.data && !att.key) || (att.storage === "r2" && att.key && !previewUrl(att));
                 const openLightbox = async (att) => {
                   const nextIndex = attachments.findIndex((item) => item.id === att.id);
                   if (nextIndex < 0) return;
@@ -21592,6 +21598,8 @@ const TaskDetailModal = ({
                               <img
                                 src={previewUrl(att)}
                                 alt=""
+                                loading="lazy"
+                                decoding="async"
                                 className="h-10 w-10 rounded-lg border border-slate-200 object-cover dark:border-slate-700"
                               />
                             ) : (

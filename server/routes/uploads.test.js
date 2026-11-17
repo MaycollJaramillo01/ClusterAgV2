@@ -181,7 +181,27 @@ test('signing an upload without R2 creates an authenticated database upload sess
         headers: { cookie: `cluster_session=${editorToken}` }
     });
     assert.equal(downloaded.status, 200);
+    assert.equal(downloaded.headers.get('accept-ranges'), 'bytes');
+    assert.match(downloaded.headers.get('cache-control') || '', /max-age=31536000/);
     assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), bytes);
+
+    const ranged = await fetch(resolved.payload.url, {
+        headers: {
+            cookie: `cluster_session=${editorToken}`,
+            range: 'bytes=0-4'
+        }
+    });
+    assert.equal(ranged.status, 206);
+    assert.equal(ranged.headers.get('content-range'), `bytes 0-4/${bytes.length}`);
+    assert.deepEqual(Buffer.from(await ranged.arrayBuffer()), bytes.subarray(0, 5));
+
+    const cached = await fetch(resolved.payload.url, {
+        headers: {
+            cookie: `cluster_session=${editorToken}`,
+            'if-none-match': downloaded.headers.get('etag')
+        }
+    });
+    assert.equal(cached.status, 304);
 });
 
 test('task activity records opens and field names for task updates', async () => {

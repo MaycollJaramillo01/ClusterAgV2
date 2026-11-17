@@ -1,4 +1,5 @@
 import express from 'express';
+import { createHash } from 'node:crypto';
 import { db } from '../db/knex.js';
 import { createRecordId } from '../lib/crypto.js';
 import { asyncHandler, createHttpError } from '../lib/http.js';
@@ -21,9 +22,45 @@ import { deleteObject, getR2MaxFileBytes, isR2Configured, publicObjectUrl, signD
 import { requireAuthenticatedUser } from '../lib/sessions.js';
 import { getRequestOrigin } from '../lib/request-origin.js';
 import { nowIso } from '../lib/time.js';
+import { parseByteRange } from '../lib/media-bytes.js';
 
 const router = express.Router();
 const DATABASE_UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024;
+const MEDIA_READ_CHUNK_BYTES = 1024 * 1024;
+
+const readBlobSlice = async (key, start, length) => {
+    const sliceSql = db.client.config.client === 'pg'
+        ? 'substring(file_data from ?::int for ?::int)'
+        : 'substr(file_data, ?, ?)';
+    const row = await db('attachment_blobs')
+        .where({ key })
+        .select(db.raw(`${sliceSql} as file_data`, [start + 1, length]))
+        .first();
+    if (!row?.file_data) return Buffer.alloc(0);
+    return Buffer.isBuffer(row.file_data) ? row.file_data : Buffer.from(row.file_data);
+};
+
+const writeBlobRange = async (res, key, start, end) => {
+    let aborted = false;
+    const stop = () => {
+        if (!res.writableEnded) aborted = true;
+    };
+    res.on('close', stop);
+    try {
+        for (let offset = start; offset <= end; offset += MEDIA_READ_CHUNK_BYTES) {
+            if (aborted) return;
+            const sliceEnd = Math.min(end, offset + MEDIA_READ_CHUNK_BYTES - 1);
+            const chunk = await readBlobSlice(key, offset, sliceEnd - offset + 1);
+            if (aborted) return;
+            if (!res.write(chunk)) {
+                await new Promise((resolve) => res.once('drain', resolve));
+            }
+        }
+        if (!aborted) res.end();
+    } finally {
+        res.off('close', stop);
+    }
+};
 
 const authorizeChatParent = async (userRecord, clientId, action) => {
     requireChatPermission(userRecord, action === 'read' ? 'read' : 'update');
@@ -255,15 +292,46 @@ router.get('/blob', asyncHandler(async (req, res) => {
     const parsed = parseObjectKey(key);
     if (!parsed) throw createHttpError(400, 'La clave del archivo no es valida.', 'attachment/invalid-key');
     await authorizeAttachmentParent(userRecord, parsed, 'read');
-    const blob = await db('attachment_blobs').where({ key }).first();
+    const blob = await db('attachment_blobs')
+        .where({ key })
+        .first('file_name', 'content_type', 'file_size');
     if (!blob) throw createHttpError(404, 'El archivo no existe.', 'attachment/not-found');
-    const data = Buffer.from(blob.file_data);
-    res.set('Cache-Control', 'private, no-store');
-    res.set('X-Content-Type-Options', 'nosniff');
-    res.set('Content-Length', String(data.length));
+    const size = Number(blob.file_size);
+    if (!Number.isFinite(size) || size < 0) {
+        throw createHttpError(404, 'El archivo no existe.', 'attachment/not-found');
+    }
+    const etag = `"${createHash('sha1').update(`${key}:${size}`).digest('hex').slice(0, 20)}"`;
     const disposition = req.query.download === '1' ? 'attachment' : 'inline';
+    res.set('Cache-Control', 'private, max-age=31536000, immutable');
+    res.set('ETag', etag);
+    res.set('Accept-Ranges', 'bytes');
+    res.set('X-Content-Type-Options', 'nosniff');
     res.set('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(blob.file_name)}`);
-    res.type(blob.content_type).send(data);
+    res.type(blob.content_type || 'application/octet-stream');
+    if (req.headers['if-none-match'] === etag) {
+        res.status(304).end();
+        return;
+    }
+    if (size === 0) {
+        res.set('Content-Length', '0');
+        res.end();
+        return;
+    }
+    const range = parseByteRange(req.headers.range, size);
+    if (range?.unsatisfiable) {
+        res.status(416);
+        res.set('Content-Range', `bytes */${size}`);
+        res.end();
+        return;
+    }
+    const start = range ? range.start : 0;
+    const end = range ? range.end : size - 1;
+    if (range) {
+        res.status(206);
+        res.set('Content-Range', `bytes ${start}-${end}/${size}`);
+    }
+    res.set('Content-Length', String(end - start + 1));
+    await writeBlobRange(res, key, start, end);
 }));
 
 router.post('/url', asyncHandler(async (req, res) => {
