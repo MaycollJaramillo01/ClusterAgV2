@@ -13309,34 +13309,23 @@ const AccountRoomView = ({
       : filterMode === "range"
         ? effectiveRangeStart
         : todayStr;
-  const accountGroups = [
-    {
-      id: "start",
-      title: "Por iniciar",
-      subtitle: "Tareas pendientes de comenzar",
-      color: "slate",
-      stages: [{ ...columns[0], tasks: tasksForStatus(columns[0].id) }],
-    },
-    {
-      id: "review",
-      title: "En revisión",
-      subtitle: "Pendientes de aprobación",
-      color: "blue",
-      stages: [{ ...columns[1], tasks: tasksForStatus(columns[1].id) }],
-    },
-    {
-      id: "ready",
-      title: "Listas",
-      subtitle: "Aprobadas y publicadas",
-      color: "emerald",
-      stages: columns.slice(2).map((column) => ({
-        ...column,
-        tasks: tasksForStatus(column.id),
-        collapsible: column.id === "publicado",
-        collapsedLimit: 3,
-      })),
-    },
-  ];
+  const accountGroups = columns.map((column) => ({
+    id: column.id,
+    title: column.title,
+    subtitle: {
+      por_disenar: "Tareas pendientes de comenzar",
+      aprobacion_interna: "Pendientes de aprobación",
+      aprobado_internamente: "Aprobadas, listas para publicar",
+      publicado: "Ya publicadas",
+    }[column.id] || "",
+    color: column.color,
+    stages: [{
+      ...column,
+      tasks: tasksForStatus(column.id),
+      collapsible: column.id === "publicado",
+      collapsedLimit: 3,
+    }],
+  }));
 
   const renderAccountTask = (task, stage) => {
     const columnIndex = columns.findIndex((column) => column.id === stage.id);
