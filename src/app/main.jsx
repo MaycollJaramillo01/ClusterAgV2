@@ -4510,6 +4510,7 @@ function App() {
 
   useEffect(() => {
     if (!user || !db) return;
+    void fetchUploadStatus();
     if (["reports", "performance", "general-calendar", "calendar"].includes(view)) {
       handleLoadTaskHistory();
     }
@@ -6325,39 +6326,98 @@ function App() {
       });
     }
   };
-  const moveTaskInKanban = async (type, task, targetStatus, beforeId = "") => {
+  const pendingKanbanRef = useRef(null);
+  const commitKanbanMoveRef = useRef(async () => {});
+  const [pendingKanban, setPendingKanban] = useState(null);
+  commitKanbanMoveRef.current = async (move) => {
     const configByType = {
       accountTask: { collectionName: "account_tasks", permission: "manage_account_tasks", workflow: "account" },
       editingTask: { collectionName: "editing", permission: "manage_editing_tasks", workflow: "editing" },
       managementTask: { collectionName: "management_tasks", permission: "manage_management_tasks", workflow: "management" },
     };
-    const config = configByType[type];
-    if (!config || !task?.id || !targetStatus) return;
-    if (!(await ensurePermission(config.permission, `Mueve tarea ${task.title || ""} en el tablero`))) return;
-
-    const currentStatus = type === "editingTask"
-      ? normalizeEditingWorkflowStatus(task.status)
-      : String(task.status || "");
-    const statusChanged = currentStatus !== targetStatus;
+    const config = configByType[move?.type];
+    if (!config || !move?.task?.id || !move.targetStatus) return;
+    const currentStatus = move.type === "editingTask"
+      ? normalizeEditingWorkflowStatus(move.task.status)
+      : String(move.task.status || "");
+    const statusChanged = currentStatus !== move.targetStatus;
     const stamp = nowIso();
     const statusPatch = statusChanged
-      ? getStatusTimestampPatch(task, targetStatus, stamp, currentUserProfile?.id, config.workflow)
+      ? getStatusTimestampPatch(move.task, move.targetStatus, stamp, currentUserProfile?.id, config.workflow)
       : {};
     try {
       await moveKanbanTask({
         collectionName: config.collectionName,
-        taskId: task.id,
-        targetStatus,
-        beforeId,
+        taskId: move.task.id,
+        targetStatus: move.targetStatus,
+        beforeId: move.beforeId || "",
         statusPatch,
       });
-      if (type === "accountTask" && targetStatus === "publicado") triggerConfetti();
-      if (type === "editingTask" && ["aprobado", "publicado"].includes(targetStatus)) triggerConfetti();
+      if (move.type === "accountTask" && move.targetStatus === "publicado") triggerConfetti();
+      if (move.type === "editingTask" && ["aprobado", "publicado"].includes(move.targetStatus)) triggerConfetti();
     } catch (error) {
       console.error(error);
       showToast(error?.message || "No se pudo mover la tarjeta", "error");
     }
   };
+  const undoPendingKanban = () => {
+    const pending = pendingKanbanRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timer);
+    pendingKanbanRef.current = null;
+    setPendingKanban(null);
+  };
+  const moveTaskInKanban = async (type, task, targetStatus, beforeId = "") => {
+    const configByType = {
+      accountTask: { collectionName: "account_tasks", permission: "manage_account_tasks" },
+      editingTask: { collectionName: "editing", permission: "manage_editing_tasks" },
+      managementTask: { collectionName: "management_tasks", permission: "manage_management_tasks" },
+    };
+    const config = configByType[type];
+    if (!config || !task?.id || !targetStatus) return;
+    if (!(await ensurePermission(config.permission, `Mueve tarea ${task.title || ""} en el tablero`))) return;
+    const currentStatus = type === "editingTask"
+      ? normalizeEditingWorkflowStatus(task.status)
+      : String(task.status || "");
+    const statusChanged = currentStatus !== targetStatus;
+    if (pendingKanbanRef.current) {
+      const previous = pendingKanbanRef.current;
+      window.clearTimeout(previous.timer);
+      pendingKanbanRef.current = null;
+      setPendingKanban(null);
+      await commitKanbanMoveRef.current(previous);
+    }
+    if (!statusChanged) {
+      await commitKanbanMoveRef.current({ type, task, targetStatus, beforeId });
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const current = pendingKanbanRef.current;
+      if (!current || current.taskId !== task.id) return;
+      pendingKanbanRef.current = null;
+      void commitKanbanMoveRef.current(current).finally(() => {
+        setPendingKanban((value) => (value?.taskId === task.id ? null : value));
+      });
+    }, 6000);
+    pendingKanbanRef.current = { type, task, targetStatus, beforeId, taskId: task.id, timer };
+    setPendingKanban({ taskId: task.id, targetStatus, title: task.title || "Tarea" });
+  };
+  useEffect(() => () => {
+    const pending = pendingKanbanRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timer);
+    pendingKanbanRef.current = null;
+    void commitKanbanMoveRef.current(pending);
+  }, [view]);
+  const withPendingKanbanStatus = (items = []) => (
+    pendingKanban
+      ? items.map((item) => (
+        String(item.id) === String(pendingKanban.taskId)
+          ? { ...item, status: pendingKanban.targetStatus }
+          : item
+      ))
+      : items
+  );
 
   const addManagementTask = async (data) => {
     const { pendingFiles, onUploadProgress, recurrence, ...taskData } = data || {};
@@ -8758,7 +8818,7 @@ function App() {
           )}
           {view === "account-room" && (
             <AccountRoomView
-              tasks={accountTasks}
+              tasks={withPendingKanbanStatus(accountTasks)}
               managers={accountTaskAssignees}
               clients={clients}
               currentUserProfile={currentUserProfile}
@@ -8800,7 +8860,7 @@ function App() {
           )}
           {view === "editions" && (
             <EditionsRoomView
-              tasks={editingTasks}
+              tasks={withPendingKanbanStatus(editingTasks)}
               editors={editingTaskAssignees}
               clients={clients}
               currentUserProfile={currentUserProfile}
@@ -8841,7 +8901,7 @@ function App() {
           )}
           {view === "management-room" && (
             <ManagementRoomView
-              tasks={managementTasks}
+              tasks={withPendingKanbanStatus(managementTasks)}
               members={managementUsers}
               clients={clients}
               currentUserProfile={currentUserProfile}
@@ -9054,8 +9114,8 @@ function App() {
           {view === "podcast" && (
             <PodcastView
               events={events}
-              accountTasks={accountTasks}
-              editingTasks={editingTasks}
+              accountTasks={withPendingKanbanStatus(accountTasks)}
+              editingTasks={withPendingKanbanStatus(editingTasks)}
               managers={accountTaskAssignees}
               editors={editingTaskAssignees}
               currentUserProfile={currentUserProfile}
@@ -9066,13 +9126,14 @@ function App() {
               onChangeAccountStatus={changeAccountTaskStatus}
               onChangeEditingStatus={changeEditingTaskStatus}
               onChangeEventStatus={changeModuleEventStatus}
+              onMoveTask={moveTaskInKanban}
             />
           )}
           {view === "production" && (
             <ProductionView
               events={events}
-              accountTasks={accountTasks}
-              editingTasks={editingTasks}
+              accountTasks={withPendingKanbanStatus(accountTasks)}
+              editingTasks={withPendingKanbanStatus(editingTasks)}
               managers={accountTaskAssignees}
               editors={editingTaskAssignees}
               currentUserProfile={currentUserProfile}
@@ -9083,6 +9144,7 @@ function App() {
               onChangeAccountStatus={changeAccountTaskStatus}
               onChangeEditingStatus={changeEditingTaskStatus}
               onChangeEventStatus={changeModuleEventStatus}
+              onMoveTask={moveTaskInKanban}
               onAddTaskLog={(task, type, text) =>
                 addTaskComment(task, type, text, [], {
                   entryType: "production_log",
@@ -9169,6 +9231,20 @@ function App() {
       >
         {toast && <Toast message={toast.message} type={toast.type} />}
       </div>
+      {pendingKanban && (
+        <div className="fixed bottom-6 left-1/2 z-[120] flex -translate-x-1/2 items-center gap-3 rounded-xl border border-[var(--border)] bg-white px-4 py-3 shadow-none dark:border-white/10 dark:bg-[var(--surface-raised)]">
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+            Moviste “{pendingKanban.title}”
+          </p>
+          <button
+            type="button"
+            onClick={undoPendingKanban}
+            className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white dark:bg-white dark:text-slate-900"
+          >
+            Deshacer
+          </button>
+        </div>
+      )}
       {((currentUserCompliance?.isAlerting && !complianceModalDismissed) ||
         complianceModalOpen) && (
         <ComplianceAlertModal
@@ -12798,6 +12874,60 @@ const DateHeader = ({
   );
 };
 
+const MyDayStrip = ({
+  tasks = [],
+  profile,
+  clients = [],
+  today,
+  onOpen,
+  doneStatuses = [],
+  linkedIds = [],
+}) => {
+  const todayKey = normalizeDateOnlyString(today) || getHondurasTodayStr();
+  const items = tasks.filter((task) => {
+    const status = task.status || task._status || "";
+    if (doneStatuses.includes(status)) return false;
+    if (profile && !isTaskAssignedToProfile(task, profile, linkedIds)) return false;
+    const dates = taskDueDates(task);
+    if (!dates.length) return false;
+    return dates.some((date) => compareDateOnlyStrings(date, todayKey) <= 0);
+  }).slice(0, 8);
+  if (!items.length) return null;
+  const clientName = (task) => clients.find((client) => client.id === task.clientId)?.name || "";
+  return (
+    <section className="rounded-xl border border-[var(--border)] bg-white px-3 py-3 dark:border-white/10 dark:bg-[var(--surface-raised)]">
+      <p className="mb-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">
+        Mi día · {items.length}
+      </p>
+      <div className="flex gap-2 overflow-x-auto">
+        {items.map((task) => {
+          const local = storedDueToViewer({
+            date: task.date || task._date || "",
+            time: task.time || task._time || "",
+          });
+          const overdue = taskDueDates(task).every((date) => compareDateOnlyStrings(date, todayKey) < 0);
+          const label = [clientName(task), local.time, overdue ? "vencida" : ""].filter(Boolean).join(" · ");
+          return (
+            <button
+              key={task.id || task._key}
+              type="button"
+              onClick={() => onOpen?.(task)}
+              className="min-w-[180px] max-w-[240px] shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:border-slate-300 dark:border-white/10 dark:bg-slate-900/50"
+            >
+              <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                {task.title || task._title || "Sin título"}
+              </p>
+              <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                {label || "Hoy"}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
+
 const AccountRoomView = ({
   tasks,
   managers,
@@ -13079,6 +13209,15 @@ const AccountRoomView = ({
         historyLoaded={historyLoaded}
         historyLoading={historyLoading}
         taskCount={filteredTasks.length}
+      />
+      <MyDayStrip
+        tasks={tasks}
+        profile={currentUserProfile}
+        clients={clients}
+        today={todayStr}
+        onOpen={onTaskClick}
+        doneStatuses={["publicado", "aprobado_internamente"]}
+        linkedIds={[currentUserProfile?.linkedManagerId, currentUserProfile?.id]}
       />
       <TaskRoomWorkspace
         groups={accountGroups}
@@ -13436,6 +13575,15 @@ const EditionsRoomView = ({
         historyLoading={historyLoading}
         taskCount={filteredTasks.length}
       />
+      <MyDayStrip
+        tasks={tasks}
+        profile={currentUserProfile}
+        clients={clients}
+        today={todayStr}
+        onOpen={onTaskClick}
+        doneStatuses={["aprobado", "publicado"]}
+        linkedIds={[currentUserProfile?.linkedEditorId, currentUserProfile?.id]}
+      />
       <TaskRoomWorkspace
         groups={editingGroups}
         onAdd={() => handleAddTask(defaultAddDate)}
@@ -13758,6 +13906,15 @@ const ManagementRoomView = ({
         historyLoaded={historyLoaded}
         historyLoading={historyLoading}
         taskCount={filteredTasks.length}
+      />
+      <MyDayStrip
+        tasks={tasks}
+        profile={currentUserProfile}
+        clients={clients}
+        today={todayStr}
+        onOpen={onTaskClick}
+        doneStatuses={["cerrado"]}
+        linkedIds={[currentUserProfile?.id]}
       />
 
       <div className="flex flex-col gap-2 lg:flex-row">
@@ -20347,6 +20504,18 @@ const TaskDetailModal = ({
         currentUserProfile?.linkedEditorId,
         currentUserProfile?.id,
       ]));
+  const inReview = (
+    (type === "editingTask" && task.status === "revision_interna")
+    || (type === "accountTask" && task.status === "aprobacion_interna")
+  );
+  const deliveryFiles = ticketAttachments.filter((att) => (
+    taskFileBucket(att) === "editor"
+    || att.id === task.editedVideo?.id
+  ));
+  const primaryDelivery = deliveryFiles.find((att) => isVideoAttachment(att)) || deliveryFiles[0] || null;
+  const primaryDeliverySrc = primaryDelivery
+    ? (primaryDelivery.data || attachmentUrls[primaryDelivery.id] || attachmentMediaUrl(primaryDelivery) || "")
+    : "";
   const canAssign =
     canAct && userHasPermission(currentUserProfile, "assign_tasks");
   const isDevTask = type === "managementTask" && isDevelopmentTask(task);
@@ -20832,6 +21001,7 @@ const TaskDetailModal = ({
                 className="sticky top-0 z-10 mb-5 flex gap-1 border-b border-[var(--border)] bg-[var(--surface-subtle)] backdrop-blur-sm dark:border-white/10 dark:bg-[var(--surface)]"
               >
                 {[
+                  ...(inReview ? [{ id: "task-delivery", label: "Entrega" }] : []),
                   { id: "task-summary", label: "Resumen" },
                   { id: "task-times", label: "Tiempos" },
                   ...(isDevTask
@@ -20855,6 +21025,93 @@ const TaskDetailModal = ({
                   </button>
                 ))}
               </nav>
+
+              {inReview && (
+                <section
+                  id="task-delivery"
+                  className="mb-4 scroll-mt-16 rounded-xl border border-blue-200 bg-white p-5 dark:border-blue-500/30 dark:bg-[var(--surface-raised)]"
+                >
+                  <p className="text-[11px] font-black uppercase tracking-[0.16em] text-blue-700 dark:text-blue-300">
+                    Entrega para revisar
+                  </p>
+                  {primaryDelivery ? (
+                    <div className="mt-3 space-y-3">
+                      {isVideoAttachment(primaryDelivery) && primaryDeliverySrc ? (
+                        <video
+                          key={primaryDelivery.id}
+                          src={primaryDeliverySrc}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          className="max-h-[420px] w-full rounded-xl bg-black"
+                        />
+                      ) : isImageAttachment(primaryDelivery) && primaryDeliverySrc ? (
+                        <img
+                          src={primaryDeliverySrc}
+                          alt={primaryDelivery.name || "Entrega"}
+                          className="max-h-[420px] w-full rounded-xl object-contain bg-slate-100 dark:bg-slate-900"
+                        />
+                      ) : (
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                          {primaryDelivery.name || "Entrega del editor"}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        {type === "editingTask" && canReviewEditedVideo && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={reviewingVideo}
+                              onClick={async () => {
+                                setReviewingVideo(true);
+                                try {
+                                  await onReviewEditedVideo?.(task, "approved");
+                                } finally {
+                                  setReviewingVideo(false);
+                                }
+                              }}
+                              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              <Icon name="Check" size={13} />
+                              Aprobar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onChangeStatus(task, type, "en_edicion")}
+                              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200"
+                            >
+                              <Icon name="X" size={13} />
+                              Devolver
+                            </button>
+                          </>
+                        )}
+                        {type === "accountTask" && canAct && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => onChangeStatus(task, type, "aprobado_internamente")}
+                              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700"
+                            >
+                              <Icon name="Check" size={13} />
+                              Aprobar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onChangeStatus(task, type, "por_disenar")}
+                              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200"
+                            >
+                              <Icon name="X" size={13} />
+                              Devolver
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-500">Todavía no hay una entrega del editor.</p>
+                  )}
+                </section>
+              )}
 
               {/* Descripción */}
               <section
@@ -25545,6 +25802,7 @@ const UnifiedModuleKanbanView = ({
   onChangeAccountStatus,
   onChangeEditingStatus,
   onChangeEventStatus,
+  onMoveTask,
   onAddTaskLog,
 }) => {
   const {
@@ -25697,11 +25955,13 @@ const UnifiedModuleKanbanView = ({
   const handleStatusChange = async (item, newStatus) => {
     if (!item || !newStatus || newStatus === item._status) return;
     if (item._taskType === "accountTask") {
-      await onChangeAccountStatus?.(item, newStatus);
+      if (onMoveTask) await onMoveTask("accountTask", item, newStatus);
+      else await onChangeAccountStatus?.(item, newStatus);
       return;
     }
     if (item._taskType === "editingTask") {
-      await onChangeEditingStatus?.(item, newStatus);
+      if (onMoveTask) await onMoveTask("editingTask", item, newStatus);
+      else await onChangeEditingStatus?.(item, newStatus);
       return;
     }
     await onChangeEventStatus?.(item, newStatus);
@@ -26033,6 +26293,20 @@ const UnifiedModuleKanbanView = ({
         </div>
       )}
 
+      <MyDayStrip
+        tasks={sourceItems.filter((item) => item._taskType === "accountTask" || item._taskType === "editingTask")}
+        profile={currentUserProfile}
+        clients={[]}
+        today={todayStr}
+        onOpen={onTaskClick}
+        doneStatuses={["publicado", "aprobado", "aprobado_internamente", "cerrado"]}
+        linkedIds={[
+          currentUserProfile?.id,
+          currentUserProfile?.linkedManagerId,
+          currentUserProfile?.linkedEditorId,
+        ]}
+      />
+
       {moduleKey !== "production" && (
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <AccentStatCard
@@ -26253,6 +26527,7 @@ const PodcastView = ({
   onChangeAccountStatus,
   onChangeEditingStatus,
   onChangeEventStatus,
+  onMoveTask,
 }) => (
   <UnifiedModuleKanbanView
     moduleKey="podcast"
@@ -26276,6 +26551,7 @@ const PodcastView = ({
     onChangeAccountStatus={onChangeAccountStatus}
     onChangeEditingStatus={onChangeEditingStatus}
     onChangeEventStatus={onChangeEventStatus}
+    onMoveTask={onMoveTask}
   />
 );
 
@@ -26293,6 +26569,7 @@ const ProductionView = ({
   onChangeAccountStatus,
   onChangeEditingStatus,
   onChangeEventStatus,
+  onMoveTask,
   onAddTaskLog,
 }) => (
   <UnifiedModuleKanbanView
@@ -26317,6 +26594,7 @@ const ProductionView = ({
     onChangeAccountStatus={onChangeAccountStatus}
     onChangeEditingStatus={onChangeEditingStatus}
     onChangeEventStatus={onChangeEventStatus}
+    onMoveTask={onMoveTask}
     onAddTaskLog={onAddTaskLog}
   />
 );

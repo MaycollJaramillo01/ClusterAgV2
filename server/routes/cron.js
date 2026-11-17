@@ -6,6 +6,7 @@ import { processComplianceEvents } from '../lib/compliance-events.js';
 import { sendDailyRoleReports } from '../lib/daily-reports.js';
 import { sendWeeklyModuleReports } from '../lib/weekly-module-reports.js';
 import { purgeExpiredStoredAttachments } from '../lib/r2-retention.js';
+import { processAfternoonDigest } from '../lib/afternoon-digest.js';
 import { safeEqual } from '../lib/crypto.js';
 import { withCronLock } from '../lib/cron-lock.js';
 
@@ -58,11 +59,13 @@ const purgeExpiredR2Attachments = jobHandler(
     'purge-expired-r2-attachments',
     purgeExpiredStoredAttachments
 );
+const afternoonDigest = jobHandler('afternoon-digest', () => processAfternoonDigest());
 
 router.route('/management-task-reminders').get(managementTaskReminders).post(managementTaskReminders);
 router.route('/compliance-events').get(complianceEvents).post(complianceEvents);
 router.route('/daily-role-reports').get(dailyRoleReports).post(dailyRoleReports);
 router.route('/weekly-module-reports').get(weeklyModuleReports).post(weeklyModuleReports);
 router.route('/purge-expired-r2-attachments').get(purgeExpiredR2Attachments).post(purgeExpiredR2Attachments);
+router.route('/afternoon-digest').get(afternoonDigest).post(afternoonDigest);
 
 export default router;

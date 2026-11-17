@@ -128,7 +128,8 @@ router.get('/status', asyncHandler(async (req, res) => {
         maxBytes: isR2Configured() ? getR2MaxFileBytes() : env.uploads.maxFileBytes,
         taskMaxBytes: getMaxUploadBytes('editing'),
         embeddedMaxBytes: MAX_EMBEDDED_ATTACHMENT_BYTES,
-        retentionDays: isR2Configured() ? env.r2.retentionDays : 0
+        retentionDays: isR2Configured() ? env.r2.retentionDays : 0,
+        publicBaseUrl: isR2Configured() ? (env.r2.publicBaseUrl || '') : ''
     });
 }));
 

@@ -15,6 +15,7 @@ export const MAX_TASK_ATTACHMENTS = 10;
 let cachedStatus = null;
 
 const signedUrlCache = new Map();
+let remotePublicBaseUrl = '';
 
 const EXTENSION_TYPES = {
     gif: 'image/gif',
@@ -54,6 +55,7 @@ export const fetchUploadStatus = async () => {
     if (cachedStatus) return cachedStatus;
     try {
         cachedStatus = await apiFetch('/api/uploads/status');
+        remotePublicBaseUrl = String(cachedStatus?.publicBaseUrl || '').replace(/\/+$/, '');
         return cachedStatus;
     } catch {
         cachedStatus = { r2: false, storage: 'database', maxBytes: DEFAULT_TASK_UPLOAD_MAX_BYTES, taskMaxBytes: DEFAULT_TASK_UPLOAD_MAX_BYTES, embeddedMaxBytes: EMBEDDED_UPLOAD_MAX_BYTES, retentionDays: 0 };
@@ -149,7 +151,12 @@ export const putFileToSignedUrl = async (uploadUrl, file, headers = {}, onProgre
 export const attachmentMediaUrl = (attachment, { download = false } = {}) => {
     if (attachment?.data) return attachment.data;
     if (attachment?.localPreview) return attachment.localPreview;
-    if (!attachment?.key || attachment.storage === 'r2') return attachment?.url || '';
+    if (!attachment?.key) return attachment?.url || '';
+    if (attachment.storage === 'r2') {
+        if (attachment.url) return attachment.url;
+        if (remotePublicBaseUrl && !download) return `${remotePublicBaseUrl}/${attachment.key}`;
+        return '';
+    }
     const query = new URLSearchParams({ key: attachment.key });
     if (download) query.set('download', '1');
     return buildApiUrl(`/api/uploads/blob?${query.toString()}`);
