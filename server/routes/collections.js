@@ -362,6 +362,9 @@ const ensureCollectionPermission = (req, action) => {
     if (collectionName === 'audit_logs' && action !== 'read') {
         throw createHttpError(403, 'La auditoria es inmutable.', 'audit/immutable');
     }
+    if (collectionName === 'usage_days' && action !== 'read') {
+        throw createHttpError(403, 'El uso solo lo registra el servidor.', 'usage/server-only');
+    }
     const permission = getCollectionPermission(collectionName, action);
     if (!permission) {
         throw createHttpError(404, 'La coleccion no existe.', 'collection/not-found');
@@ -429,6 +432,9 @@ const ensureCollectionUpdatePermission = async (req, recordId) => {
     const collectionName = getCollectionName(req);
     if (collectionName === 'audit_logs') {
         throw createHttpError(403, 'La auditoria es inmutable.', 'audit/immutable');
+    }
+    if (collectionName === 'usage_days') {
+        throw createHttpError(403, 'El uso solo lo registra el servidor.', 'usage/server-only');
     }
     const permission = getCollectionPermission(collectionName, 'update');
     if (!permission) {
@@ -564,6 +570,9 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
     const stamp = nowIso();
     if (collectionName === 'audit_logs') {
         throw createHttpError(403, 'La auditoria solo puede escribirla el servidor.', 'audit/server-only');
+    }
+    if (collectionName === 'usage_days') {
+        throw createHttpError(403, 'El uso solo lo registra el servidor.', 'usage/server-only');
     }
     if (collectionName === 'management_tasks') {
         return applyStageLog(
@@ -1291,6 +1300,9 @@ router.delete('/:collectionName/:recordId', asyncHandler(async (req, res) => {
     const recordId = assertRecordId(req.params.recordId);
     if (collectionName === 'audit_logs') {
         throw createHttpError(403, 'La auditoria es inmutable.', 'audit/immutable');
+    }
+    if (collectionName === 'usage_days') {
+        throw createHttpError(403, 'El uso solo lo registra el servidor.', 'usage/server-only');
     }
     const permission = getCollectionPermission(collectionName, 'delete');
     if (!permission) {

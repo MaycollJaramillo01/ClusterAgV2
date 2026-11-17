@@ -193,6 +193,10 @@ import {
   sortKanbanColumnTasks,
 } from "./utils/kanban-order.js";
 import {
+  featureForView,
+  usageReportCsv,
+} from "./utils/usage.js";
+import {
   apiFetch,
   buildApiUrl,
   sendApiBeacon,
@@ -481,6 +485,7 @@ const VIEW_PERMISSIONS = {
   "general-calendar": "view_general_calendar",
   calendar: "view_calendar",
   "control-center": "view_users",
+  "team-usage": "view_audit_logs",
   reports: "view_dashboard",
   performance: "view_dashboard",
   podcast: "view_dashboard",
@@ -5373,6 +5378,25 @@ function App() {
       description: `Abre la vista ${newView}`,
     });
   };
+  useEffect(() => {
+    if (!user || !currentUserProfile?.id || profileBlocked) return undefined;
+    const featureId = featureForView(view);
+    if (!featureId) return undefined;
+    const storageKey = `cluster_usage_${featureId}`;
+    try {
+      const lastMs = Number(window.sessionStorage.getItem(storageKey) || 0);
+      if (Date.now() - lastMs < 120000) return undefined;
+      window.sessionStorage.setItem(storageKey, String(Date.now()));
+    } catch {
+      return undefined;
+    }
+    apiFetch("/api/usage", {
+      method: "POST",
+      body: JSON.stringify({ view }),
+    }).catch(() => {});
+    return undefined;
+  }, [user, currentUserProfile?.id, profileBlocked, view]);
+
   const handleNotificationSelect = async (item) => {
     await markNotificationRead(item);
     setIsNotificationsOpen(false);
@@ -8290,6 +8314,7 @@ function App() {
                 "manager-detail",
                 "editors",
                 "editor-detail",
+                "team-usage",
               ].includes(view)}
               onClick={() =>
                 handleNavigate(
@@ -8709,19 +8734,10 @@ function App() {
           )}
           {view === "managers" && (
             <div className="space-y-4">
-              <ViewTabs
+              <TeamSectionTabs
                 active="managers"
+                profile={currentUserProfile}
                 onChange={handleNavigate}
-                items={[
-                  canAccessView(currentUserProfile, "managers") && {
-                    id: "managers",
-                    label: "Accounts",
-                  },
-                  canAccessView(currentUserProfile, "editors") && {
-                    id: "editors",
-                    label: "Editores",
-                  },
-                ].filter(Boolean)}
               />
               <TeamView
                 title="Account Managers"
@@ -8774,19 +8790,10 @@ function App() {
           )}
           {view === "editors" && (
             <div className="space-y-4">
-              <ViewTabs
+              <TeamSectionTabs
                 active="editors"
+                profile={currentUserProfile}
                 onChange={handleNavigate}
-                items={[
-                  canAccessView(currentUserProfile, "managers") && {
-                    id: "managers",
-                    label: "Accounts",
-                  },
-                  canAccessView(currentUserProfile, "editors") && {
-                    id: "editors",
-                    label: "Editores",
-                  },
-                ].filter(Boolean)}
               />
               <TeamView
                 title="Editores"
@@ -8814,6 +8821,16 @@ function App() {
                   })
                 }
               />
+            </div>
+          )}
+          {view === "team-usage" && (
+            <div className="space-y-4">
+              <TeamSectionTabs
+                active="team-usage"
+                profile={currentUserProfile}
+                onChange={handleNavigate}
+              />
+              <TeamUsagePanel />
             </div>
           )}
           {view === "editor-detail" && selectedEditor && (
@@ -11390,6 +11407,197 @@ const ProfileSettingsView = ({
           </div>
         </>
       )}
+    </div>
+  );
+};
+
+const TeamSectionTabs = ({ active, profile, onChange }) => (
+  <ViewTabs
+    active={active}
+    onChange={onChange}
+    items={[
+      canAccessView(profile, "managers") && { id: "managers", label: "Accounts" },
+      canAccessView(profile, "editors") && { id: "editors", label: "Editores" },
+      userHasPermission(profile, "view_audit_logs") && { id: "team-usage", label: "Uso" },
+    ].filter(Boolean)}
+  />
+);
+
+const formatUsageStamp = (value) => {
+  const parsed = Date.parse(value || "");
+  if (!Number.isFinite(parsed)) return "Sin actividad";
+  return new Date(parsed).toLocaleString("es-HN", {
+    timeZone: "America/Tegucigalpa",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const downloadUsageReport = (report) => {
+  const csv = usageReportCsv(report.people || [], report);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `uso-equipo-${report.start || "periodo"}-${report.end || "hoy"}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+const TeamUsagePanel = () => {
+  const [days, setDays] = useState(30);
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedId, setSelectedId] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    apiFetch(`/api/usage?days=${days}`)
+      .then((payload) => {
+        if (cancelled) return;
+        setReport(payload);
+        setSelectedId((current) => (
+          payload.people?.some((person) => person.id === current)
+            ? current
+            : payload.people?.[0]?.id || ""
+        ));
+      })
+      .catch((requestError) => {
+        if (!cancelled) setError(requestError?.message || "No se pudo cargar el uso.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [days]);
+
+  const people = report?.people || [];
+  const selected = people.find((person) => person.id === selectedId) || null;
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800 dark:text-white md:text-3xl">
+            Uso del equipo
+          </h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Visitas a cada función y acciones registradas
+            {report ? ` del ${report.start} al ${report.end}` : ""}. La hora es de Honduras.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {[7, 30].map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setDays(option)}
+              className={`min-h-10 rounded-xl px-3 text-xs font-black uppercase tracking-wide ${
+                days === option
+                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                  : "border border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"
+              }`}
+            >
+              {option} días
+            </button>
+          ))}
+          <Button
+            color="indigo"
+            icon="Download"
+            disabled={!report || loading}
+            onClick={() => downloadUsageReport(report)}
+          >
+            Generar informe
+          </Button>
+        </div>
+      </div>
+      {error && (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+          {error}
+        </p>
+      )}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.3fr,0.9fr]">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+          <div className="max-h-[640px] overflow-auto custom-scroll">
+            <table className="min-w-full text-left text-sm">
+              <thead className="sticky top-0 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500 dark:bg-slate-950 dark:text-slate-400">
+                <tr>
+                  <th className="px-4 py-3">Usuario</th>
+                  <th className="px-4 py-3">Visitas</th>
+                  <th className="px-4 py-3">Acciones</th>
+                  <th className="px-4 py-3">Última</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && (
+                  <tr>
+                    <td colSpan="4" className="px-4 py-8 text-slate-500">Cargando uso…</td>
+                  </tr>
+                )}
+                {!loading && people.length === 0 && (
+                  <tr>
+                    <td colSpan="4" className="px-4 py-8 text-slate-500">No hay usuarios activos.</td>
+                  </tr>
+                )}
+                {!loading && people.map((person) => (
+                  <tr
+                    key={person.id}
+                    onClick={() => setSelectedId(person.id)}
+                    className={`cursor-pointer border-t border-slate-100 dark:border-slate-800 ${
+                      person.id === selectedId ? "bg-indigo-50/70 dark:bg-indigo-500/10" : ""
+                    }`}
+                  >
+                    <td className="px-4 py-3">
+                      <p className="font-bold text-slate-800 dark:text-white">{person.name || "Sin nombre"}</p>
+                      <p className="text-xs text-slate-500">{getRoleMeta(person.role).label}</p>
+                    </td>
+                    <td className="px-4 py-3 font-black text-slate-800 dark:text-white">{person.visits}</td>
+                    <td className="px-4 py-3 font-black text-slate-800 dark:text-white">{person.actions}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">{formatUsageStamp(person.lastAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          {selected ? (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-black text-slate-800 dark:text-white">{selected.name || "Sin nombre"}</h3>
+                <p className="text-sm text-slate-500">{selected.email || "Sin correo"}</p>
+              </div>
+              {selected.features.length === 0 ? (
+                <p className="text-sm text-slate-500">En este período no usó ninguna función.</p>
+              ) : (
+                <div className="space-y-3">
+                  {selected.features.map((feature) => (
+                    <div key={feature.id} className="rounded-xl border border-slate-200 px-3 py-3 dark:border-slate-800">
+                      <p className="text-sm font-bold text-slate-800 dark:text-white">{feature.label}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {feature.visits} {feature.visits === 1 ? "visita" : "visitas"}
+                        {" · "}
+                        {feature.actions} {feature.actions === 1 ? "acción" : "acciones"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">Elegí un usuario para ver sus funciones.</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

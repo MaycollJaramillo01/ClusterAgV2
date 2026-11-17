@@ -170,6 +170,12 @@ export const COLLECTION_PERMISSIONS = {
         update: null,
         delete: null
     },
+    usage_days: {
+        read: 'view_audit_logs',
+        create: null,
+        update: null,
+        delete: null
+    },
     ranking_settings: {
         read: 'view_dashboard',
         create: 'manage_ranking_settings',
