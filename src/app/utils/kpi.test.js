@@ -323,8 +323,27 @@ test("el ritmo de cada etapa modifica el KPI de quien la hizo", () => {
     people: [editor], tasks: open, kind: "editor", period, today, now: openNow,
   })[0];
   assert.equal(openResult.paceScore, 100);
-  assert.equal(openResult.score, 25);
+  assert.equal(openResult.score, 0);
   assert.equal(team(makeTasks()).paceScore, null);
+});
+
+test("la espera después de aprobar no baja el ritmo", () => {
+  const started = "2026-06-08T12:00:00.000Z";
+  const fastEnd = "2026-06-08T14:00:00.000Z";
+  const published = "2026-06-12T20:00:00.000Z";
+  const visit = (status, leftAt, closedById, enteredAt = started) => ({
+    status, enteredAt, leftAt, closedById, actorId: closedById,
+    durationMs: Date.parse(leftAt) - Date.parse(enteredAt),
+  });
+  const waiting = makeTasks({
+    createdAt: started,
+    stageLog: [
+      visit("por_disenar", fastEnd, manager.id),
+      visit("aprobado_internamente", published, manager.id, fastEnd),
+    ],
+  });
+  assert.equal(team(waiting).paceScore, 100);
+  assert.equal(team(waiting).score, 100);
 });
 
 test("las transiciones guardan responsables y vencimiento antes de modificaciones posteriores", () => {

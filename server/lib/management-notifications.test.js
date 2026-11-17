@@ -3,7 +3,10 @@ import test from 'node:test';
 import {
     collectReminderRecipients,
     computeDueAt,
+    isReminderClosed,
     isWithinNagWindow,
+    reminderContextCollection,
+    reminderLookupTask,
     selectReminderAction
 } from './task-reminders.js';
 
@@ -156,6 +159,22 @@ test('selectReminderAction sends 24h then 8h then recurrent nags', () => {
         nowMs
     });
     assert.equal(overdueNag?.type, 'overdue-nag');
+});
+
+test('una entrega ya medida deja de avisarse y la revisión pasa al account', () => {
+    assert.equal(isReminderClosed('account_tasks', { status: 'aprobado_internamente' }), true);
+    assert.equal(isReminderClosed('account_tasks', { status: 'por_disenar' }), false);
+    assert.equal(isReminderClosed('editing', { status: 'revision_interna' }), false);
+    const review = reminderLookupTask({
+        status: 'revision_interna',
+        contextId: 'editor-1',
+        assigneeUserId: 'user-editor',
+        accountId: 'manager-1'
+    }, 'editing');
+    assert.deepEqual(review.assignees, ['manager-1']);
+    assert.equal(review.assigneeUserId, '');
+    assert.equal(reminderContextCollection('editing', review), 'managers');
+    assert.equal(reminderContextCollection('editing', { status: 'en_edicion' }), 'editors');
 });
 
 test('computeDueAt uses Honduras offset', () => {

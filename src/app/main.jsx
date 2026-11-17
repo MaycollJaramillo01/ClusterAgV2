@@ -4273,8 +4273,8 @@ function App() {
         tasks: accountTasks,
         label: "Account",
         view: "account-room",
-        defaultTime: "18:00",
-        done: (task) => task.status === "publicado",
+        defaultTime: DEFAULT_TASK_DUE_TIME,
+        done: (task) => task.status === "publicado" || task.status === "aprobado_internamente",
         assigned: (task) =>
           isTaskAssignedToProfile(task, currentUserProfile, [
             currentUserProfile?.linkedManagerId,
@@ -4285,7 +4285,7 @@ function App() {
         tasks: editingTasks,
         label: "Edicion",
         view: "editions",
-        defaultTime: "18:00",
+        defaultTime: DEFAULT_TASK_DUE_TIME,
         done: isEditingDelivered,
         assigned: (task) =>
           isTaskAssignedToProfile(task, currentUserProfile, [
@@ -4293,11 +4293,28 @@ function App() {
           ]),
       },
       {
+        collectionType: "editingReview",
+        tasks: editingTasks,
+        label: "Edicion",
+        view: "editions",
+        defaultTime: DEFAULT_TASK_DUE_TIME,
+        done: (task) => task.status !== "revision_interna",
+        assigned: (task) =>
+          isTaskAssignedToProfile(
+            {
+              contextId: task.accountId,
+              assignees: task.accountId ? [task.accountId] : [],
+            },
+            currentUserProfile,
+            [currentUserProfile?.linkedManagerId],
+          ),
+      },
+      {
         collectionType: "managementTask",
         tasks: managementTasks,
         label: "Gestion",
         view: "management-room",
-        defaultTime: "",
+        defaultTime: DEFAULT_TASK_DUE_TIME,
         done: (task) => task.status === "cerrado",
         assigned: (task) =>
           isTaskAssignedToProfile(task, currentUserProfile, [

@@ -392,16 +392,14 @@ const getProfileIds = (profile = {}) => [
   profile.linkedManagerId, profile.linkedEditorId,
 ].filter(Boolean);
 
-// Active work only. Queue statuses (editar, pendiente, en_espera) are waiting
-// time and do not count against the person who has not started yet.
+// Active work only. Queue time (editar, pendiente, en_espera) and the wait
+// after the measured delivery (aprobado, aprobado_internamente) do not count.
 const PACE_STAGE_OWNERS = {
   en_edicion: "editor",
   por_disenar: "owner",
   en_proceso: "owner",
   revision_interna: "account",
   aprobacion_interna: "account",
-  aprobado: "account",
-  aprobado_internamente: "owner",
 };
 const KPI_PACE_BLEND = 0.25;
 const PACE_FULL_RATIO = 0.4;
@@ -468,7 +466,7 @@ export const summarizePace = (tasks = [], personIds = [], now = Date.now()) => {
 };
 
 export const applyPaceToScore = (score = 0, paceScore = null) => {
-  if (!Number.isFinite(paceScore)) return score;
+  if (!Number.isFinite(paceScore) || score <= 0) return score;
   const pace = Math.max(0, Math.min(100, paceScore));
   return Math.round(score * (1 - KPI_PACE_BLEND) + pace * KPI_PACE_BLEND);
 };

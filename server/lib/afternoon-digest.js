@@ -49,6 +49,28 @@ export const assigneeUserIdsForTask = (task = {}, { usersById, managersById, edi
     return [...ids];
 };
 
+const digestTask = (collectionName, task = {}) => {
+    if (collectionName === 'editing' && task.status === 'revision_interna') {
+        const accountId = String(task.accountId || '').trim();
+        return { ...task, assigneeUserId: '', contextId: accountId, assignees: accountId ? [accountId] : [] };
+    }
+    return task;
+};
+
+export const afternoonDigestBody = ({ todayCount = 0, overdueCount = 0 } = {}) => {
+    const today = Math.max(0, Number(todayCount) || 0);
+    const overdue = Math.max(0, Number(overdueCount) || 0);
+    const todayText = today === 1
+        ? 'Te queda 1 tarea para hoy'
+        : `Te quedan ${today} tareas para hoy`;
+    const overdueText = overdue === 1 ? '1 vencida' : `${overdue} vencidas`;
+    if (today && overdue) return `${todayText} y ${overdueText}.`;
+    if (today) return `${todayText}.`;
+    if (overdue === 1) return 'Te queda 1 tarea vencida.';
+    if (overdue) return `Te quedan ${overdue} tareas vencidas.`;
+    return '';
+};
+
 export const collectAfternoonDigest = ({
     accountTasks = [],
     editingTasks = [],
@@ -71,12 +93,18 @@ export const collectAfternoonDigest = ({
     for (const [collectionName, tasks] of collections) {
         for (const task of tasks) {
             if (CLOSED_STATUS[collectionName].has(String(task?.status || ''))) continue;
-            if (String(task?.date || '').slice(0, 10) !== today) continue;
+            const date = String(task?.date || '').slice(0, 10);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) continue;
             const taskId = String(task?.id || '').trim();
             if (!taskId) continue;
-            for (const userId of assigneeUserIdsForTask(task, directory)) {
-                const current = grouped.get(userId) || { userId, count: 0, taskId, collectionName };
+            const isToday = date === today;
+            for (const userId of assigneeUserIdsForTask(digestTask(collectionName, task), directory)) {
+                const current = grouped.get(userId) || {
+                    userId, count: 0, todayCount: 0, overdueCount: 0, taskId, collectionName
+                };
                 current.count += 1;
+                if (isToday) current.todayCount += 1;
+                else current.overdueCount += 1;
                 grouped.set(userId, current);
             }
         }
@@ -114,9 +142,7 @@ export const processAfternoonDigest = async ({ now = new Date() } = {}) => {
     }).filter((item) => item.count > 0 && !sentIds.has(item.userId));
     const createdAt = nowIso();
     for (const item of pending) {
-        const body = item.count === 1
-            ? 'Te queda 1 tarea para hoy.'
-            : `Te quedan ${item.count} tareas para hoy.`;
+        const body = afternoonDigestBody(item);
         await db('user_notifications').insert({
             id: createRecordId(),
             recipient_id: item.userId,

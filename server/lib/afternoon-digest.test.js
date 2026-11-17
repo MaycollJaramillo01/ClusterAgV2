@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     assigneeUserIdsForTask,
+    afternoonDigestBody,
     collectAfternoonDigest,
     hondurasHour,
     isAfternoonDigestHour
@@ -30,13 +31,19 @@ test('junta las tareas abiertas de hoy por usuario', () => {
             { id: 'a3', status: 'por_disenar', date: '2026-11-18', assigneeUserId: 'user-1' }
         ],
         editingTasks: [
-            { id: 'e1', status: 'en_edicion', date: '2026-11-17', contextId: 'editor-1' }
+            { id: 'e1', status: 'en_edicion', date: '2026-11-17', contextId: 'editor-1' },
+            { id: 'e2', status: 'revision_interna', date: '2026-11-17', contextId: 'editor-1', accountId: 'manager-1' },
+            { id: 'e3', status: 'en_edicion', date: '2026-11-16', contextId: 'editor-1' }
         ],
         managementTasks: []
     });
     const byUser = new Map(digest.map((item) => [item.userId, item.count]));
-    assert.equal(byUser.get('user-1'), 1);
-    assert.equal(byUser.get('user-2'), 1);
+    assert.equal(byUser.get('user-1'), 2);
+    assert.equal(byUser.get('user-2'), 2);
+    assert.equal(digest.find((item) => item.userId === 'user-1').todayCount, 2);
+    assert.equal(digest.find((item) => item.userId === 'user-2').overdueCount, 1);
+    assert.equal(afternoonDigestBody({ todayCount: 1, overdueCount: 2 }), 'Te queda 1 tarea para hoy y 2 vencidas.');
+    assert.equal(afternoonDigestBody({ overdueCount: 1 }), 'Te queda 1 tarea vencida.');
 });
 
 test('un responsable sin usuario de la app no recibe el aviso', () => {

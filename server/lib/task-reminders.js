@@ -21,6 +21,41 @@ export const REMINDER_STAGES = [
     { key: 'reminder8hSentAt', hours: 8, label: '8 horas' }
 ];
 
+const REMINDER_CLOSED = {
+    account_tasks: new Set(['publicado', 'aprobado_internamente']),
+    editing: new Set(['aprobado', 'publicado']),
+    management_tasks: new Set(['cerrado']),
+    events: new Set(['publicado', 'cerrado', 'aprobado'])
+};
+
+export const isReminderClosed = (collectionName, task = {}) => {
+    const closed = REMINDER_CLOSED[collectionName];
+    if (!closed) return false;
+    const status = collectionName === 'events'
+        ? String(task.status || '').toLowerCase()
+        : task.status;
+    return closed.has(status);
+};
+
+// En revisión el editor ya entregó. El aviso pasa al account que tiene que mirarla.
+export const reminderLookupTask = (task = {}, collectionName = '') => {
+    if (collectionName !== 'editing' || task.status !== 'revision_interna') return task;
+    const accountId = String(task.accountId || '').trim();
+    return {
+        ...task,
+        assignees: accountId ? [accountId] : [],
+        contextId: accountId,
+        assigneeUserId: ''
+    };
+};
+
+export const reminderContextCollection = (collectionName = '', task = {}) => {
+    if (collectionName === 'editing' && task.status === 'revision_interna') return 'managers';
+    if (collectionName === 'account_tasks') return 'managers';
+    if (collectionName === 'editing') return 'editors';
+    return 'users';
+};
+
 const KNOWN_ROLES = new Set(['super_admin', 'operations', 'management', 'manager', 'editor']);
 // Si no se puede determinar el rol del responsable se conserva el comportamiento
 // historico: avisan operations y super_admin (prioridad mayor a management).

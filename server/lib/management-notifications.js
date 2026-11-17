@@ -5,11 +5,15 @@ import { nowIso } from './time.js';
 import { hasSmtpConfig, sendManagementTaskReminderEmail } from './email.js';
 import { createHttpError } from './http.js';
 import { normalizeEmail } from './text.js';
+import { createRecordId } from './crypto.js';
 import {
     HOUR_MS,
     collectReminderRecipients,
     computeDueAt,
+    isReminderClosed,
     isWithinNagWindow,
+    reminderContextCollection,
+    reminderLookupTask,
     selectReminderAction
 } from './task-reminders.js';
 import { sendUsersPush } from './push-notifications.js';
@@ -35,18 +39,18 @@ const TASK_CONFIGS = [
         roomLabel: 'Cluster OS - Sala de Gestion',
         doneLabel: 'Cerrado',
         contextCollection: 'users',
-        defaultTime: '18:00',
-        isClosed: (task) => task.status === 'cerrado'
+        defaultTime: '17:00',
+        isClosed: (task) => isReminderClosed('management_tasks', task)
     },
     {
         collectionName: 'account_tasks',
         reportKey: 'account',
         taskTypeLabel: 'tarea de account',
         roomLabel: 'Cluster OS - Sala de Account',
-        doneLabel: 'Publicado',
+        doneLabel: 'Aprobado internamente',
         contextCollection: 'managers',
-        defaultTime: '18:00',
-        isClosed: (task) => task.status === 'publicado'
+        defaultTime: '17:00',
+        isClosed: (task) => isReminderClosed('account_tasks', task)
     },
     {
         collectionName: 'editing',
@@ -55,8 +59,8 @@ const TASK_CONFIGS = [
         roomLabel: 'Cluster OS - Sala de Edicion',
         doneLabel: 'Aprobado o Publicado',
         contextCollection: 'editors',
-        defaultTime: '18:00',
-        isClosed: (task) => task.status === 'aprobado' || task.status === 'publicado'
+        defaultTime: '17:00',
+        isClosed: (task) => isReminderClosed('editing', task)
     },
     {
         collectionName: 'events',
@@ -65,9 +69,9 @@ const TASK_CONFIGS = [
         roomLabel: 'Cluster OS - Sala de Produccion',
         doneLabel: 'Publicado',
         contextCollection: 'users',
-        defaultTime: '18:00',
+        defaultTime: '17:00',
         include: (task) => String(task.type || '').toLowerCase() === 'production',
-        isClosed: (task) => ['publicado', 'cerrado', 'aprobado'].includes(String(task.status || '').toLowerCase())
+        isClosed: (task) => isReminderClosed('events', task)
     }
 ];
 
@@ -264,7 +268,11 @@ export const processManagementTaskReminders = async () => {
 
             let assignees = [];
             try {
-                assignees = resolveAssignees(task, config, recordsByCollection);
+                const lookup = reminderLookupTask(task, config.collectionName);
+                assignees = resolveAssignees(lookup, {
+                    ...config,
+                    contextCollection: reminderContextCollection(config.collectionName, task)
+                }, recordsByCollection);
             } catch (error) {
                 report.errors.push({ collectionName: config.collectionName, taskId: task.id, step: 'resolveAssignee', message: error.message });
                 continue;
@@ -318,20 +326,40 @@ export const processManagementTaskReminders = async () => {
                         message: error.message
                     });
                 }
-                if (delivery.sent <= 0) continue;
+                const recipientEmails = new Set(recipients.map((item) => normalizeEmail(item.email)));
+                const recipientUserIds = [...new Set(users
+                    .filter((user) => user?.isActive !== false && recipientEmails.has(normalizeEmail(user.email)))
+                    .map((user) => String(user.id || ''))
+                    .filter(Boolean))];
+                if (delivery.sent <= 0 && !recipientUserIds.length) continue;
+
+                const push = buildReminderPush({ action, taskTitle: baseContext.taskTitle });
+                if (recipientUserIds.length) {
+                    const createdAt = nowIso();
+                    await db('user_notifications').insert(recipientUserIds.map((userId) => ({
+                        id: createRecordId(),
+                        recipient_id: userId,
+                        actor_id: 'system',
+                        actor_name: 'Cluster',
+                        type: 'task_reminder',
+                        title: push.title.slice(0, 180),
+                        body: push.body,
+                        entity_type: 'task',
+                        entity_id: String(task.id || '').slice(0, 120),
+                        entity_collection: config.collectionName,
+                        created_at: createdAt,
+                        read_at: null
+                    })));
+                    await sendUsersPush({
+                        userIds: recipientUserIds,
+                        ...push,
+                        data: { taskId: task.id || '', link: taskUrl }
+                    });
+                }
 
                 const flags = stampFromAction(action);
                 await updateTaskFlags({ ...task, collectionName: config.collectionName }, flags);
                 Object.assign(task, flags);
-
-                const recipientEmails = new Set(recipients.map((item) => normalizeEmail(item.email)));
-                await sendUsersPush({
-                    userIds: users
-                        .filter((user) => user?.isActive !== false && recipientEmails.has(normalizeEmail(user.email)))
-                        .map((user) => user.id),
-                    ...buildReminderPush({ action, taskTitle: baseContext.taskTitle }),
-                    data: { taskId: task.id || '', link: taskUrl }
-                });
 
                 if (action.type === 'overdue') {
                     report.overdueSent += 1;
