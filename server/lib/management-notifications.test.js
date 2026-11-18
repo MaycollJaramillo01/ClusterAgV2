@@ -11,7 +11,6 @@ import {
 } from './task-reminders.js';
 
 const HOUR_MS = 60 * 60 * 1000;
-const DAY_MS = 24 * HOUR_MS;
 
 test('collectReminderRecipients uniques supervisor, assigner and assignee', () => {
     const recipients = collectReminderRecipients({
@@ -110,42 +109,26 @@ test('los recordatorios continuos de vencida respetan intervalo y horario', () =
     assert.equal(selectReminderAction({ task: {}, dueMs, nowMs, nagAllowed: false })?.type, 'overdue');
 });
 
-test('selectReminderAction sends 24h then 8h then recurrent nags', () => {
+test('selectReminderAction avisa recien en la ultima hora y despues si vence', () => {
     const nowMs = Date.parse('2026-09-30T13:00:00.000Z');
-    const dueMs = nowMs + (20 * HOUR_MS);
+    assert.equal(selectReminderAction({ task: {}, dueMs: nowMs + (20 * HOUR_MS), nowMs }), null);
+    assert.equal(selectReminderAction({ task: {}, dueMs: nowMs + (6 * HOUR_MS), nowMs }), null);
 
-    const upcoming24 = selectReminderAction({ task: {}, dueMs, nowMs });
-    assert.equal(upcoming24?.type, 'upcoming');
-    assert.equal(upcoming24?.label, '24 horas');
-    assert.ok(upcoming24.stampKeys.includes('reminder24hSentAt'));
-    assert.equal(upcoming24.stampKeys.includes('reminder8hSentAt'), false);
+    const dueIn30m = nowMs + (30 * 60 * 1000);
+    const upcoming = selectReminderAction({ task: {}, dueMs: dueIn30m, nowMs });
+    assert.equal(upcoming?.type, 'upcoming');
+    assert.equal(upcoming?.label, '1 hora');
+    assert.ok(upcoming.stampKeys.includes('reminder1hSentAt'));
 
-    const tooSoonFor8h = selectReminderAction({
-        task: { reminder24hSentAt: '2026-09-30T12:00:00.000Z', lastUpcomingNagAt: '2026-09-30T12:00:00.000Z' },
-        dueMs,
-        nowMs
-    });
-    assert.equal(tooSoonFor8h, null);
-
-    const dueIn6h = nowMs + (6 * HOUR_MS);
-    const upcoming8 = selectReminderAction({
-        task: { reminder24hSentAt: '2026-09-29T13:00:00.000Z' },
-        dueMs: dueIn6h,
-        nowMs
-    });
-    assert.equal(upcoming8?.type, 'upcoming');
-    assert.equal(upcoming8?.label, '8 horas');
-
-    const upcomingNag = selectReminderAction({
+    const alreadySent = selectReminderAction({
         task: {
-            reminder24hSentAt: '2026-09-29T12:00:00.000Z',
-            lastUpcomingNagAt: '2026-09-29T12:00:00.000Z'
+            reminder1hSentAt: '2026-09-30T12:40:00.000Z',
+            lastUpcomingNagAt: '2026-09-30T12:40:00.000Z'
         },
-        dueMs,
-        nowMs,
-        upcomingNagMs: DAY_MS
+        dueMs: dueIn30m,
+        nowMs
     });
-    assert.equal(upcomingNag?.type, 'upcoming-nag');
+    assert.equal(alreadySent, null);
 
     const overdue = selectReminderAction({ task: {}, dueMs: nowMs - HOUR_MS, nowMs });
     assert.equal(overdue?.type, 'overdue');

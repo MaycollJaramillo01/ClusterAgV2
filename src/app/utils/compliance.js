@@ -22,6 +22,8 @@ export const ROLE_PRIORITY = {
 
 export const EDITOR_DAILY_NEW_TARGET = 5;
 export const ACCOUNT_WORK_WEEK_END_TIME = "18:00";
+export const COMPLIANCE_WARNING_LEAD_MS = 60 * 60 * 1000;
+const DEFAULT_TASK_DUE_TIME = "17:00";
 export const EDITOR_DAILY_PENALTY_MAX = 20;
 export const ACCOUNT_PACE_PENALTY_CAP = 30;
 export const MAX_QUOTA_PENALTY = 40;
@@ -167,10 +169,10 @@ export const evaluateAccountWeeklyPace = ({
 };
 
 const DEFAULT_DUE_TIME_BY_TASK_TYPE = {
-  accountTask: ACCOUNT_WORK_WEEK_END_TIME,
-  editingTask: ACCOUNT_WORK_WEEK_END_TIME,
-  managementTask: ACCOUNT_WORK_WEEK_END_TIME,
-  event: ACCOUNT_WORK_WEEK_END_TIME,
+  accountTask: DEFAULT_TASK_DUE_TIME,
+  editingTask: DEFAULT_TASK_DUE_TIME,
+  managementTask: DEFAULT_TASK_DUE_TIME,
+  event: DEFAULT_TASK_DUE_TIME,
 };
 
 const taskKindOf = (task = {}) =>
@@ -185,15 +187,28 @@ const tagTasks = (tasks = [], taskType) =>
     task?._taskType ? task : { ...task, _taskType: taskType },
   );
 
+const taskDueMs = (task, meta) => {
+  const time = /^\d{2}:\d{2}$/.test(task.time || "")
+    ? task.time
+    : DEFAULT_DUE_TIME_BY_TASK_TYPE[task._taskType] || "";
+  return hondurasMs(meta.dueDate, time);
+};
+
 const isTaskPastDue = (task, meta, today, nowMs) => {
   if (meta.completed || !meta.dueDate) return false;
   if (isDateBeforeDateString(meta.dueDate, today)) return true;
   if (meta.dueDate !== today) return false;
-  const time = /^\d{2}:\d{2}$/.test(task.time || "")
-    ? task.time
-    : DEFAULT_DUE_TIME_BY_TASK_TYPE[task._taskType] || "";
-  const dueMs = hondurasMs(meta.dueDate, time);
+  const dueMs = taskDueMs(task, meta);
   return Number.isFinite(dueMs) && nowMs > dueMs;
+};
+
+const isTaskInsideWarningLead = (task, meta, today, nowMs) => {
+  if (meta.completed || !meta.dueDate) return false;
+  if (isTaskPastDue(task, meta, today, nowMs)) return false;
+  const dueMs = taskDueMs(task, meta);
+  if (!Number.isFinite(dueMs)) return false;
+  const remaining = dueMs - nowMs;
+  return remaining > 0 && remaining <= COMPLIANCE_WARNING_LEAD_MS;
 };
 
 export const listOpenOverdueTasks = ({
@@ -210,6 +225,18 @@ export const listOpenOverdueTasks = ({
 
 export const countOpenOverdueTasks = (options = {}) =>
   listOpenOverdueTasks(options).length;
+
+export const listTasksNearingDue = ({
+  tasks = [],
+  profile = {},
+  today = getHondurasTodayStr(),
+  nowMs = Date.now(),
+} = {}) =>
+  tasks.filter((task) => {
+    const kind = taskKindOf(task);
+    if (profile && uniqueIds(profile).length && !ownsTask(task, profile, kind)) return false;
+    return isTaskInsideWarningLead(task, getKpiTaskMeta(task, kind), today, nowMs);
+  });
 
 export const applyPerformancePenalty = (score = 0, penalty = 0) =>
   Math.max(0, Math.min(100, Math.round(Number(score) || 0) - Math.max(0, Math.round(Number(penalty) || 0))));
@@ -262,18 +289,43 @@ export const buildComplianceSnapshot = ({
   const accountWeekly = looksManager
     ? evaluateAccountWeeklyPace({ tasks: account, profile, today, nowMs })
     : evaluateAccountWeeklyPace({ tasks: [], profile, today, nowMs });
+  const ownedTasks = [...account, ...editing, ...management];
   const overdueTasks = listOpenOverdueTasks({
-    tasks: [...account, ...editing, ...management],
+    tasks: ownedTasks,
+    profile,
+    today,
+    nowMs,
+  });
+  const dueSoonTasks = listTasksNearingDue({
+    tasks: ownedTasks,
     profile,
     today,
     nowMs,
   });
   const overdueCount = overdueTasks.length;
+  const dueSoonCount = dueSoonTasks.length;
+  const accountImminent = [...overdueTasks, ...dueSoonTasks].some(
+    (task) => task._taskType === "accountTask",
+  );
+  const accountWeeklyWarning = {
+    ...accountWeekly,
+    warn: Boolean(accountWeekly.behind && accountImminent),
+  };
   const quotaPenalty = Math.min(
     MAX_QUOTA_PENALTY,
     (editorDaily.missed ? editorDaily.penalty : 0) + (accountWeekly.behind ? accountWeekly.penalty : 0),
   );
   const alerts = [];
+  if (dueSoonCount > 0) {
+    alerts.push({
+      id: "due-soon",
+      type: "due-soon",
+      title: "Tareas por vencer",
+      message: dueSoonCount === 1
+        ? "Tienes 1 tarea que vence en menos de una hora."
+        : `Tienes ${dueSoonCount} tareas que vencen en menos de una hora.`,
+    });
+  }
   if (overdueCount > 0) {
     alerts.push({
       id: "overdue",
@@ -292,7 +344,7 @@ export const buildComplianceSnapshot = ({
       message: `No cumpliste con la meta diaria por lo cual eso está afectando tu rendimiento en el sistema. Completaste ${editorDaily.completed} de ${editorDaily.target} piezas nuevas el ${editorDaily.day}. Penalización: −${editorDaily.penalty} pts.`,
     });
   }
-  if (accountWeekly.applies && accountWeekly.behind) {
+  if (accountWeeklyWarning.warn) {
     alerts.push({
       id: "account-pace",
       type: "account-pace",
@@ -303,8 +355,10 @@ export const buildComplianceSnapshot = ({
   return {
     overdueCount,
     overdueTasks,
+    dueSoonCount,
+    dueSoonTasks,
     editorDaily,
-    accountWeekly,
+    accountWeekly: accountWeeklyWarning,
     quotaPenalty,
     alerts,
     isAlerting: alerts.length > 0,

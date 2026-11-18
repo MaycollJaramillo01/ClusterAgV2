@@ -165,10 +165,54 @@ test("ejemplo del requerimiento: 35% de la semana transcurrido y 30% de publicac
   assert.equal(snapshot.accountWeekly.gap, 5);
   assert.equal(snapshot.quotaPenalty, 5);
   assert.equal(snapshot.overdueCount, 0);
+  assert.equal(snapshot.accountWeekly.warn, false);
+  assert.equal(snapshot.alerts.some((item) => item.type === "account-pace"), false);
+  assert.equal(snapshot.isAlerting, false);
+});
+
+test("el aviso de incumplimiento aparece recien en la ultima hora", () => {
+  const dueAt = Date.parse("2026-10-27T17:00:00-06:00");
+  const tasks = Array.from({ length: 10 }, (_, index) => ({
+    id: `pub-${index}`,
+    contextId: manager.id,
+    date: "2026-10-27",
+    time: "17:00",
+    status: index < 3 ? "publicado" : "por_disenar",
+    completedAt: index < 3 ? "2026-10-27T10:00:00-06:00" : undefined,
+  }));
+  const early = buildComplianceSnapshot({
+    profile: manager,
+    accountTasks: tasks,
+    today: "2026-10-27",
+    nowMs: dueAt - (2 * 60 * 60 * 1000),
+  });
+  assert.equal(early.dueSoonCount, 0);
+  assert.equal(early.isAlerting, false);
+
+  const withinHour = buildComplianceSnapshot({
+    profile: manager,
+    accountTasks: tasks,
+    today: "2026-10-27",
+    nowMs: dueAt - (30 * 60 * 1000),
+  });
+  assert.equal(withinHour.dueSoonCount, 7);
+  assert.equal(withinHour.overdueCount, 0);
+  assert.equal(withinHour.accountWeekly.warn, true);
+  assert.equal(withinHour.isAlerting, true);
   assert.match(
-    snapshot.alerts.find((item) => item.type === "account-pace").message,
-    /35%.*30%/,
+    withinHour.alerts.find((item) => item.type === "account-pace").message,
+    /30%/,
   );
+
+  const overdue = buildComplianceSnapshot({
+    profile: manager,
+    accountTasks: tasks,
+    today: "2026-10-27",
+    nowMs: dueAt + (5 * 60 * 1000),
+  });
+  assert.equal(overdue.dueSoonCount, 0);
+  assert.equal(overdue.overdueCount, 7);
+  assert.equal(overdue.isAlerting, true);
 });
 
 test("un Account Manager al dia no genera alertas ni penalizacion", () => {

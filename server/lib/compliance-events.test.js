@@ -19,7 +19,8 @@ const accountTasks = Array.from({ length: 10 }, (_, index) => ({
     id: `acc-${index}`,
     clientId: 'c1',
     contextId: 'm1',
-    date: '2026-10-30',
+    date: '2026-10-28',
+    time: '12:00',
     status: index < 2 ? 'publicado' : 'por_disenar',
     completedAt: index < 2 ? '2026-10-27T10:00:00-06:00' : undefined
 }));

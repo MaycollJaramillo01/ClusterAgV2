@@ -17,8 +17,7 @@ export const computeDueAt = (task = {}, config = {}) => {
 };
 
 export const REMINDER_STAGES = [
-    { key: 'reminder24hSentAt', hours: 24, label: '24 horas' },
-    { key: 'reminder8hSentAt', hours: 8, label: '8 horas' }
+    { key: 'reminder1hSentAt', hours: 1, label: '1 hora' }
 ];
 
 const REMINDER_CLOSED = {

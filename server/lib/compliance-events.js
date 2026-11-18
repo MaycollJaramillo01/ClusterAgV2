@@ -156,7 +156,7 @@ export const planComplianceNotices = ({
         const self = toRecipient(profile, 'self');
 
         const { accountWeekly, editorDaily } = snapshot;
-        if (accountWeekly.applies && accountWeekly.behind) {
+        if (accountWeekly.applies && accountWeekly.warn) {
             const base = {
                 kind: 'account-pace',
                 profile,

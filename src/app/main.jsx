@@ -2066,9 +2066,16 @@ function ComplianceAlertBanner({
   onNavigate,
 }) {
   if (!compliance || !compliance.isAlerting) return null;
-  const { overdueCount, editorDaily, accountWeekly, quotaPenalty } = compliance;
+  const { overdueCount, dueSoonCount = 0, editorDaily, accountWeekly, quotaPenalty } = compliance;
 
   const messages = [];
+  if (dueSoonCount > 0) {
+    messages.push(
+      dueSoonCount === 1
+        ? "1 tarea vence en menos de una hora"
+        : `${dueSoonCount} tareas vencen en menos de una hora`,
+    );
+  }
   if (overdueCount > 0) {
     messages.push(
       overdueCount === 1 ? "1 tarea vencida" : `${overdueCount} tareas vencidas`,
@@ -2079,7 +2086,7 @@ function ComplianceAlertBanner({
       `Meta diaria de edición: ${editorDaily.completed}/${editorDaily.target} hoy`,
     );
   }
-  if (accountWeekly?.applies && accountWeekly?.behind) {
+  if (accountWeekly?.warn) {
     messages.push(
       `Ritmo semanal Account: ${accountWeekly.progressPercent}% entregas vs ${accountWeekly.elapsedPercent}% tiempo`,
     );
@@ -2112,11 +2119,11 @@ function ComplianceAlertBanner({
         </div>
 
         <div className="flex items-center gap-2">
-          {compliance.overdueTasks?.length > 0 && (
+          {(compliance.overdueTasks?.length > 0 || compliance.dueSoonTasks?.length > 0) && (
             <button
               type="button"
               onClick={() => {
-                const first = compliance.overdueTasks[0];
+                const first = compliance.overdueTasks?.[0] || compliance.dueSoonTasks?.[0];
                 if (first) onOpenTask?.(first, first._taskType || "editingTask");
               }}
               className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm transition hover:bg-red-500"
@@ -2150,6 +2157,8 @@ function ComplianceAlertModal({
   const {
     overdueCount,
     overdueTasks = [],
+    dueSoonCount = 0,
+    dueSoonTasks = [],
     editorDaily,
     accountWeekly,
     quotaPenalty,
@@ -2206,6 +2215,58 @@ function ComplianceAlertModal({
                 <span className="rounded-lg bg-red-600 px-3 py-1.5 text-base font-black text-white">
                   −{quotaPenalty} pts
                 </span>
+              </div>
+            </div>
+          )}
+
+          {dueSoonCount > 0 && (
+            <div className="space-y-3 rounded-xl border border-neutral-700 bg-neutral-800/60 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Icon name="Timer" size={18} className="text-amber-400" />
+                  <h3 className="text-sm font-bold text-white">
+                    Por vencer ({dueSoonCount})
+                  </h3>
+                </div>
+                <span className="text-xs font-semibold text-amber-400">
+                  Falta menos de una hora
+                </span>
+              </div>
+              <p className="text-xs text-neutral-300">
+                Estas tareas todavía no están vencidas. El aviso aparece recién en la última hora.
+              </p>
+              <div className="max-h-48 divide-y divide-neutral-700/60 overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-900/60">
+                {dueSoonTasks.map((task) => (
+                  <div
+                    key={`soon-${task._taskType || "task"}-${task.id}`}
+                    className="flex items-center justify-between gap-2 p-3 hover:bg-neutral-800/50"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-white">
+                        {task.title || "Tarea sin título"}
+                      </p>
+                      <p className="text-xs text-amber-300/80">
+                        Vence:{" "}
+                        {formatTaskDueLabel({
+                          date: task.date,
+                          time: task.time || "",
+                          includeTimeZone: Boolean(task.time),
+                        }) || task.date || "Sin fecha"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose?.();
+                        onOpenTask?.(task, task._taskType || "editingTask");
+                      }}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md bg-neutral-700 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-amber-600"
+                    >
+                      <span>Abrir</span>
+                      <Icon name="ExternalLink" size={12} />
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -2294,7 +2355,7 @@ function ComplianceAlertModal({
             </div>
           )}
 
-          {accountWeekly?.applies && accountWeekly?.behind && (
+          {accountWeekly?.warn && (
             <div className="space-y-3 rounded-xl border border-neutral-700 bg-neutral-800/60 p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -4331,14 +4392,14 @@ function App() {
     const fireNotification = (task, config, stage, dueMs) => {
       if (Notification.permission !== "granted") return;
       const titleMap = {
-        "8h": "⏰ Tarea proxima a vencer (8h)",
+        "1h": "Tarea proxima a vencer (1h)",
         overdue: "Tarea vencida",
         nag: "Tarea vencida hace mas de 24h",
       };
       const client = clients.find((c) => c.id === task.clientId);
       const notificationTitle =
-        stage === "8h"
-          ? `Tarea de ${config.label} proxima a vencer (8h)`
+        stage === "1h"
+          ? `Tarea de ${config.label} proxima a vencer (1h)`
           : stage === "overdue"
             ? `Tarea de ${config.label} vencida`
             : `Tarea de ${config.label} vencida hace mas de 24h`;
@@ -4399,9 +4460,9 @@ function App() {
           const stateKey = `${config.collectionType}:${task.id}`;
           const seen = state[stateKey] || {};
 
-          if (diff > 0 && diff <= 8 * HOUR && !seen["8h"]) {
-            fireNotification(task, config, "8h", dueMs);
-            seen["8h"] = now;
+          if (diff > 0 && diff <= HOUR && !seen["1h"]) {
+            fireNotification(task, config, "1h", dueMs);
+            seen["1h"] = now;
             mutated = true;
           }
           if (diff <= 0 && !seen.overdue) {
