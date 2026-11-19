@@ -7,7 +7,7 @@ import {
 
 const registry = new Map();
 const DEFAULT_POLL_MS = 120000;
-const ROOM_POLL_MS = 30000;
+const ROOM_POLL_MS = 5000;
 const CHAT_POLL_MS = 10000;
 const IDLE_AFTER_MS = 240000;
 const TASK_COLLECTIONS = TASK_WINDOW_COLLECTIONS;
@@ -25,6 +25,7 @@ const LIVE_COLLECTION_BY_VIEW = {
 };
 
 const syncCursors = new Map();
+const localHolds = new Map();
 let latestCursorPromise = null;
 let syncTimerId = null;
 let syncInFlight = false;
@@ -149,8 +150,27 @@ const notifyListeners = (entry) => {
     });
 };
 
+const holdsFor = (collectionName) => {
+    if (!localHolds.has(collectionName)) localHolds.set(collectionName, new Map());
+    return localHolds.get(collectionName);
+};
+
+const withLocalHolds = (collectionName, records) => {
+    const holds = localHolds.get(collectionName);
+    if (!holds?.size) return records;
+    const incoming = new Map(records.map((record) => [record.id, record]));
+    for (const [id, record] of holds) {
+        if (incoming.has(id)) holds.delete(id);
+        else incoming.set(id, record);
+    }
+    return [...incoming.values()];
+};
+
 const updateEntryRecords = (entry, records) => {
-    const normalizedRecords = applyQueryOptions(records, entry.ref);
+    const normalizedRecords = applyQueryOptions(
+        withLocalHolds(getCollectionName(entry.ref), records),
+        entry.ref,
+    );
     const signature = JSON.stringify(normalizedRecords);
     if (signature === entry.signature) return;
     entry.records = normalizedRecords;
@@ -160,6 +180,7 @@ const updateEntryRecords = (entry, records) => {
 
 const handleEntryError = (entry, error) => {
     if (error.status === 401 || error.status === 403) {
+        localHolds.delete(getCollectionName(entry.ref));
         updateEntryRecords(entry, []);
         return;
     }
@@ -205,10 +226,10 @@ const shouldPollNow = () => {
 
 const getPollMs = () => {
     const configured = Number(typeof window !== 'undefined' ? window.__cluster_poll_ms : DEFAULT_POLL_MS);
-    if (Number.isFinite(configured) && configured >= 10000) return configured;
-    if (hasCollectionListeners('client_chats')) return CHAT_POLL_MS;
+    if (Number.isFinite(configured) && configured >= 5000) return configured;
     const live = getLiveCollections();
     if (live.some((name) => TASK_COLLECTIONS.has(name) || name === 'events')) return ROOM_POLL_MS;
+    if (hasCollectionListeners('client_chats')) return CHAT_POLL_MS;
     return DEFAULT_POLL_MS;
 };
 
@@ -326,7 +347,16 @@ const refreshCollection = async (collectionName) => {
 };
 
 const applyLocalChange = (collectionName, recordId, action, record = null) => {
+    const alreadyListed = [...registry.values()].some((entry) => (
+        getCollectionName(entry.ref) === collectionName
+        && entry.records.some((item) => item.id === recordId)
+    ));
+    if (TASK_COLLECTIONS.has(collectionName) && action !== 'delete' && record?.id && !alreadyListed) {
+        holdsFor(collectionName).set(recordId, record);
+    }
+    if (action === 'delete') localHolds.get(collectionName)?.delete(recordId);
     applyServerChanges([{ collectionName, recordId, action, record }]);
+    if (TASK_COLLECTIONS.has(collectionName)) resumeSync();
 };
 
 if (typeof document !== 'undefined') {
@@ -336,14 +366,11 @@ if (typeof document !== 'undefined') {
     };
     const refreshStaticOnFocus = () => {
         const now = Date.now();
+        const live = getLiveCollections();
+        if (live.length) syncCollections(live).catch(() => {});
         if (now - lastFocusRefreshAt < 10000) return;
         lastFocusRefreshAt = now;
-        syncCollections([
-            ...new Set([
-                ...[...STATIC_COLLECTIONS].filter(hasCollectionListeners),
-                ...getLiveCollections()
-            ])
-        ]).catch(() => {});
+        syncCollections([...STATIC_COLLECTIONS].filter(hasCollectionListeners)).catch(() => {});
     };
     ['pointerdown', 'keydown', 'touchstart'].forEach((eventName) => {
         window.addEventListener(eventName, markActivity, { passive: true });

@@ -2,9 +2,6 @@
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js');
 
-const SHELL_CACHE = 'cluster-shell-v2';
-const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg'];
-
 const readQueryConfig = () => {
     try {
         return JSON.parse(new URL(self.location.href).searchParams.get('config') || '{}');
@@ -62,38 +59,14 @@ const startFirebaseMessaging = (config) => {
 startFirebaseMessaging(readQueryConfig());
 
 self.addEventListener('install', (event) => {
-    event.waitUntil((async () => {
-        const cache = await caches.open(SHELL_CACHE);
-        await Promise.all(SHELL_URLS.map((url) => cache.add(url).catch(() => {})));
-        await self.skipWaiting();
-    })());
+    event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', (event) => {
     event.waitUntil((async () => {
         const keys = await caches.keys();
-        await Promise.all(keys.filter((key) => key !== SHELL_CACHE).map((key) => caches.delete(key)));
+        await Promise.all(keys.filter((key) => key.startsWith('cluster-shell-')).map((key) => caches.delete(key)));
         await self.clients.claim();
-    })());
-});
-
-self.addEventListener('fetch', (event) => {
-    const request = event.request;
-    if (request.method !== 'GET' || request.mode !== 'navigate') return;
-    const url = new URL(request.url);
-    if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
-
-    event.respondWith((async () => {
-        try {
-            const response = await fetch(request);
-            const cache = await caches.open(SHELL_CACHE);
-            cache.put('/index.html', response.clone()).catch(() => {});
-            return response;
-        } catch {
-            return (await caches.match('/index.html'))
-                || (await caches.match('/'))
-                || Response.error();
-        }
     })());
 });
 

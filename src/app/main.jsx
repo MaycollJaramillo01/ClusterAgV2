@@ -23872,7 +23872,7 @@ const CreateTaskModal = ({
           );
         }
       }
-      if (type !== "managementTask" || result !== null) onClose();
+      if (result) onClose();
       return result;
     } finally {
       setSubmitting(false);

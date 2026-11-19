@@ -28,15 +28,23 @@ const recoverSession = () => {
     return sessionRecoveryPromise;
 };
 
+const networkError = () => new Error('No se pudo conectar. Revisa la conexión e inténtalo de nuevo.');
+
 export const apiFetch = async (path, options = {}, retrySession = true) => {
-    const response = await fetch(buildApiUrl(path), {
-        credentials: 'include',
-        headers: {
-            'content-type': 'application/json',
-            ...(options.headers || {})
-        },
-        ...options
-    });
+    let response;
+    try {
+        response = await fetch(buildApiUrl(path), {
+            credentials: 'include',
+            headers: {
+                'content-type': 'application/json',
+                ...(options.headers || {})
+            },
+            ...options
+        });
+    } catch (error) {
+        if (error?.name === 'AbortError') throw error;
+        throw networkError();
+    }
 
     const hasJson = response.headers.get('content-type')?.includes('application/json');
     const payload = hasJson ? await response.json() : null;

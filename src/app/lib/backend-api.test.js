@@ -100,7 +100,10 @@ test('no recupera sesiones ante permisos denegados ni en endpoints de autenticac
 test('los fallos de red no repiten un POST que pudo haberse guardado', async () => {
     let requests = 0;
     globalThis.fetch = async () => { requests += 1; throw new TypeError('Failed to fetch'); };
-    await assert.rejects(apiFetch('/api/collections/clients', { method: 'POST' }), { message: 'Failed to fetch' });
+    await assert.rejects(
+        apiFetch('/api/collections/clients', { method: 'POST' }),
+        { message: 'No se pudo conectar. Revisa la conexión e inténtalo de nuevo.' },
+    );
     assert.equal(requests, 1);
 });
 
