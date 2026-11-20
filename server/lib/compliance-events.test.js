@@ -20,7 +20,7 @@ const accountTasks = Array.from({ length: 10 }, (_, index) => ({
     clientId: 'c1',
     contextId: 'm1',
     date: '2026-10-28',
-    time: '12:00',
+    time: '10:00',
     status: index < 2 ? 'publicado' : 'por_disenar',
     completedAt: index < 2 ? '2026-10-27T10:00:00-06:00' : undefined
 }));
@@ -131,4 +131,9 @@ test('sin incumplimientos no se genera ningun aviso', () => {
         editorCompletedAt: '2026-10-27T15:00:00-06:00'
     }));
     assert.deepEqual(plan({ accountTasks: onPace, editingTasks: done }).notices, []);
+});
+
+test('no avisa incumplimiento semanal por tareas de hoy que aun estan en plazo', () => {
+    const result = plan({ accountTasks: accountTasks.map((task) => ({ ...task, time: '17:00' })) });
+    assert.equal(result.notices.some((notice) => notice.kind === 'account-pace'), false);
 });

@@ -15,7 +15,7 @@ const mountIndex = source.indexOf('const root = createRoot(');
 assert.ok(mountIndex > 0, 'Se debe excluir el montaje de App de esta prueba');
 const { outputFiles } = await build({
     stdin: {
-        contents: `${source.slice(0, mountIndex)}\nexport { ReportsView };`,
+        contents: `${source.slice(0, mountIndex)}\nexport { ReportsView, PerformanceView };`,
         resolveDir: fileURLToPath(new URL('..', import.meta.url)),
         loader: 'jsx'
     },
@@ -42,11 +42,24 @@ vm.runInNewContext(outputFiles[0].text, {
     module, exports: module.exports, require: createRequire(import.meta.url),
     console, Date: FixedDate, TextEncoder, TextDecoder, Buffer, Uint8Array,
 });
-const { ReportsView } = module.exports;
+const { ReportsView, PerformanceView } = module.exports;
 const renderReports = (props = {}) => renderToStaticMarkup(React.createElement(ReportsView, {
     accountTasks: [], editingTasks: [], managementTasks: [],
     clients: [], managers: [], editors: [], users: [], ...props
 })).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+
+test('Rendimiento no reduce el promedio por tareas de hoy que aun no vencieron', () => {
+    const delivered = Array.from({ length: 5 }, (_, index) => ({
+        id: `done-${index}`, contextId: 'm1', date: '2026-10-16',
+        status: 'publicado', completedAt: '2026-10-16T15:00:00-06:00'
+    }));
+    const text = renderToStaticMarkup(React.createElement(PerformanceView, {
+        accountTasks: [...delivered, { id: 'pending', contextId: 'm1', date: '2026-10-19', time: '23:59', status: 'por_disenar' }],
+        managers: [{ id: 'm1', name: 'Account Test' }],
+    })).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+    assert.match(text, /KPI promedio 100%/);
+    assert.match(text, /0 tareas vencidas/);
+});
 
 test('Reportes abre con tareas en las tres salas sin referencias indefinidas', () => {
     const task = { date: '2026-10-19', contextId: 'person', status: 'publicado' };

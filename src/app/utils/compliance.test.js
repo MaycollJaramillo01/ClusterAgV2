@@ -144,7 +144,7 @@ test("la alerta de pantalla junta vencidas, meta diaria y ritmo semanal", () => 
   assert.ok(snapshot.alerts.some((item) => item.type === "account-pace"));
 });
 
-test("ejemplo del requerimiento: 35% de la semana transcurrido y 30% de publicaciones genera alerta", () => {
+test("el avance semanal no penaliza publicaciones cuyo plazo aun no vence", () => {
   const tuesdayFourPm = Date.parse("2026-10-27T16:00:00-06:00");
   assert.equal(getElapsedWorkWeekPercent({ today: "2026-10-27", nowMs: tuesdayFourPm }), 35);
   const tasks = Array.from({ length: 10 }, (_, index) => ({
@@ -160,10 +160,10 @@ test("ejemplo del requerimiento: 35% de la semana transcurrido y 30% de publicac
     today: "2026-10-27",
     nowMs: tuesdayFourPm,
   });
-  assert.equal(snapshot.accountWeekly.behind, true);
+  assert.equal(snapshot.accountWeekly.behind, false);
   assert.equal(snapshot.accountWeekly.progressPercent, 30);
-  assert.equal(snapshot.accountWeekly.gap, 5);
-  assert.equal(snapshot.quotaPenalty, 5);
+  assert.equal(snapshot.accountWeekly.gap, 0);
+  assert.equal(snapshot.quotaPenalty, 0);
   assert.equal(snapshot.overdueCount, 0);
   assert.equal(snapshot.accountWeekly.warn, false);
   assert.equal(snapshot.alerts.some((item) => item.type === "account-pace"), false);
@@ -197,12 +197,10 @@ test("el aviso de incumplimiento aparece recien en la ultima hora", () => {
   });
   assert.equal(withinHour.dueSoonCount, 7);
   assert.equal(withinHour.overdueCount, 0);
-  assert.equal(withinHour.accountWeekly.warn, true);
+  assert.equal(withinHour.accountWeekly.warn, false);
   assert.equal(withinHour.isAlerting, true);
-  assert.match(
-    withinHour.alerts.find((item) => item.type === "account-pace").message,
-    /30%/,
-  );
+  assert.equal(withinHour.quotaPenalty, 0);
+  assert.ok(withinHour.alerts.some((item) => item.type === "due-soon"));
 
   const overdue = buildComplianceSnapshot({
     profile: manager,
@@ -212,6 +210,7 @@ test("el aviso de incumplimiento aparece recien en la ultima hora", () => {
   });
   assert.equal(overdue.dueSoonCount, 0);
   assert.equal(overdue.overdueCount, 7);
+  assert.ok(overdue.quotaPenalty > 0);
   assert.equal(overdue.isAlerting, true);
 });
 
@@ -261,6 +260,38 @@ test("una tarea vence a su hora el mismo dia", () => {
   const base = { tasks: [task], profile: manager, today: "2026-10-28" };
   assert.equal(countOpenOverdueTasks({ ...base, nowMs: Date.parse("2026-10-28T09:00:00-06:00") }), 0);
   assert.equal(countOpenOverdueTasks({ ...base, nowMs: Date.parse("2026-10-28T10:01:00-06:00") }), 1);
+});
+
+test("las tareas de hoy y futuras no generan descuentos semanales antes de vencer", () => {
+  const snapshot = buildComplianceSnapshot({
+    profile: manager, today: "2026-11-20",
+    nowMs: Date.parse("2026-11-20T14:00:00-06:00"),
+    accountTasks: Array.from({ length: 10 }, (_, index) => ({
+      id: `today-${index}`, contextId: manager.id,
+      date: "2026-11-20", time: "17:00", status: "por_disenar",
+    })),
+  });
+  assert.equal(snapshot.overdueCount, 0);
+  assert.equal(snapshot.quotaPenalty, 0);
+  assert.equal(snapshot.accountWeekly.penalty, 0);
+});
+
+test("agregar tareas futuras no aumenta el descuento de pendientes ya vencidos", () => {
+  const base = {
+    profile: manager, today: "2026-11-20",
+    nowMs: Date.parse("2026-11-20T14:00:00-06:00"),
+    accountTasks: Array.from({ length: 10 }, (_, index) => ({
+      id: `existing-${index}`, contextId: manager.id, date: "2026-11-19",
+      status: index < 8 ? "publicado" : "por_disenar",
+      completedAt: index < 8 ? "2026-11-19T14:00:00-06:00" : undefined,
+    })),
+  };
+  const before = buildComplianceSnapshot(base);
+  assert.ok(before.quotaPenalty > 0 && before.quotaPenalty < 30);
+  const after = buildComplianceSnapshot({ ...base, accountTasks: [...base.accountTasks,
+    { id: "not-due", contextId: manager.id, date: "2026-11-20", time: "17:00", status: "por_disenar" },
+  ] });
+  assert.equal(after.quotaPenalty, before.quotaPenalty);
 });
 
 test("los superiores son los de prioridad estrictamente mayor y los Account Managers solo si manejan el cliente", () => {

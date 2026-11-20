@@ -159,3 +159,32 @@ test('reasignar a alguien inexistente sigue rechazandose al editar', async () =>
     assert.equal(response.status, 400);
     assert.equal(response.payload?.error?.code, 'document/invalid-reference');
 });
+
+test('cambiar el editor persiste el nuevo responsable sin conservar al creador', async () => {
+    const created = await request('/api/collections/editing', {
+        method: 'POST',
+        body: { data: { title: 'Reasignar video', contextId: 'gestion', assignees: ['gestion'], assigneeUserId: 'gestion' } }
+    });
+    assert.equal(created.status, 201);
+    const updated = await request(`/api/collections/editing/${created.payload.record.id}`, {
+        method: 'PATCH', body: { data: { contextId: 'editor-sin-user' } }
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.payload.record.contextId, 'editor-sin-user');
+    assert.deepEqual(updated.payload.record.assignees, ['editor-sin-user']);
+    assert.equal(updated.payload.record.assigneeUserId, 'editor-sin-user');
+});
+
+test('el cliente conserva su editor habitual y rechaza referencias inexistentes', async () => {
+    const response = await request('/api/collections/clients/client-1', {
+        method: 'PATCH', body: { data: { editorId: 'editor-sin-user' } }
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.payload.record.editorId, 'editor-sin-user');
+    const saved = await request('/api/collections/clients/client-1');
+    assert.equal(saved.payload.record.editorId, 'editor-sin-user');
+    const invalid = await request('/api/collections/clients/client-1', {
+        method: 'PATCH', body: { data: { editorId: 'no-existe' } }
+    });
+    assert.equal(invalid.status, 400);
+});

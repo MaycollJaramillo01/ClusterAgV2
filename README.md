@@ -34,11 +34,21 @@ El acceso es por invitacion: una identidad de Google o Firebase que no exista pr
 
 El KPI de Inicio y Rendimiento usa el mismo periodo (inicio del mes hasta hoy,
 hora de Honduras) y consolida las tareas asignadas de Accounts, Edicion y Gestion.
-La nota es `(70 * peso completado + 30 * peso entregado a tiempo) / peso asignado`,
-redondeada una sola vez; P1/P2/P3/P4 pesan 4/3/2/1. Las entregas sin fecha verificable
+La nota es `(70 * peso completado + 30 * peso entregado a tiempo) / peso evaluable`,
+considerando evaluables las tareas completadas o cuyo plazo ya venció. Los pendientes
+de hoy y futuros siguen visibles, pero no reducen la nota antes de su fecha y hora
+límite (17:00 de Honduras cuando no se especifica hora). El ritmo tampoco descuenta
+por tareas abiertas que aún están dentro del plazo. El resultado se redondea
+una sola vez; P1/P2/P3/P4 pesan 4/3/2/1. Las entregas sin fecha verificable
 no acreditan puntualidad y mantienen la nota provisional, al igual que una muestra
-de menos de cinco tareas. Los responsables y el vencimiento se conservan al completar
+de menos de cinco tareas evaluables. Los responsables y el vencimiento se conservan al completar
 la tarea; reasignarla o editarla despues no transfiere el credito historico.
+
+Cada cliente puede guardar un **Editor habitual** desde su formulario de edición.
+Al crear un video y elegir ese cliente se selecciona su editor activo; una elección
+manual en el video tiene prioridad. El creador no se usa por defecto como editor
+si no pertenece al equipo de edición. Corregir responsables en tareas existentes
+requiere el permiso `assign_tasks` (paquete «Asignar responsables»).
 
 La limpieza real del historial exige `--apply --backup-confirmed`. No se debe ejecutar contra produccion sin una copia verificada.
 
@@ -60,8 +70,8 @@ El sistema vigila de forma continua el cumplimiento operativo en tareas y penali
 
 3. **Ritmo semanal de Account Managers**:
    - Semana laboral de Honduras: lunes 00:00 a viernes 18:00 (114 horas).
-   - Se compara el porcentaje de tiempo transcurrido contra el porcentaje de publicaciones completadas de su cuota semanal.
-   - Ejemplo: si ha transcurrido el 35% del tiempo de la semana y solo lleva el 30% de sus entregas, se activa la alerta de ritmo atrasado.
+   - Se compara el porcentaje de tiempo transcurrido contra el avance de publicaciones completadas o vencidas de esa semana.
+   - Las publicaciones que todavía están en plazo no generan descuentos ni aumentan los descuentos de otras tareas vencidas.
    - Penalización en KPI: `min(30, % tiempo transcurrido - % avance entregado)` pts (máximo 30 pts).
 
 4. **Penalización acumulada y KPI**:

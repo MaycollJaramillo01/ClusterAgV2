@@ -322,7 +322,7 @@ test("el ritmo de cada etapa modifica el KPI de quien la hizo", () => {
   const openResult = buildTeamKpiStats({
     people: [editor], tasks: open, kind: "editor", period, today, now: openNow,
   })[0];
-  assert.equal(openResult.paceScore, 100);
+  assert.equal(openResult.paceScore, null);
   assert.equal(openResult.score, 0);
   assert.equal(team(makeTasks()).paceScore, null);
 });
@@ -344,6 +344,35 @@ test("la espera después de aprobar no baja el ritmo", () => {
   });
   assert.equal(team(waiting).paceScore, 100);
   assert.equal(team(waiting).score, 100);
+});
+
+test("agregar pendientes de hoy no baja el KPI antes de su hora limite", () => {
+  const now = Date.parse("2026-06-19T14:00:00-06:00");
+  const tasks = [...makeTasks(), ...makeTasks({
+    date: today, time: "17:00", status: "por_disenar", completedAt: undefined,
+    createdAt: "2026-06-19T08:00:00-06:00",
+    stageLog: [{ status: "por_disenar", enteredAt: "2026-06-19T08:00:00-06:00" }],
+  }, 2)];
+  const home = buildPersonalKpiSnapshot(tasks, period, { id: manager.id }, today, now);
+  const performance = buildTeamKpiStats({ people: [manager], tasks, period, today, now })[0];
+  assert.equal(home.total, 7);
+  assert.equal(home.pending, 2);
+  assert.equal(home.overdueTasks, 0);
+  assert.equal(home.score, 100);
+  assert.equal(home.paceScore, null);
+  assertSameKpi(home, performance);
+  const afterDue = buildPersonalKpiSnapshot(tasks, period, { id: manager.id }, today,
+    Date.parse("2026-06-19T17:01:00-06:00"));
+  assert.equal(afterDue.overdueTasks, 2);
+  assert.ok(afterDue.score < home.score);
+});
+
+test("completar una tarea antes de vencer suma credito y no exige esperar al cierre del dia", () => {
+  const task = makeTasks({ date: today, time: "17:00", completedAt: "2026-06-19T10:00:00-06:00" });
+  const result = buildPersonalKpiSnapshot(task, period, { id: manager.id }, today,
+    Date.parse("2026-06-19T11:00:00-06:00"));
+  assert.equal(result.score, 100);
+  assert.equal(result.qualified, true);
 });
 
 test("las transiciones guardan responsables y vencimiento antes de modificaciones posteriores", () => {

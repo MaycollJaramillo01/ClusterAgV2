@@ -3,6 +3,7 @@ import {
   getHondurasTodayStr,
   isDateBeforeDateString,
   normalizeDateOnlyString,
+  parseBusinessDueMs,
 } from "./date.js";
 
 export const KPI_MIN_TASKS = 5;
@@ -421,7 +422,19 @@ const paceOwnerIds = (task, stageId) => {
 
 const dueWindowEndMs = (dueDate) => Date.parse(`${dueDate}T23:59:59.999-06:00`);
 
+const isKpiTaskOverdue = (task, meta, today, now) => {
+  if (meta.completed || !meta.dueDate) return false;
+  const dayDelta = compareDateOnlyStrings(meta.dueDate, today);
+  if (dayDelta !== 0) return dayDelta < 0;
+  const dueMs = parseBusinessDueMs(meta.dueDate, task.time || "17:00");
+  return dueMs !== null && now > dueMs;
+};
+
 export const getTaskStagePace = (task = {}, personIds = [], now = Date.now()) => {
+  const meta = getKpiTaskMeta(task);
+  // Work still within its delivery window cannot reduce a performance score.
+  const dueMs = parseBusinessDueMs(meta.dueDate, task.time || "17:00");
+  if (!meta.completed && (dueMs === null || now <= dueMs)) return null;
   const ids = new Set(personIds.map((id) => String(id)).filter(Boolean));
   if (!ids.size || !Array.isArray(task.stageLog) || !task.stageLog.length) return null;
   let workMs = 0;
@@ -491,14 +504,17 @@ const isInPeriod = (meta, period) => Boolean(
   compareDateOnlyStrings(meta.dueDate, period.end) <= 0,
 );
 
-const summarizeKpiEntries = (entries, today) => {
+const summarizeKpiEntries = (entries, today, now) => {
+  const overdueEntries = entries.filter(({ task, meta }) => isKpiTaskOverdue(task, meta, today, now));
   const completedEntries = entries.filter(({ meta }) => meta.completed);
+  const evaluatedEntries = [...completedEntries, ...overdueEntries];
   const measuredEntries = completedEntries.filter(({ meta }) => meta.completionIso);
   const onTimeEntries = measuredEntries.filter(({ meta }) =>
     compareDateOnlyStrings(getHondurasDateFromIso(meta.completionIso), meta.dueDate) <= 0,
   );
   const sumWeight = (items) => items.reduce((sum, { task }) => sum + getKpiTaskWeight(task), 0);
   const weightedTotal = sumWeight(entries);
+  const weightedEvaluated = sumWeight(evaluatedEntries);
   const weightedCompleted = sumWeight(completedEntries);
   const measuredWeight = sumWeight(measuredEntries);
   const onTimeWeight = sumWeight(onTimeEntries);
@@ -510,20 +526,20 @@ const summarizeKpiEntries = (entries, today) => {
     monthlyTasks: entries.map(({ task }) => task),
     completedTasks: completedEntries.map(({ task }) => task),
     total, completed, delivered: completed, pending: total - completed,
-    overdueTasks: entries.filter(({ meta }) =>
-      !meta.completed && isDateBeforeDateString(meta.dueDate, today),
-    ).length,
+    overdueTasks: overdueEntries.length,
+    evaluatedTaskCount: evaluatedEntries.length,
+    weightedEvaluated,
     weightedTotal, weightedCompleted, measuredWeight, onTimeWeight,
     completionPercent, deliveryPerformance: completionPercent,
     measuredCompletionCount: measuredEntries.length,
     missingTimingCount,
     onTimeCount: onTimeEntries.length,
     onTimePercent: measuredWeight ? Math.round(onTimeWeight / measuredWeight * 100) : null,
-    qualified: total >= KPI_MIN_TASKS && missingTimingCount === 0,
+    qualified: evaluatedEntries.length >= KPI_MIN_TASKS && missingTimingCount === 0,
     provisionalReason: missingTimingCount > 0
       ? `${missingTimingCount} entregas sin fecha`
-      : total < KPI_MIN_TASKS ? `${total}/${KPI_MIN_TASKS} tareas` : "",
-    score: calculateKpiScore({ weightedTotal, weightedCompleted, onTimeWeight }),
+      : evaluatedEntries.length < KPI_MIN_TASKS ? `${evaluatedEntries.length}/${KPI_MIN_TASKS} tareas evaluables` : "",
+    score: calculateKpiScore({ weightedTotal: weightedEvaluated, weightedCompleted, onTimeWeight }),
   };
 };
 
@@ -535,7 +551,7 @@ export const buildPersonalKpiSnapshot = (
   const entries = tasks.map((task) => ({ task, meta: getKpiTaskMeta(task) }))
     .filter(({ meta }) => isInPeriod(meta, period) &&
       (!profileIds || meta.ownerIds.some((id) => profileIds.has(id))));
-  return withPace(summarizeKpiEntries(entries, today), tasks, getProfileIds(profile), period, now);
+  return withPace(summarizeKpiEntries(entries, today, now), tasks, getProfileIds(profile), period, now);
 };
 
 export const buildTeamKpiStats = ({
@@ -562,7 +578,7 @@ export const buildTeamKpiStats = ({
     const entries = tasksByOwner.get(person.id) || [];
     return {
       ...person,
-      ...withPace(summarizeKpiEntries(entries, today), tasks, getProfileIds(person), period, now),
+      ...withPace(summarizeKpiEntries(entries, today, now), tasks, getProfileIds(person), period, now),
       kind,
       kindLabel: kind === "editor" ? "Editor" : "Account Manager",
       published: entries.filter(({ task }) => task.status === "publicado").length,

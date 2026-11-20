@@ -171,7 +171,6 @@ import {
   KPI_MIN_TASKS,
   buildTeamKpiStats,
   buildPersonalKpiSnapshot,
-  calculateKpiScore,
   getKpiPeriod,
   getKpiTaskMeta,
   getKpiHistoryPatch,
@@ -3309,7 +3308,10 @@ function App() {
     currentAccountAssignee,
   );
   const defaultEditingAssigneeId = resolveDefaultAssigneeId(
-    currentEditingAssignee,
+    currentEditingAssignee &&
+      (!currentEditingAssignee.isOrganizationMember || currentEditingAssignee.role === "editor")
+      ? currentEditingAssignee
+      : null,
   );
   const privilegedUsers = appUsers.filter(
     (item) =>
@@ -6271,6 +6273,14 @@ function App() {
 
   const addEditingTask = async (data) => {
     const { pendingFiles, onUploadProgress, recurrence, ...taskData } = data || {};
+    const clientEditorId = clients.find((client) => client.id === taskData.clientId)?.editorId;
+    const habitualEditor = editingTaskAssignees.find(
+      (person) => person.id === clientEditorId && person.isActive !== false,
+    );
+    if (!taskData.contextId && !taskData.assignees?.length && habitualEditor) {
+      taskData.contextId = habitualEditor.id;
+      taskData.assignees = [habitualEditor.id];
+    }
     const defaultedTime = taskData.date
       ? String(taskData.time || "").trim() || DEFAULT_TASK_DUE_TIME
       : String(taskData.time || "").trim();
@@ -6724,6 +6734,7 @@ function App() {
     );
     await updateDoc(dataDoc(col, task.id), {
       contextId: contextId || null,
+      assignees: contextId ? [contextId] : [],
       assigneeUserId: resolveLiveAssigneeUserId(assignee, appUsers),
       ...historicalOwnerPatch,
       updatedAt: nowIso(),
@@ -9396,7 +9407,7 @@ function App() {
             currentUserProfile={currentUserProfile}
             clients={clients}
             managers={managers}
-            editors={editors}
+            editors={editorTeam}
             managementUsers={managementUsers}
             actions={{
               addClient,
@@ -23361,6 +23372,7 @@ const CreateTaskModal = ({
   const [showDesc, setShowDesc] = useState(false);
   const [assigneeId, setAssigneeId] = useState("");
   const [assigneeIds, setAssigneeIds] = useState([]);
+  const [assigneeManuallySelected, setAssigneeManuallySelected] = useState(false);
   const [accountId, setAccountId] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
   const [clientId, setClientId] = useState("");
@@ -23454,9 +23466,13 @@ const CreateTaskModal = ({
             String(person.id) === String(presetClient?.managerId || "") &&
             person.isActive !== false,
         );
+        const presetEditor = editors.find(
+          (person) => String(person.id) === String(presetClient?.editorId || "") && person.isActive !== false,
+        );
         const presetAssigneeId =
           data?.contextId ||
-          (type === "accountTask" ? presetResponsible?.id || "" : "");
+          (type === "accountTask" ? presetResponsible?.id || ""
+            : type === "editingTask" ? presetEditor?.id || "" : "");
         setAssigneeId(presetAssigneeId);
         setAssigneeIds(presetAssigneeId ? [presetAssigneeId] : []);
         setAccountId(
@@ -23501,6 +23517,7 @@ const CreateTaskModal = ({
       setRecurrenceOpen(false);
       setRecurrenceError("");
       setAssigneeOpen(false);
+      setAssigneeManuallySelected(false);
       setClientOpen(false);
       setPriorityOpen(false);
       setDatePickerOpen(false);
@@ -24377,6 +24394,7 @@ const CreateTaskModal = ({
                   <button
                     key={p.id}
                     onClick={() => {
+                      setAssigneeManuallySelected(true);
                       setAssigneeIds((current) => {
                         const next = checked
                           ? current.filter((id) => id !== p.id)
@@ -24700,6 +24718,14 @@ const CreateTaskModal = ({
                           setClientId(c.id);
                           setClientOpen(false);
                           setClientSearch("");
+                          if (canAssign && type === "editingTask" && !config.isEdit && !assigneeManuallySelected) {
+                            const habitualEditor = editors.find(
+                              (person) => String(person.id) === String(c.editorId || "") && person.isActive !== false,
+                            );
+                            const nextEditorId = habitualEditor?.id || data?.contextId || "";
+                            setAssigneeId(nextEditorId);
+                            setAssigneeIds(nextEditorId ? [nextEditorId] : []);
+                          }
                           if (
                             !canAssign ||
                             !responsible ||
@@ -24947,6 +24973,7 @@ const Modal = ({
           package: fd.package || "",
           instagram: fd.instagram || "",
           managerId: fd.managerId || "",
+          editorId: fd.editorId || "",
           photo: fd.photo || "",
         });
       if (type === "manager")
@@ -25018,6 +25045,7 @@ const Modal = ({
           package: fd.package || "",
           instagram: fd.instagram || "",
           managerId: fd.managerId || "",
+          editorId: fd.editorId || "",
           photo: fd.photo || "",
         });
       if (type === "manager")
@@ -25223,6 +25251,24 @@ const Modal = ({
                     </option>
                     ))}
                 </select>
+                <label htmlFor="client-default-editor" className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  Editor habitual
+                </label>
+                <select
+                  id="client-default-editor"
+                  name="editorId"
+                  defaultValue={data?.editorId || ""}
+                  className={selectClassName}
+                  aria-describedby="client-default-editor-help"
+                >
+                  <option value="">Sin editor habitual</option>
+                  {editors.filter((editor) => editor.isActive !== false).map((editor) => (
+                    <option key={editor.id} value={editor.id}>{editor.name}</option>
+                  ))}
+                </select>
+                <p id="client-default-editor-help" className="text-xs text-slate-500 dark:text-slate-400">
+                  Se selecciona al crear videos para este cliente. Puedes elegir otro editor en cada video.
+                </p>
               </>
             )}
 
@@ -28296,14 +28342,15 @@ const PerformanceView = ({
     ? qualifiedPerformanceStats
     : visiblePerformanceStats;
   const averageWeight = averageSource.reduce(
-    (sum, person) => sum + person.weightedTotal,
+    (sum, person) => sum + person.weightedEvaluated,
     0,
   );
-  const averagePerformance = calculateKpiScore({
-    weightedTotal: averageWeight,
-    weightedCompleted: averageSource.reduce((sum, person) => sum + person.weightedCompleted, 0),
-    onTimeWeight: averageSource.reduce((sum, person) => sum + person.onTimeWeight, 0),
-  });
+  const averagePerformance = averageWeight
+    ? Math.round(averageSource.reduce(
+        (sum, person) => sum + person.overallPerformance * person.weightedEvaluated,
+        0,
+      ) / averageWeight)
+    : 0;
   const totalTasks = visiblePerformanceStats.reduce(
     (sum, person) => sum + person.total,
     0,

@@ -263,6 +263,7 @@ const validateReferences = async ({ collectionName, existing = null, payload, tr
     }
     if (collectionName === 'clients') {
         await requireReference('managerId', ['managers']);
+        await requireReference('editorId', PEOPLE_COLLECTIONS);
     }
     if (collectionName === 'client_chats' && (record.kind === 'team_group' || existing?.kind === 'team_group')) {
         await requireReference('clientId', ['team_groups']);

@@ -152,8 +152,13 @@ export const evaluateAccountWeeklyPace = ({
   const completed = weekly.filter((task) => getKpiTaskMeta(task, "manager").completed).length;
   const elapsedPercent = getElapsedWorkWeekPercent({ today, nowMs });
   const progressPercent = assigned ? Math.round((completed / assigned) * 100) : 0;
-  const gap = assigned > 0 ? Math.max(0, elapsedPercent - progressPercent) : 0;
-  const behind = assigned > 0 && gap > 0;
+  const evaluated = weekly.filter((task) => {
+    const meta = getKpiTaskMeta(task, "manager");
+    return meta.completed || isTaskPastDue(task, meta, today, nowMs);
+  });
+  const dueProgressPercent = evaluated.length ? Math.round((completed / evaluated.length) * 100) : 100;
+  const gap = Math.max(0, elapsedPercent - dueProgressPercent);
+  const behind = gap > 0;
   return {
     applies: assigned > 0,
     behind,
@@ -163,6 +168,7 @@ export const evaluateAccountWeeklyPace = ({
     completed,
     elapsedPercent,
     progressPercent,
+    dueProgressPercent,
     gap,
     penalty: behind ? Math.min(ACCOUNT_PACE_PENALTY_CAP, gap) : 0,
   };
@@ -349,7 +355,7 @@ export const buildComplianceSnapshot = ({
       id: "account-pace",
       type: "account-pace",
       title: "Ritmo semanal de Account Manager",
-      message: `Ha transcurrido el ${accountWeekly.elapsedPercent}% de la semana laborable y solo llevas el ${accountWeekly.progressPercent}% de tus publicaciones (${accountWeekly.completed} de ${accountWeekly.assigned}). Penalización: −${accountWeekly.penalty} pts.`,
+      message: `Ha transcurrido el ${accountWeekly.elapsedPercent}% de la semana laborable. Tu avance entre tareas completadas o vencidas es ${accountWeekly.dueProgressPercent}%. Penalización: −${accountWeekly.penalty} pts.`,
     });
   }
   return {
