@@ -16,6 +16,8 @@ dist/
 hs_err_pid*
 replay_pid*
 src/app/main.compiled.js
+src/app/main.compiled.css
+src/app/fonts/
 src/styles/tailwind.generated.css
 .claude/
 .env
@@ -24,3 +26,11 @@ src/styles/tailwind.generated.css
 .tmp/*.sqlite-*
 
 .vercel
+
+# Astryx theme editor previews (rebuilt by `astryx experimental theme editor show`)
+themes/*/*.png
+themes/*/*.html
+themes/*/*.pictures.json
+
+# Brand kit render cache (brand-identity-kit)
+design/**/.cache/

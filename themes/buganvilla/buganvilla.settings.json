@@ -1,0 +1,102 @@
+{
+  "name": "buganvilla",
+  "like": "neutral",
+  "mode": "both",
+  "settings": [
+    {
+      "thing": "corners",
+      "value": "medium",
+      "source": "dial"
+    },
+    {
+      "thing": "accent",
+      "value": "#b02a6c",
+      "source": "dial"
+    },
+    {
+      "thing": "neutral",
+      "value": "#1e1619",
+      "source": "dial"
+    },
+    {
+      "thing": "success",
+      "value": "#08795e",
+      "source": "dial"
+    },
+    {
+      "thing": "warning",
+      "value": "#b86e00",
+      "source": "dial"
+    },
+    {
+      "thing": "danger",
+      "value": "#b4312b",
+      "source": "dial"
+    },
+    {
+      "thing": "info",
+      "value": "#196aaf",
+      "source": "dial"
+    },
+    {
+      "thing": "font",
+      "value": "figtree",
+      "source": "dial"
+    },
+    {
+      "thing": "headings",
+      "value": "bold",
+      "source": "dial",
+      "axis": "weight"
+    },
+    {
+      "thing": "background-color",
+      "value": "var(--color-text-primary)",
+      "source": "property",
+      "on": "button",
+      "when": "variant:primary"
+    },
+    {
+      "thing": "color",
+      "value": "var(--color-background-surface)",
+      "source": "property",
+      "on": "button",
+      "when": "variant:primary"
+    },
+    {
+      "thing": "background-color",
+      "value": "color-mix(in oklab, var(--color-text-primary) 84%, var(--color-background-surface))",
+      "source": "property",
+      "on": "button",
+      "when": "variant:primary",
+      "state": "hover"
+    },
+    {
+      "thing": "--color-text-primary",
+      "value": "#1e1619",
+      "source": "token",
+      "mode": "light"
+    },
+    {
+      "thing": "--color-text-primary",
+      "value": "#f6eff2",
+      "source": "token",
+      "mode": "dark"
+    },
+    {
+      "thing": "--color-background-body",
+      "value": "#f9f5f6",
+      "source": "token",
+      "mode": "light"
+    },
+    {
+      "thing": "color",
+      "value": "#ffffff",
+      "source": "property",
+      "on": "toast",
+      "when": "type:error"
+    }
+  ],
+  "palette": "d2cefeeabbf726155344bb70a44ed47d5c2d6edac26a72b4dc89f413e7199c28",
+  "lifted": []
+}

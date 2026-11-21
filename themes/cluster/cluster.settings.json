@@ -1,0 +1,102 @@
+{
+  "name": "cluster",
+  "like": "neutral",
+  "mode": "both",
+  "settings": [
+    {
+      "thing": "corners",
+      "value": "medium",
+      "source": "dial"
+    },
+    {
+      "thing": "neutral",
+      "value": "#131d1e",
+      "source": "dial"
+    },
+    {
+      "thing": "success",
+      "value": "#08795e",
+      "source": "dial"
+    },
+    {
+      "thing": "warning",
+      "value": "#b86e00",
+      "source": "dial"
+    },
+    {
+      "thing": "danger",
+      "value": "#b4312b",
+      "source": "dial"
+    },
+    {
+      "thing": "info",
+      "value": "#196aaf",
+      "source": "dial"
+    },
+    {
+      "thing": "font",
+      "value": "figtree",
+      "source": "dial"
+    },
+    {
+      "thing": "headings",
+      "value": "bold",
+      "source": "dial",
+      "axis": "weight"
+    },
+    {
+      "thing": "accent",
+      "value": "#097a7b",
+      "source": "dial"
+    },
+    {
+      "thing": "background-color",
+      "value": "var(--color-text-primary)",
+      "source": "property",
+      "on": "button",
+      "when": "variant:primary"
+    },
+    {
+      "thing": "color",
+      "value": "var(--color-background-surface)",
+      "source": "property",
+      "on": "button",
+      "when": "variant:primary"
+    },
+    {
+      "thing": "background-color",
+      "value": "color-mix(in oklab, var(--color-text-primary) 84%, var(--color-background-surface))",
+      "source": "property",
+      "on": "button",
+      "when": "variant:primary",
+      "state": "hover"
+    },
+    {
+      "thing": "--color-text-primary",
+      "value": "#131d1e",
+      "source": "token",
+      "mode": "light"
+    },
+    {
+      "thing": "--color-text-primary",
+      "value": "#eef3f3",
+      "source": "token",
+      "mode": "dark"
+    },
+    {
+      "thing": "--color-background-body",
+      "value": "#f4f8f8",
+      "source": "token",
+      "mode": "light"
+    },
+    {
+      "thing": "color",
+      "value": "#ffffff",
+      "source": "property",
+      "on": "toast",
+      "when": "type:error"
+    }
+  ],
+  "palette": "ec78ac1c92c1b65c18dc3b017b7be66ec14581c84a829fa236853e00dc1c8930",
+  "lifted": []
+}

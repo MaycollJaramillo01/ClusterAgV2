@@ -1,0 +1,537 @@
+{
+  "schema": "brand-identity/competitors@1",
+  "measuredAt": "2026-11-21T15:18:53.617Z",
+  "note": "Measured hex values approximate public websites; roles are unconfirmed proposals.",
+  "sites": [
+    {
+      "url": "https://monday.com/",
+      "host": "monday.com",
+      "status": "ok",
+      "title": "The AI Workspace for People & Agents | monday.com",
+      "siteName": "monday.com",
+      "description": "Get more work done with AI agents that work side by side with your people. Execute, manage, and operate together on one AI Workspace to drive business results.",
+      "lang": "en",
+      "themeColor": null,
+      "darkModeSupport": false,
+      "roles": {
+        "background": "#ffffff",
+        "surface": "#f3f4f5",
+        "border": "#cacbcd",
+        "text": "#7c7b7b",
+        "textMuted": "#7c7b7b",
+        "primary": "#6161ff",
+        "onPrimary": "#ffffff",
+        "accent": "#fe81e4",
+        "success": "#006638"
+      },
+      "confidence": {
+        "background": 0.96,
+        "surface": 0.9,
+        "border": 0.68,
+        "text": 0.85,
+        "textMuted": 0.85,
+        "primary": 0.84,
+        "onPrimary": 0.97,
+        "accent": 0.72,
+        "success": 0.45
+      },
+      "notes": [],
+      "brandColors": [
+        "#6161ff",
+        "#fe81e4"
+      ],
+      "topColors": [
+        {
+          "hex": "#ffffff",
+          "oklch": "oklch(100.0% 0.000 90)",
+          "score": 1413.69,
+          "areaShare": 1.0635,
+          "roles": [
+            "background",
+            "onPrimary"
+          ]
+        },
+        {
+          "hex": "#000000",
+          "oklch": "oklch(0.0% 0.000 0)",
+          "score": 273.65,
+          "areaShare": 0.0179,
+          "roles": []
+        },
+        {
+          "hex": "#f3f4f5",
+          "oklch": "oklch(96.7% 0.002 248)",
+          "score": 92.91,
+          "areaShare": 0.0572,
+          "roles": [
+            "surface"
+          ]
+        },
+        {
+          "hex": "#7c7b7b",
+          "oklch": "oklch(58.4% 0.001 17)",
+          "score": 87.98,
+          "areaShare": 0,
+          "roles": [
+            "text",
+            "textMuted"
+          ]
+        },
+        {
+          "hex": "#585965",
+          "oklch": "oklch(46.7% 0.019 282)",
+          "score": 30.8,
+          "areaShare": 0,
+          "roles": []
+        },
+        {
+          "hex": "#f4cdff",
+          "oklch": "oklch(89.7% 0.079 319)",
+          "score": 17.98,
+          "areaShare": 0.0137,
+          "roles": []
+        },
+        {
+          "hex": "#cacbcd",
+          "oklch": "oklch(84.2% 0.003 265)",
+          "score": 12.28,
+          "areaShare": 0.0006,
+          "roles": [
+            "border"
+          ]
+        },
+        {
+          "hex": "#535768",
+          "oklch": "oklch(46.0% 0.028 275)",
+          "score": 7.62,
+          "areaShare": 0,
+          "roles": []
+        }
+      ],
+      "nHues": 3,
+      "hues": [
+        319,
+        277,
+        65
+      ],
+      "lightnessRange": [
+        0,
+        1
+      ],
+      "strategy": "tokens",
+      "fonts": {
+        "heading": "Poppins, Arial, sans-serif",
+        "body": "Poppins, Arial, sans-serif",
+        "paragraph": "Poppins, Arial, sans-serif",
+        "loaded": [
+          "Poppins 300 normal",
+          "Poppins 700 normal",
+          "Poppins 400 normal",
+          "Poppins 500 normal",
+          "Poppins 600 normal"
+        ]
+      },
+      "screenshot": "competitors/monday-com.png"
+    },
+    {
+      "url": "https://clickup.com/",
+      "host": "clickup.com",
+      "status": "ok",
+      "title": "ClickUp™ | Maximize productivity • Software, AI, and humans converge",
+      "siteName": null,
+      "description": "Our mission is to make the world more productive. To do this, we built the everything app for work - Tasks, Docs, Goals, and Chat.",
+      "lang": "en",
+      "themeColor": null,
+      "darkModeSupport": false,
+      "roles": {
+        "background": "#ffffff",
+        "surface": "#ffffff",
+        "border": "#ceceea",
+        "text": "#24223e",
+        "textMuted": "#646464",
+        "primary": "#6647f0",
+        "accent": "#7612fa",
+        "link": "#646464",
+        "danger": "#e04f44"
+      },
+      "confidence": {
+        "background": 0.9,
+        "surface": 0.87,
+        "border": 0.7,
+        "text": 0.85,
+        "textMuted": 0.85,
+        "primary": 0.27,
+        "accent": 0.85,
+        "link": 0.97,
+        "danger": 0.45
+      },
+      "notes": [],
+      "brandColors": [
+        "#6647f0",
+        "#7612fa"
+      ],
+      "topColors": [
+        {
+          "hex": "#ffffff",
+          "oklch": "oklch(100.0% 0.000 90)",
+          "score": 2884.49,
+          "areaShare": 1.9365,
+          "roles": [
+            "background",
+            "surface"
+          ]
+        },
+        {
+          "hex": "#000000",
+          "oklch": "oklch(0.0% 0.000 0)",
+          "score": 634.39,
+          "areaShare": 0.4172,
+          "roles": []
+        },
+        {
+          "hex": "#202020",
+          "oklch": "oklch(24.4% 0.000 90)",
+          "score": 98.83,
+          "areaShare": 0.0223,
+          "roles": []
+        },
+        {
+          "hex": "#646464",
+          "oklch": "oklch(50.3% 0.000 90)",
+          "score": 71.63,
+          "areaShare": 0.0001,
+          "roles": [
+            "link",
+            "textMuted"
+          ]
+        },
+        {
+          "hex": "#838383",
+          "oklch": "oklch(61.0% 0.000 90)",
+          "score": 58.44,
+          "areaShare": 0.0001,
+          "roles": []
+        },
+        {
+          "hex": "#e8e8e8",
+          "oklch": "oklch(93.1% 0.000 90)",
+          "score": 55.55,
+          "areaShare": 0.0004,
+          "roles": []
+        },
+        {
+          "hex": "#000002",
+          "oklch": "oklch(3.8% 0.027 264)",
+          "score": 51.47,
+          "areaShare": 0.0357,
+          "roles": []
+        },
+        {
+          "hex": "#b4b4b4",
+          "oklch": "oklch(77.0% 0.000 90)",
+          "score": 43.29,
+          "areaShare": 0,
+          "roles": []
+        }
+      ],
+      "nHues": 4,
+      "hues": [
+        283,
+        34,
+        355,
+        251
+      ],
+      "lightnessRange": [
+        0,
+        1
+      ],
+      "strategy": "tokens",
+      "fonts": {
+        "heading": "\"Plus Jakarta Sans\"",
+        "body": "\"Plus Jakarta Sans\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", sans-serif",
+        "paragraph": "Inter, sans-serif",
+        "loaded": [
+          "Inter 100 900 normal",
+          "Plus Jakarta Sans 200 800 normal",
+          "Plus Jakarta Sans 200 800 italic",
+          "Sometype Mono 400 700 normal"
+        ]
+      },
+      "screenshot": "competitors/clickup-com.png"
+    },
+    {
+      "url": "https://asana.com/",
+      "host": "asana.com",
+      "status": "ok",
+      "title": "Work & Project Management for Human-Agent Teams • Asana",
+      "siteName": "Asana",
+      "description": "Work management software for teams and AI agents. Plan, automate, and execute critical workflows together.",
+      "lang": "en",
+      "themeColor": "#2e3c54",
+      "darkModeSupport": true,
+      "roles": {
+        "background": "#ffffff",
+        "surface": "#fafafa",
+        "border": "#e7e7e7",
+        "text": "#0d0d0d",
+        "textMuted": "#3d3d3d",
+        "primary": "#ffc9ff",
+        "onPrimary": "#0d0d0d",
+        "accent": "#ff584a",
+        "link": "#0d0d0d",
+        "focus": "#ffffff",
+        "success": "#0c6410",
+        "warning": "#7a4b00",
+        "danger": "#a82424"
+      },
+      "confidence": {
+        "background": 0.87,
+        "surface": 0.78,
+        "border": 0.83,
+        "text": 0.87,
+        "textMuted": 0.84,
+        "primary": 0.71,
+        "onPrimary": 0.82,
+        "accent": 0.42,
+        "link": 0.97,
+        "focus": 0.35,
+        "success": 0.35,
+        "warning": 0.35,
+        "danger": 0.35
+      },
+      "notes": [],
+      "brandColors": [
+        "#ffc9ff",
+        "#ff584a"
+      ],
+      "topColors": [
+        {
+          "hex": "#ffffff",
+          "oklch": "oklch(100.0% 0.000 90)",
+          "score": 1521.4,
+          "areaShare": 1.5971,
+          "roles": [
+            "background",
+            "focus"
+          ]
+        },
+        {
+          "hex": "#0d0d0d",
+          "oklch": "oklch(15.9% 0.000 90)",
+          "score": 592.54,
+          "areaShare": 0.404,
+          "roles": [
+            "text",
+            "link",
+            "onPrimary"
+          ]
+        },
+        {
+          "hex": "#3d3d3d",
+          "oklch": "oklch(36.0% 0.000 90)",
+          "score": 113.92,
+          "areaShare": 0.0793,
+          "roles": [
+            "textMuted"
+          ]
+        },
+        {
+          "hex": "#fafafa",
+          "oklch": "oklch(98.5% 0.000 90)",
+          "score": 59.14,
+          "areaShare": 0.0617,
+          "roles": [
+            "surface"
+          ]
+        },
+        {
+          "hex": "#f3f3f3",
+          "oklch": "oklch(96.4% 0.000 90)",
+          "score": 59.12,
+          "areaShare": 0.0157,
+          "roles": []
+        },
+        {
+          "hex": "#e7e7e7",
+          "oklch": "oklch(92.8% 0.000 90)",
+          "score": 36.82,
+          "areaShare": 0,
+          "roles": [
+            "border"
+          ]
+        },
+        {
+          "hex": "#6e6e6e",
+          "oklch": "oklch(53.8% 0.000 90)",
+          "score": 12.71,
+          "areaShare": 0,
+          "roles": []
+        },
+        {
+          "hex": "#cfcfcf",
+          "oklch": "oklch(85.5% 0.000 90)",
+          "score": 2.75,
+          "areaShare": 0,
+          "roles": []
+        }
+      ],
+      "nHues": 5,
+      "hues": [
+        326,
+        28,
+        148,
+        260,
+        81
+      ],
+      "lightnessRange": [
+        0,
+        1
+      ],
+      "strategy": "tokens",
+      "fonts": {
+        "heading": "\"TWK Lausanne\", \"Helvetica Neue\", Helvetica, sans-serif",
+        "body": "\"TWK Lausanne\", \"Helvetica Neue\", Helvetica, sans-serif",
+        "paragraph": "\"TWK Lausanne\", \"Helvetica Neue\", Helvetica, sans-serif",
+        "loaded": [
+          "TWK Lausanne 300 normal",
+          "TWK Lausanne 400 normal",
+          "TWK Lausanne 500 normal"
+        ]
+      },
+      "screenshot": "competitors/asana-com.png"
+    },
+    {
+      "url": "https://www.notion.com/",
+      "host": "notion.com",
+      "status": "ok",
+      "title": "The AI workspace that works for you. | Notion",
+      "siteName": "Notion",
+      "description": "Build Custom Agents, search across all your apps, and automate busywork. The AI workspace where teams get more done, faster.",
+      "lang": "en-us",
+      "themeColor": null,
+      "darkModeSupport": true,
+      "roles": {
+        "background": "#ffffff",
+        "surface": "#f9f9f8",
+        "surfaceAlt": "#f6f5f4",
+        "text": "#000000",
+        "textMuted": "#615d59",
+        "primary": "#0075de",
+        "onPrimary": "#ffffff",
+        "accent": "#ffb110",
+        "focus": "#0075de"
+      },
+      "confidence": {
+        "background": 0.88,
+        "surface": 0.77,
+        "surfaceAlt": 0.4,
+        "text": 0.79,
+        "textMuted": 0.85,
+        "primary": 0.94,
+        "onPrimary": 0.97,
+        "accent": 0.36,
+        "focus": 0.45
+      },
+      "notes": [],
+      "brandColors": [
+        "#0075de",
+        "#ffb110"
+      ],
+      "topColors": [
+        {
+          "hex": "#ffffff",
+          "oklch": "oklch(100.0% 0.000 90)",
+          "score": 796.36,
+          "areaShare": 1.4743,
+          "roles": [
+            "background",
+            "onPrimary"
+          ]
+        },
+        {
+          "hex": "#f9f9f8",
+          "oklch": "oklch(98.2% 0.001 106)",
+          "score": 86.36,
+          "areaShare": 0.1658,
+          "roles": [
+            "surface"
+          ]
+        },
+        {
+          "hex": "#000000",
+          "oklch": "oklch(0.0% 0.000 0)",
+          "score": 84.21,
+          "areaShare": 0.004,
+          "roles": [
+            "text"
+          ]
+        },
+        {
+          "hex": "#f6f5f4",
+          "oklch": "oklch(97.1% 0.002 68)",
+          "score": 69.11,
+          "areaShare": 0.1327,
+          "roles": [
+            "surfaceAlt"
+          ]
+        },
+        {
+          "hex": "#097fe8",
+          "oklch": "oklch(59.7% 0.183 253)",
+          "score": 15.77,
+          "areaShare": 0.0289,
+          "roles": []
+        },
+        {
+          "hex": "#005bab",
+          "oklch": "oklch(47.3% 0.147 253)",
+          "score": 15.64,
+          "areaShare": 0.0287,
+          "roles": []
+        },
+        {
+          "hex": "#ffb110",
+          "oklch": "oklch(81.4% 0.168 76)",
+          "score": 15.07,
+          "areaShare": 0.0289,
+          "roles": [
+            "accent"
+          ]
+        },
+        {
+          "hex": "#f64932",
+          "oklch": "oklch(65.1% 0.213 31)",
+          "score": 15.07,
+          "areaShare": 0.0289,
+          "roles": []
+        }
+      ],
+      "nHues": 4,
+      "hues": [
+        253,
+        76,
+        31,
+        145
+      ],
+      "lightnessRange": [
+        0,
+        1
+      ],
+      "strategy": "tokens",
+      "fonts": {
+        "heading": "NotionInter, Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, \"Apple Color Emoji\", Arial, sans-serif, \"Segoe UI Emoji\", \"Segoe UI Symbol\"",
+        "body": "NotionInter, Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, \"Apple Color Emoji\", Arial, sans-serif, \"Segoe UI Emoji\", \"Segoe UI Symbol\"",
+        "paragraph": "NotionInter, Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, \"Apple Color Emoji\", Arial, sans-serif, \"Segoe UI Emoji\", \"Segoe UI Symbol\"",
+        "loaded": [
+          "NotionInter 400 normal",
+          "NotionInter 500 normal",
+          "NotionInter 600 normal",
+          "NotionInter 700 normal",
+          "Lyon Text 400 normal"
+        ]
+      },
+      "screenshot": "competitors/notion-com.png"
+    }
+  ],
+  "errors": []
+}

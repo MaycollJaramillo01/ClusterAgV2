@@ -1,3 +1,6 @@
-@tailwind base;
+/* Preflight sits in its own layer, below Astryx components (layer order is set in index.html). */
+@layer tw-preflight {
+    @tailwind base;
+}
 @tailwind components;
 @tailwind utilities;

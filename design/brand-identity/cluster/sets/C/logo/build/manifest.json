@@ -1,0 +1,10 @@
+{
+  "schema": "brand-identity/logo-build@1",
+  "kept": true,
+  "source": "C:\\Users\\Mayco\\Videos\\ClusterAgV2\\src\\app\\assets\\cluster-mark.png",
+  "versions": {},
+  "dark_from": "source as is",
+  "dark_skipped": [],
+  "dark": "C:\\Users\\Mayco\\Videos\\ClusterAgV2\\src\\app\\assets\\cluster-mark.png",
+  "measured": {}
+}

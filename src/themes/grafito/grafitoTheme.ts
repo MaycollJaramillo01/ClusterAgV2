@@ -1,0 +1,2 @@
+// Written by `astryx experimental theme editor show grafito` after every build of themes/grafito/; do not edit it here. Change the theme with the editor. 
+export {grafitoTheme} from './grafito';

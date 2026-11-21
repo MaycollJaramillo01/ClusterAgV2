@@ -1,5 +1,37 @@
 import React, { useState, useEffect, useRef, useId, useMemo, useCallback } from "react";
 import { createRoot } from "react-dom/client";
+import "@astryxdesign/core/reset.css";
+import "@astryxdesign/core/astryx.css";
+import { Theme } from "@astryxdesign/core/theme";
+import { AppShell } from "@astryxdesign/core/AppShell";
+import {
+  SideNav,
+  SideNavHeading,
+  SideNavItem,
+  SideNavSection,
+} from "@astryxdesign/core/SideNav";
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
+import { Avatar } from "@astryxdesign/core/Avatar";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Button as AstryxButton } from "@astryxdesign/core/Button";
+import { Breadcrumbs, BreadcrumbItem } from "@astryxdesign/core/Breadcrumbs";
+import { Divider } from "@astryxdesign/core/Divider";
+import { EmptyState as AstryxEmptyState } from "@astryxdesign/core/EmptyState";
+import { Heading } from "@astryxdesign/core/Heading";
+import { HStack } from "@astryxdesign/core/HStack";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Item } from "@astryxdesign/core/Item";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@astryxdesign/core/SegmentedControl";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { useToast } from "@astryxdesign/core/Toast";
+import { VStack } from "@astryxdesign/core/VStack";
+import { themes, defaultThemeSlug } from "../astryx-themes.js";
 import AppErrorBoundary from "./components/AppErrorBoundary.jsx";
 import confetti from "canvas-confetti";
 import { Capacitor } from "@capacitor/core";
@@ -95,6 +127,7 @@ import {
   ArrowsClockwise as RefreshCw,
   Camera,
   Repeat,
+  TrendUp,
 } from "@phosphor-icons/react";
 import {
   signInAnonymously,
@@ -259,6 +292,7 @@ const formatChatMuteUntil = (mutedUntil) => {
 void TAILWIND_SAFELIST;
 
 const IconsMap = {
+  TrendUp,
   LayoutDashboard,
   Users,
   CalendarIcon,
@@ -349,7 +383,7 @@ const IconsMap = {
   Repeat,
 };
 
-const Icon = ({ name, size = 18, className = "", ...props }) => {
+const Icon = ({ name, size = 18, className = "", weight, ...props }) => {
   const PhosphorIcon = IconsMap[name];
   const {
     "aria-hidden": ariaHidden = true,
@@ -359,7 +393,7 @@ const Icon = ({ name, size = 18, className = "", ...props }) => {
   return PhosphorIcon ? (
     <PhosphorIcon
       size={size}
-      weight="bold"
+      weight={weight || (size < 15 ? "bold" : "regular")}
       className={className}
       aria-hidden={ariaHidden}
       focusable={focusable}
@@ -451,20 +485,11 @@ const useDialogA11y = (isOpen, onClose) => {
   return dialogRef;
 };
 
-const AgencyLogo = ({ className }) => {
-  return (
-    <div
-      className={`agency-logo relative overflow-hidden rounded-md bg-white ${className}`}
-    >
-      <img
-        src="/src/app/assets/cluster-symbol.webp"
-        alt=""
-        aria-hidden="true"
-        className="absolute left-1/2 top-1/2 max-w-none -translate-x-1/2 -translate-y-1/2"
-      />
-    </div>
-  );
-};
+// The Cluster mark (src/app/assets/cluster-mark.png) painted in currentColor, so it
+// reads as ink in light mode and as paper in dark mode.
+const AgencyLogo = ({ className = "" }) => (
+  <span aria-hidden="true" className={`agency-mark ${className}`} />
+);
 
 const GOOGLE_PROVIDER = auth ? new GoogleAuthProvider() : null;
 if (GOOGLE_PROVIDER)
@@ -2014,49 +2039,52 @@ const createIncomingCallRingtone = () => {
   };
 };
 
+// The five Astryx palette themes (src/astryx-themes.js, built in themes/<id>/).
+// swatches: [ground, surface, accent, ink] in light; darkSwatches the same in dark.
 const THEME_PALETTES = [
   {
-    id: "botanical",
-    name: "Botánica",
-    description: "Marfil, bosque y lima editorial",
-    swatches: ["#f4f6f1", "#fcfdf9", "#5e7415", "#1c241e"],
-    darkSwatches: ["#0e120f", "#151a16", "#c3e15b", "#eff3ea"],
+    id: "cluster",
+    name: "Trama",
+    description: "Tinta, papel frío y turquesa Caribe",
+    swatches: ["#f4f8f8", "#ffffff", "#097a7b", "#131d1e"],
+    darkSwatches: ["#131d1e", "#1d2828", "#62bdbd", "#eef3f3"],
   },
   {
-    id: "ocean",
-    name: "Océano",
-    description: "Niebla, petróleo y turquesa",
-    swatches: ["#f1f5f7", "#f9fcfd", "#176b73", "#14242b"],
-    darkSwatches: ["#091216", "#101c21", "#69d4d0", "#edf6f7"],
+    id: "marea",
+    name: "Marea",
+    description: "Niebla, azul profundo y tinta naval",
+    swatches: ["#f4f6fa", "#ffffff", "#1f5fbf", "#131a24"],
+    darkSwatches: ["#131a24", "#1c2431", "#7aa7ec", "#eef2f8"],
   },
   {
-    id: "plum",
-    name: "Ciruela",
-    description: "Lavanda mineral y mora suave",
-    swatches: ["#f7f3f8", "#fefbfe", "#79527f", "#281d2b"],
-    darkSwatches: ["#130d15", "#1b131d", "#d69cdd", "#f6eff7"],
+    id: "musgo",
+    name: "Musgo",
+    description: "Papel verde, musgo y tinta de bosque",
+    swatches: ["#f5f7f2", "#ffffff", "#4b7a14", "#161c13"],
+    darkSwatches: ["#161c13", "#20271c", "#8dbb5c", "#f0f3ec"],
   },
   {
-    id: "cobalt",
-    name: "Cobalto",
-    description: "Nube fría, tinta y azul eléctrico",
-    swatches: ["#f3f5fb", "#fbfcff", "#3157a4", "#182033"],
-    darkSwatches: ["#0b0e17", "#121827", "#86a8ff", "#f0f4ff"],
+    id: "buganvilla",
+    name: "Buganvilla",
+    description: "Rosa piedra, magenta y tinta ciruela",
+    swatches: ["#f9f5f6", "#ffffff", "#b02a6c", "#1e1619"],
+    darkSwatches: ["#1e1619", "#292023", "#ec86b2", "#f6eff2"],
   },
   {
-    id: "sand",
-    name: "Arena",
-    description: "Arena, crema y mostaza dorada",
-    swatches: ["#ece3c6", "#fff0c9", "#7e5b08", "#32291a"],
-    darkSwatches: ["#18140d", "#211b11", "#f9d95e", "#fff4d6"],
+    id: "grafito",
+    name: "Grafito",
+    description: "Solo tinta y papel, sin color de acento",
+    swatches: ["#f5f5f4", "#ffffff", "#3a3f42", "#18191a"],
+    darkSwatches: ["#18191a", "#222324", "#a9adb0", "#f0f0ef"],
   },
 ];
 const THEME_PALETTE_IDS = new Set(THEME_PALETTES.map((palette) => palette.id));
-const THEME_PALETTE_ALIASES = { clay: "cobalt" };
+// Ids from the previous design map to the nearest new palette; the rest start on Trama.
+const THEME_PALETTE_ALIASES = { cobalt: "marea", clay: "marea", plum: "buganvilla" };
 const normalizeThemePalette = (value) =>
   THEME_PALETTE_IDS.has(value)
     ? value
-    : THEME_PALETTE_ALIASES[value] || "botanical";
+    : THEME_PALETTE_ALIASES[value] || defaultThemeSlug;
 
 function ComplianceAlertBanner({
   compliance,
@@ -2454,7 +2482,7 @@ const AUTOMATIC_DATA_REPAIR_ENABLED = false;
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState(null);
+  const astryxToast = useToast();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const [isDark, setIsDark] = useState(
@@ -3407,11 +3435,18 @@ function App() {
   };
 
   useEffect(() => {
+    // The root <Theme> syncs data-theme and data-astryx-theme; Tailwind's dark: reads this class.
+    // `theme-switching` repaints in one step instead of fading every transition-all card through grey.
     const html = document.documentElement;
+    html.classList.add("theme-switching");
     html.classList.toggle("dark", isDark);
-    html.dataset.palette = themePalette;
     localStorage.setItem("cluster_theme", isDark ? "dark" : "light");
     localStorage.setItem("cluster_palette", themePalette);
+    const timer = setTimeout(() => html.classList.remove("theme-switching"), 80);
+    return () => {
+      clearTimeout(timer);
+      html.classList.remove("theme-switching");
+    };
   }, [isDark, themePalette]);
 
   useEffect(() => {
@@ -4588,9 +4623,13 @@ function App() {
     return () => window.removeEventListener("online", handleOnline);
   }, [db, currentUserProfile, profileBlocked]);
 
+  // Astryx toasts: info auto-hides, errors stay until dismissed.
   const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    astryxToast({
+      body: message,
+      type: type === "error" ? "error" : "info",
+      uniqueID: `${type}:${message}`,
+    });
   };
 
   useEffect(() => {
@@ -8268,10 +8307,19 @@ function App() {
     return false;
   };
 
-  if (loading) return <AppShellSkeleton />;
+  const themed = (node) => (
+    <Theme
+      theme={themes[themePalette] || themes[defaultThemeSlug]}
+      mode={isDark ? "dark" : "light"}
+    >
+      {node}
+    </Theme>
+  );
+
+  if (loading) return themed(<AppShellSkeleton />);
 
   if (!authEmail) {
-    return (
+    return themed(
       <>
         <LoginScreen
           isDark={isDark}
@@ -8283,375 +8331,261 @@ function App() {
           onEmailSubmit={handleEmailLinkSignIn}
           isSendingLoginLink={isSendingLoginLink}
         />
-        <div
-          aria-live="polite"
-          aria-atomic="true"
-          className="fixed bottom-6 right-6 z-[110] pointer-events-none"
-        >
-          {toast && <Toast message={toast.message} type={toast.type} />}
-        </div>
       </>
     );
   }
 
-  return (
-    <div className="app-shell flex min-h-0 overflow-hidden flex-col md:flex-row transition-colors duration-300">
-      {/* Header Móvil */}
-      <div className="app-sidebar md:hidden border-b p-4 flex justify-between items-center z-30 shrink-0">
-        <div className="flex items-center gap-2">
-          <AgencyLogo className="w-8 h-8 text-sm" />
-          <span className="brand-name text-lg font-bold text-slate-800 dark:text-white">
-            CLUSTER
-          </span>
-        </div>
-        <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          aria-label={
-            isMobileMenuOpen ? "Cerrar navegación" : "Abrir navegación"
-          }
-          aria-expanded={isMobileMenuOpen}
-          className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
-        >
-          <Icon name={isMobileMenuOpen ? "X" : "Menu"} size={24} />
-        </button>
-      </div>
-
-      <div
-        className={`fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm transition-opacity md:hidden ${isMobileMenuOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
-        onClick={() => setIsMobileMenuOpen(false)}
-      />
-
-      {/* Sidebar */}
-      <aside
-        className={`app-sidebar fixed md:relative z-50 h-full border-r flex flex-col w-60 shrink-0 transition-transform duration-300 top-0 left-0 ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
-      >
-        <div className="px-5 pt-6 pb-3 hidden md:block">
-          <div className="flex items-center gap-3">
-            <AgencyLogo className="w-9 h-9 text-lg" />
-            <div className="leading-none">
-              <h1 className="brand-name text-xl font-bold text-slate-800 dark:text-white">
-                CLUSTER
-              </h1>
-              <p className="text-[10px] uppercase font-semibold text-slate-400 dark:text-slate-500 tracking-widest mt-1">
-                Agency OS
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <nav
-          className="flex-1 px-4 space-y-1 pt-20 md:pt-4 overflow-y-auto custom-scroll"
-          aria-label="Navegación principal"
-        >
-          <div className="pt-1 pb-2 pl-4 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-            Principal
-          </div>
-          {canAccessView(currentUserProfile, "dashboard") && (
-            <SidebarItem
-              active={view === "dashboard"}
-              onClick={() => handleNavigate("dashboard")}
-              icon="LayoutDashboard"
-              label="Panel Central"
-              color="purple"
-            />
-          )}
-
-          <div className="pt-4 pb-2 pl-4 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-2">
-            Clientes & equipo
-          </div>
-          {currentUserProfile && (
-            <SidebarItem
-              active={isNotificationsOpen}
-              onClick={() => setIsNotificationsOpen(true)}
-              icon="Bell"
-              label="Notificaciones"
-              color="amber"
-              badge={notificationUnreadCount > 0 ? notificationUnreadCount : null}
-            />
-          )}
-          {canAccessView(currentUserProfile, "clients") && (
-            <SidebarItem
-              active={view === "clients" || view === "client-detail"}
-              onClick={() => handleNavigate("clients")}
-              icon="Briefcase"
-              label="Clientes"
-              color="blue"
-            />
-          )}
-          {(canAccessView(currentUserProfile, "managers") ||
-            canAccessView(currentUserProfile, "editors")) && (
-            <SidebarItem
-              active={[
-                "managers",
-                "manager-detail",
-                "editors",
-                "editor-detail",
-                "team-usage",
-              ].includes(view)}
-              onClick={() =>
-                handleNavigate(
-                  canAccessView(currentUserProfile, "managers")
-                    ? "managers"
-                    : "editors",
-                )
-              }
-              icon="Users"
-              label="Equipo"
-              color="slate"
-            />
-          )}
-          {canAccessView(currentUserProfile, "chat") && (
-            <SidebarItem
-              active={view === "chat"}
-              onClick={() => handleNavigate("chat")}
-              icon="MessageSquare"
-              label="Chat"
-              color="blue"
-              badge={chatUnread.total > 0 ? chatUnread.total : null}
-            />
-          )}
-
-          <div className="pt-4 pb-2 pl-4 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-2">
-            Salas de trabajo
-          </div>
-          {canAccessView(currentUserProfile, "account-room") && (
-            <SidebarItem
-              active={view === "account-room"}
-              onClick={() => handleNavigate("account-room")}
-              icon="LayoutList"
-              label="Sala de Accounts"
-              color="indigo"
-              badge={
-                totalActiveAccountTasks > 0 ? totalActiveAccountTasks : null
-              }
-              badgeColor={
-                pendingAccounts > 0
-                  ? "bg-indigo-500 text-white"
-                  : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-              }
-            />
-          )}
-          {canAccessView(currentUserProfile, "management-room") && (
-            <SidebarItem
-              active={view === "management-room"}
-              onClick={() => handleNavigate("management-room")}
-              icon="ShieldCheck"
-              label="Sala de Gestión"
-              color="violet"
-              badge={
-                totalActiveManagementTasks > 0
-                  ? totalActiveManagementTasks
-                  : null
-              }
-              badgeColor={
-                pendingManagement > 0
-                  ? "bg-violet-500 text-white"
-                  : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-              }
-            />
-          )}
-          {canAccessView(currentUserProfile, "editions") && (
-            <SidebarItem
-              active={view === "editions"}
-              onClick={() => handleNavigate("editions")}
-              icon="Video"
-              label="Sala de Edición"
-              color="amber"
-              badge={
-                totalActiveEditingTasks > 0 ? totalActiveEditingTasks : null
-              }
-              badgeColor={
-                urgentEditions > 0
-                  ? "bg-red-500 text-white animate-pulse"
-                  : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-              }
-            />
-          )}
-
-          <div className="pt-4 pb-2 pl-4 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-2">
-            Calendario
-          </div>
-          {(canAccessView(currentUserProfile, "general-calendar") ||
-            canAccessView(currentUserProfile, "calendar")) && (
-            <SidebarItem
-              active={["general-calendar", "calendar"].includes(view)}
-              onClick={() =>
-                handleNavigate(
-                  canAccessView(currentUserProfile, "general-calendar")
-                    ? "general-calendar"
-                    : "calendar",
-                )
-              }
-              icon="CalendarDays"
-              label="Calendario"
-              color="slate"
-            />
-          )}
-          {canAccessView(currentUserProfile, "reports") && (
-            <SidebarItem
-              active={view === "reports"}
-              onClick={() => handleNavigate("reports")}
-              icon="BarChart3"
-              label="Reportes"
-              color="emerald"
-            />
-          )}
-          {canAccessView(currentUserProfile, "performance") && (
-            <SidebarItem
-              active={view === "performance"}
-              onClick={() => handleNavigate("performance")}
-              icon="BarChart3"
-              label="Rendimiento"
-              color="emerald"
-            />
-          )}
-          {canAccessView(currentUserProfile, "podcast") && (
-            <SidebarItem
-              active={view === "podcast"}
-              onClick={() => handleNavigate("podcast")}
-              icon="Microphone"
-              label="Podcast"
-              color="rose"
-            />
-          )}
-          {canAccessView(currentUserProfile, "production") && (
-            <SidebarItem
-              active={view === "production"}
-              onClick={() => handleNavigate("production")}
-              icon="MonitorPlay"
-              label="Producción"
-              color="cyan"
-            />
-          )}
-
-          {currentUserProfile && (
-            <>
-              <div className="pt-4 pb-2 pl-4 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-2">
-                Configuración
-              </div>
-              <SidebarItem
-                active={view === "settings"}
-                onClick={() => handleNavigate("settings")}
-                icon="User"
-                label="Mi Perfil"
-                color="purple"
+  // Side navigation: Astryx SideNav. AppShell folds it into a drawer on phones.
+  const navItem = ({ label, icon, isSelected, onClick, count, countVariant }) => (
+    <SideNavItem
+      key={label}
+      label={label}
+      icon={<Icon name={icon} size={20} />}
+      selectedIcon={<Icon name={icon} size={20} weight="fill" />}
+      isSelected={isSelected}
+      onClick={onClick}
+      endContent={
+        count > 0 ? (
+          <Badge label={count} variant={countVariant || "neutral"} />
+        ) : undefined
+      }
+    />
+  );
+  const footerStatus = profileBlocked
+    ? { label: "Bloqueado", variant: "error" }
+    : !authEmail
+      ? { label: "Invitado", variant: "neutral" }
+      : {
+          label: currentVerificationMeta.label,
+          variant:
+            currentVerificationMeta.color === "emerald"
+              ? "success"
+              : currentVerificationMeta.color === "amber"
+                ? "warning"
+                : currentVerificationMeta.color === "red"
+                  ? "error"
+                  : "neutral",
+        };
+  const appSideNav = (
+    <SideNav
+      aria-label="Navegación principal"
+      header={
+        <SideNavHeading
+          heading="Cluster"
+          subheading="Agency OS"
+          icon={<AgencyLogo />}
+        />
+      }
+      footer={
+        <VStack gap={1}>
+          <Item
+            label={currentUserProfile?.name || "Invitado"}
+            description={sidebarFooterText}
+            startContent={
+              <Avatar
+                src={currentUserProfile?.photo || undefined}
+                name={currentUserProfile?.name || "Invitado"}
+                size={36}
+                shape="rounded"
+                tooltip={false}
               />
-              {isAdminConfigVisible &&
-                canAccessView(currentUserProfile, "control-center") && (
-                  <SidebarItem
-                    active={view === "control-center"}
-                    onClick={() => handleNavigate("control-center")}
-                    icon="ClipboardList"
-                    label="Usuarios y accesos"
-                    color="purple"
-                  />
-                )}
-            </>
-          )}
-        </nav>
-
-        <div className="space-y-2.5 border-t border-slate-100 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
-          <button
-            type="button"
+            }
+            endContent={<Icon name="ChevronRight" size={16} />}
             onClick={() => handleNavigate("settings")}
-            aria-label="Editar mi perfil"
-            title={authEmail || "Editar mi perfil"}
-            className="grid w-full grid-cols-[2.5rem_minmax(0,1fr)_1rem] items-center gap-3 rounded-xl p-1.5 text-left transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:hover:bg-slate-800/60"
-          >
-            {currentUserProfile?.photo ? (
-              <img
-                src={currentUserProfile.photo}
-                alt={currentUserProfile?.name || "Perfil"}
-                className="h-10 w-10 rounded-xl border border-black/5 object-cover dark:border-white/10"
+          />
+          <HStack gap={1} vAlign="center" hAlign="between" paddingInline={2}>
+            <HStack gap={1.5} vAlign="center">
+              <StatusDot variant={footerStatus.variant} label={footerStatus.label} />
+              <Text type="supporting" color="secondary" maxLines={1}>
+                {footerStatus.label}
+              </Text>
+            </HStack>
+            <HStack gap={0.5} vAlign="center">
+              <IconButton
+                variant="ghost"
+                size="sm"
+                label={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+                tooltip={isDark ? "Modo claro" : "Modo oscuro"}
+                icon={<Icon name={isDark ? "Sun" : "Moon"} size={16} />}
+                onClick={() => setIsDark(!isDark)}
               />
-            ) : (
-              <div
-                className={`flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold text-white ${profileBlocked ? "bg-[var(--status-red-text)]" : "bg-[var(--text-muted)]"}`}
-              >
-                {(currentUserProfile?.name || "IN").slice(0, 2).toUpperCase()}
-              </div>
-            )}
-            <div className="min-w-0 leading-tight">
-              <p className="truncate text-sm font-bold text-slate-700 dark:text-slate-200">
-                {currentUserProfile?.name || "Invitado"}
-              </p>
-              {currentUserProfile?.profession && (
-                <p className="mt-0.5 truncate text-[10px] font-medium text-slate-500 dark:text-slate-400">
-                  {currentUserProfile.profession}
-                </p>
-              )}
-              <p className="mt-0.5 truncate text-[9px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                {sidebarFooterText}
-              </p>
-            </div>
-            <Icon
-              name="ChevronRight"
-              size={16}
-              className="text-slate-400 dark:text-slate-500"
-            />
-          </button>
-          <div className="grid grid-cols-[minmax(0,1fr)_2.5rem_2.5rem] items-center gap-2">
-            <span
-              className={`inline-flex h-10 min-w-0 items-center justify-center truncate whitespace-nowrap rounded-xl px-2 text-[9px] font-black uppercase tracking-wide ${
-                profileBlocked
-                  ? "bg-red-50 text-red-600 dark:bg-red-500/20 dark:text-red-400"
-                  : currentVerificationMeta.color === "emerald"
-                    ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400"
-                    : currentVerificationMeta.color === "amber"
-                      ? "bg-amber-50 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
-                      : currentVerificationMeta.color === "blue"
-                        ? "bg-blue-50 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400"
-                        : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"
-              }`}
-            >
-              {profileBlocked
-                ? "Bloqueado"
-                : authEmail
-                  ? currentVerificationMeta.label
-                  : "Invitado"}
-            </span>
-            <button
-              onClick={() => setIsDark(!isDark)}
-              aria-label={
-                isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"
-              }
-              title={isDark ? "Modo claro" : "Modo oscuro"}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-            >
-              <Icon name={isDark ? "Sun" : "Moon"} size={16} />
-            </button>
-            {authEmail ? (
-              <button
-                onClick={handleLogout}
-                aria-label="Cerrar sesión"
-                title="Cerrar sesión"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-              >
-                <Icon name="LogOut" size={16} />
-              </button>
-            ) : (
-              <button
-                onClick={handleGoogleSignIn}
-                disabled={isSigningIn}
-                aria-label="Iniciar sesión"
-                title="Iniciar sesión"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-              >
-                <Icon
-                  name={isSigningIn ? "Loader2" : "LogIn"}
-                  size={16}
-                  className={isSigningIn ? "animate-spin" : ""}
+              {authEmail ? (
+                <IconButton
+                  variant="ghost"
+                  size="sm"
+                  label="Cerrar sesión"
+                  tooltip="Cerrar sesión"
+                  icon={<Icon name="LogOut" size={16} />}
+                  onClick={handleLogout}
                 />
-              </button>
-            )}
-          </div>
-        </div>
-      </aside>
+              ) : (
+                <IconButton
+                  variant="ghost"
+                  size="sm"
+                  label="Iniciar sesión"
+                  tooltip="Iniciar sesión"
+                  isLoading={isSigningIn}
+                  icon={<Icon name="LogIn" size={16} />}
+                  onClick={handleGoogleSignIn}
+                />
+              )}
+            </HStack>
+          </HStack>
+        </VStack>
+      }
+    >
+      {canAccessView(currentUserProfile, "dashboard") && (
+        <SideNavSection title="Principal" isHeaderHidden>
+          {navItem({
+            label: "Panel central",
+            icon: "LayoutDashboard",
+            isSelected: view === "dashboard",
+            onClick: () => handleNavigate("dashboard"),
+          })}
+        </SideNavSection>
+      )}
+      <SideNavSection title="Clientes y equipo">
+        {currentUserProfile &&
+          navItem({
+            label: "Notificaciones",
+            icon: "Bell",
+            isSelected: isNotificationsOpen,
+            onClick: () => setIsNotificationsOpen(true),
+            count: notificationUnreadCount,
+            countVariant: "info",
+          })}
+        {canAccessView(currentUserProfile, "clients") &&
+          navItem({
+            label: "Clientes",
+            icon: "Briefcase",
+            isSelected: view === "clients" || view === "client-detail",
+            onClick: () => handleNavigate("clients"),
+          })}
+        {(canAccessView(currentUserProfile, "managers") ||
+          canAccessView(currentUserProfile, "editors")) &&
+          navItem({
+            label: "Equipo",
+            icon: "Users",
+            isSelected: [
+              "managers",
+              "manager-detail",
+              "editors",
+              "editor-detail",
+              "team-usage",
+            ].includes(view),
+            onClick: () =>
+              handleNavigate(
+                canAccessView(currentUserProfile, "managers")
+                  ? "managers"
+                  : "editors",
+              ),
+          })}
+        {canAccessView(currentUserProfile, "chat") &&
+          navItem({
+            label: "Chat",
+            icon: "MessageSquare",
+            isSelected: view === "chat",
+            onClick: () => handleNavigate("chat"),
+            count: chatUnread.total,
+            countVariant: "info",
+          })}
+      </SideNavSection>
+      <SideNavSection title="Salas de trabajo">
+        {canAccessView(currentUserProfile, "account-room") &&
+          navItem({
+            label: "Sala de Accounts",
+            icon: "LayoutList",
+            isSelected: view === "account-room",
+            onClick: () => handleNavigate("account-room"),
+            count: totalActiveAccountTasks,
+            countVariant: pendingAccounts > 0 ? "warning" : "neutral",
+          })}
+        {canAccessView(currentUserProfile, "management-room") &&
+          navItem({
+            label: "Sala de Gestión",
+            icon: "ShieldCheck",
+            isSelected: view === "management-room",
+            onClick: () => handleNavigate("management-room"),
+            count: totalActiveManagementTasks,
+            countVariant: pendingManagement > 0 ? "warning" : "neutral",
+          })}
+        {canAccessView(currentUserProfile, "editions") &&
+          navItem({
+            label: "Sala de Edición",
+            icon: "Video",
+            isSelected: view === "editions",
+            onClick: () => handleNavigate("editions"),
+            count: totalActiveEditingTasks,
+            countVariant: urgentEditions > 0 ? "error" : "neutral",
+          })}
+      </SideNavSection>
+      <SideNavSection title="Planificación">
+        {(canAccessView(currentUserProfile, "general-calendar") ||
+          canAccessView(currentUserProfile, "calendar")) &&
+          navItem({
+            label: "Calendario",
+            icon: "CalendarDays",
+            isSelected: ["general-calendar", "calendar"].includes(view),
+            onClick: () =>
+              handleNavigate(
+                canAccessView(currentUserProfile, "general-calendar")
+                  ? "general-calendar"
+                  : "calendar",
+              ),
+          })}
+        {canAccessView(currentUserProfile, "reports") &&
+          navItem({
+            label: "Reportes",
+            icon: "BarChart3",
+            isSelected: view === "reports",
+            onClick: () => handleNavigate("reports"),
+          })}
+        {canAccessView(currentUserProfile, "performance") &&
+          navItem({
+            label: "Rendimiento",
+            icon: "TrendUp",
+            isSelected: view === "performance",
+            onClick: () => handleNavigate("performance"),
+          })}
+        {canAccessView(currentUserProfile, "podcast") &&
+          navItem({
+            label: "Podcast",
+            icon: "Microphone",
+            isSelected: view === "podcast",
+            onClick: () => handleNavigate("podcast"),
+          })}
+        {canAccessView(currentUserProfile, "production") &&
+          navItem({
+            label: "Producción",
+            icon: "MonitorPlay",
+            isSelected: view === "production",
+            onClick: () => handleNavigate("production"),
+          })}
+      </SideNavSection>
+      {currentUserProfile && (
+        <SideNavSection title="Configuración">
+          {navItem({
+            label: "Mi perfil",
+            icon: "User",
+            isSelected: view === "settings",
+            onClick: () => handleNavigate("settings"),
+          })}
+          {isAdminConfigVisible &&
+            canAccessView(currentUserProfile, "control-center") &&
+            navItem({
+              label: "Usuarios y accesos",
+              icon: "ClipboardList",
+              isSelected: view === "control-center",
+              onClick: () => handleNavigate("control-center"),
+            })}
+        </SideNavSection>
+      )}
+    </SideNav>
+  );
 
-      {/* Vistas Principales */}
-      <main
-        className={`app-main min-h-0 flex-1 relative w-full ${view === "chat" ? "flex flex-col overflow-hidden" : "overflow-y-auto"}`}
-      >
+  return themed(
+    <>
+    <AppShell height="fill" variant="wash" sideNav={appSideNav}>
         {currentUserCompliance?.isAlerting && (
           <ComplianceAlertBanner
             compliance={currentUserCompliance}
@@ -8663,7 +8597,7 @@ function App() {
         <div
           className={
             view === "chat"
-              ? "flex min-h-0 flex-1 flex-col"
+              ? "flex h-full min-h-0 flex-1 flex-col"
               : view === "production"
                 ? "h-full min-h-0 w-full p-3 pb-mobile-nav md:p-5 md:pb-5"
               : "p-4 md:p-8 max-w-[1360px] mx-auto min-h-full pb-mobile-nav md:pb-20"
@@ -9310,7 +9244,7 @@ function App() {
             </div>
           )}
         </div>
-      </main>
+    </AppShell>
 
       {view !== "chat" && (
         <MobileBottomNav
@@ -9330,13 +9264,6 @@ function App() {
         onRefresh={refreshNotifications}
       />
 
-      <div
-        aria-live="polite"
-        aria-atomic="true"
-        className="fixed bottom-6 right-6 z-[110] pointer-events-none"
-      >
-        {toast && <Toast message={toast.message} type={toast.type} />}
-      </div>
       {pendingKanban && (
         <div className="fixed bottom-6 left-1/2 z-[120] flex -translate-x-1/2 items-center gap-3 rounded-xl border border-[var(--border)] bg-white px-4 py-3 shadow-none dark:border-white/10 dark:bg-[var(--surface-raised)]">
           <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
@@ -9557,7 +9484,7 @@ function App() {
       {incomingCall &&
         createPortal(
           <div
-            className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm"
+            className="modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
             role="dialog"
             aria-modal="true"
             aria-labelledby="incoming-call-title"
@@ -9601,7 +9528,7 @@ function App() {
           </div>,
           document.body,
         )}
-    </div>
+    </>
   );
 }
 
@@ -9638,104 +9565,66 @@ const SidebarItem = ({ active, onClick, icon, label, color, badge }) => (
   </button>
 );
 
-const ViewTabs = ({ items, active, onChange }) => (
-  <div
-    className="inline-flex w-fit max-w-full overflow-x-auto rounded-md border border-[var(--border)] bg-white p-1 dark:border-white/10 dark:bg-[var(--surface-raised)]"
-    role="tablist"
-  >
+// Shared primitives, built on Astryx so every view that uses them follows the system.
+const ViewTabs = ({ items, active, onChange, label = "Cambiar vista" }) => (
+  <SegmentedControl value={active} onChange={onChange} label={label}>
     {items.map((item) => (
-      <button
-        key={item.id}
-        type="button"
-        role="tab"
-        aria-selected={active === item.id}
-        onClick={() => onChange(item.id)}
-        className={`min-h-[38px] min-w-0 whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium transition-colors ${
-          active === item.id
-            ? "bg-[var(--primary)] text-white dark:bg-[var(--primary)] dark:text-[var(--primary-contrast)]"
-            : "text-[var(--text-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--text)] dark:text-[var(--text-muted)] dark:hover:bg-[var(--surface-muted)] dark:hover:text-[var(--text)]"
-        }`}
-      >
-        {item.label}
-      </button>
+      <SegmentedControlItem key={item.id} value={item.id} label={item.label} />
     ))}
-  </div>
+  </SegmentedControl>
 );
 
+// Primary action. `color` is accepted for old call sites and ignored: primaries are ink.
 const Button = ({
   children,
   onClick,
   type = "button",
-  color = "purple",
+  color: _color,
   full,
   icon,
+  disabled,
   ...props
 }) => (
-  <button
+  <AstryxButton
+    variant="primary"
     type={type}
     onClick={onClick}
-    className={`${full ? "w-full" : ""} primary-action min-h-[44px] whitespace-nowrap px-4 py-2.5 font-semibold flex items-center justify-center gap-2 transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--focus)] dark:focus-visible:ring-[var(--focus)] dark:focus-visible:ring-offset-[#181817]`}
+    label={React.Children.toArray(children).join("").trim()}
+    icon={icon ? <Icon name={icon} size={16} /> : undefined}
+    isDisabled={Boolean(disabled)}
+    width={full ? "100%" : undefined}
     {...props}
-  >
-    {icon && <Icon name={icon} />} {children}
-  </button>
+  />
 );
 
 const EmptyState = ({ icon, text }) => (
-  <div className="flex flex-col items-center justify-center p-6 text-center h-full">
-    <Icon
-      name={icon}
-      size={32}
-      className="text-slate-500 dark:text-slate-400 mb-3"
-    />
-    <p className="text-sm font-medium text-[var(--text-muted)] dark:text-[var(--text-muted)]">
-      {text}
-    </p>
-  </div>
+  <AstryxEmptyState
+    isCompact
+    icon={<Icon name={icon} size={28} />}
+    title={text}
+  />
 );
 
 const AppShellSkeleton = () => (
-  <div className="flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
-    <div className="hidden md:flex w-64 shrink-0 flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6">
-      <div className="h-10 w-36 rounded-xl bg-slate-200 dark:bg-slate-800 animate-pulse" />
-      <div className="mt-10 space-y-3">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <div
-            key={index}
-            className="h-11 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse"
-          />
+  <div className="flex h-screen bg-[var(--canvas)]">
+    <div className="hidden w-64 shrink-0 flex-col gap-2 border-r border-[var(--border)] p-4 md:flex">
+      <Skeleton width={140} height={36} radius={2} />
+      <div className="mt-6 flex flex-col gap-2">
+        {Array.from({ length: 9 }).map((_, index) => (
+          <Skeleton key={index} index={index} height={32} radius={2} />
         ))}
       </div>
     </div>
     <div className="flex-1 p-4 md:p-8">
-      <div className="mb-6 h-10 w-64 rounded-xl bg-slate-200 dark:bg-slate-800 animate-pulse" />
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+      <Skeleton width={260} height={36} radius={2} />
+      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
-          <div
-            key={index}
-            className="h-28 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5"
-          >
-            <div className="h-3 w-24 rounded bg-slate-200 dark:bg-slate-800 animate-pulse" />
-            <div className="mt-5 h-8 w-16 rounded bg-slate-200 dark:bg-slate-800 animate-pulse" />
-          </div>
+          <Skeleton key={index} index={index} height={112} />
         ))}
       </div>
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
         {Array.from({ length: 3 }).map((_, index) => (
-          <div
-            key={index}
-            className="h-72 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4"
-          >
-            <div className="h-4 w-32 rounded bg-slate-200 dark:bg-slate-800 animate-pulse" />
-            <div className="mt-5 space-y-3">
-              {Array.from({ length: 4 }).map((__, itemIndex) => (
-                <div
-                  key={itemIndex}
-                  className="h-12 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse"
-                />
-              ))}
-            </div>
-          </div>
+          <Skeleton key={index} index={index + 4} height={288} />
         ))}
       </div>
     </div>
@@ -9743,35 +9632,19 @@ const AppShellSkeleton = () => (
 );
 
 const Breadcrumb = ({ items }) => (
-  <nav
-    aria-label="Ruta de navegación"
-    className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 mb-2"
-  >
-    {items.map((item, index) => (
-      <React.Fragment key={`${item.label}-${index}`}>
-        {index > 0 && (
-          <span
-            aria-hidden="true"
-            className="text-slate-300 dark:text-slate-600"
-          >
-            /
-          </span>
-        )}
-        {item.onClick ? (
-          <button
-            onClick={item.onClick}
-            className="min-h-0 min-w-0 rounded-md px-1 py-0.5 font-bold hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
-          >
-            {item.label}
-          </button>
-        ) : (
-          <span className="font-bold text-slate-800 dark:text-slate-100">
-            {item.label}
-          </span>
-        )}
-      </React.Fragment>
-    ))}
-  </nav>
+  <div className="mb-2">
+    <Breadcrumbs label="Ruta de navegación" variant="supporting">
+      {items.map((item, index) => (
+        <BreadcrumbItem
+          key={`${item.label}-${index}`}
+          onClick={item.onClick}
+          isCurrent={!item.onClick}
+        >
+          {item.label}
+        </BreadcrumbItem>
+      ))}
+    </Breadcrumbs>
+  </div>
 );
 
 const FirstTimeView = ({ role, onNavigate }) => {
@@ -9950,17 +9823,19 @@ const FirstTimeView = ({ role, onNavigate }) => {
   );
 };
 
+// Phone tab bar: up to five shortcuts (the drawer holds everything else). Selected = ink + filled
+// icon on the same neutral pill the SideNav uses; colour is never the only cue (aria-current).
 const MobileBottomNav = ({ view, onNavigate, currentUserProfile }) => {
   const items = [
     { view: "dashboard", icon: "LayoutDashboard", label: "Inicio" },
-    { view: "performance", icon: "BarChart3", label: "Rendimiento" },
     { view: "account-room", icon: "LayoutList", label: "Accounts" },
     { view: "editions", icon: "Video", label: "Edición" },
     { view: "management-room", icon: "ShieldCheck", label: "Gestión" },
     { view: "clients", icon: "Briefcase", label: "Clientes" },
+    { view: "performance", icon: "TrendUp", label: "Rendimiento" },
   ]
     .filter((item) => canAccessView(currentUserProfile, item.view))
-    .slice(0, 6);
+    .slice(0, 5);
 
   if (items.length === 0) return null;
 
@@ -9969,25 +9844,31 @@ const MobileBottomNav = ({ view, onNavigate, currentUserProfile }) => {
 
   return (
     <nav
-      aria-label="Navegación principal"
-      className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(15,23,42,0.08)]"
+      aria-label="Accesos rápidos"
+      className="fixed bottom-0 left-0 right-0 z-30 flex border-t border-[var(--border)] bg-[var(--surface)] px-1 pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       {items.map((item) => {
         const active = isItemActive(item.view);
         return (
           <button
             key={item.view}
+            type="button"
             onClick={() => onNavigate(item.view)}
-            aria-label={item.label}
             aria-current={active ? "page" : undefined}
-            className={`flex-1 min-w-0 min-h-[64px] flex flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-bold transition-colors ${
+            className={`flex min-h-[60px] min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors duration-[var(--duration-quick)] ${
               active
-                ? "text-[var(--text)] dark:text-white"
-                : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                ? "text-[var(--text)]"
+                : "text-[var(--text-muted)] hover:text-[var(--text)]"
             }`}
           >
-            <Icon name={item.icon} size={20} />
-            <span className="truncate max-w-full">{item.label}</span>
+            <span
+              className={`flex h-7 w-12 items-center justify-center rounded-full transition-colors duration-[var(--duration-quick)] ${
+                active ? "bg-[var(--surface-muted)]" : ""
+              }`}
+            >
+              <Icon name={item.icon} size={20} weight={active ? "fill" : undefined} />
+            </span>
+            <span className="max-w-full truncate">{item.label}</span>
           </button>
         );
       })}
@@ -10022,42 +9903,42 @@ const LoginVectorArtwork = () => (
     </g>
 
     <g className="login-vector-node login-vector-node-one">
-      <circle cx="174" cy="184" r="42" fill="var(--status-blue-bg)" />
-      <circle cx="174" cy="171" r="12" fill="var(--status-blue-text)" />
-      <path d="M149 207 C153 187 195 187 199 207" fill="var(--status-blue-text)" />
+      <circle cx="174" cy="184" r="42" fill="var(--surface)" stroke="var(--border-strong)" />
+      <circle cx="174" cy="171" r="12" fill="var(--text-muted)" />
+      <path d="M149 207 C153 187 195 187 199 207" fill="var(--text-muted)" />
     </g>
     <g className="login-vector-node login-vector-node-two">
-      <circle cx="446" cy="184" r="42" fill="var(--status-green-bg)" />
-      <circle cx="446" cy="171" r="12" fill="var(--status-green-text)" />
-      <path d="M421 207 C425 187 467 187 471 207" fill="var(--status-green-text)" />
+      <circle cx="446" cy="184" r="42" fill="var(--surface)" stroke="var(--border-strong)" />
+      <circle cx="446" cy="171" r="12" fill="var(--text-muted)" />
+      <path d="M421 207 C425 187 467 187 471 207" fill="var(--text-muted)" />
     </g>
     <g className="login-vector-node login-vector-node-three">
-      <circle cx="174" cy="320" r="42" fill="var(--status-yellow-bg)" />
-      <rect x="151" y="299" width="46" height="42" rx="7" fill="var(--status-yellow-text)" />
-      <path d="M160 311 H188 M160 321 H183 M160 331 H176" stroke="var(--status-yellow-bg)" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="174" cy="320" r="42" fill="var(--surface)" stroke="var(--border-strong)" />
+      <rect x="151" y="299" width="46" height="42" rx="7" fill="var(--text-muted)" />
+      <path d="M160 311 H188 M160 321 H183 M160 331 H176" stroke="var(--surface)" strokeWidth="3" strokeLinecap="round" />
     </g>
     <g className="login-vector-node login-vector-node-four">
-      <circle cx="446" cy="320" r="42" fill="var(--status-red-bg)" />
-      <rect x="424" y="300" width="44" height="40" rx="8" fill="var(--status-red-text)" />
-      <path d="M435 320 L443 328 L458 311" fill="none" stroke="var(--status-red-bg)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="446" cy="320" r="42" fill="var(--surface)" stroke="var(--border-strong)" />
+      <rect x="424" y="300" width="44" height="40" rx="8" fill="var(--text-muted)" />
+      <path d="M435 320 L443 328 L458 311" fill="none" stroke="var(--surface)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
     </g>
 
     <g className="login-vector-core">
       <circle cx="310" cy="252" r="76" fill="var(--surface-muted)" />
-      <circle cx="310" cy="252" r="57" fill="var(--text)" />
+      <circle cx="310" cy="252" r="57" fill="var(--accent)" />
       <path
         d="M278 257 L302 280 L344 226"
         fill="none"
-        stroke="var(--canvas)"
+        stroke="var(--surface)"
         strokeWidth="8"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
     </g>
 
-    <circle cx="310" cy="126" r="6" fill="var(--status-blue-text)" className="login-vector-pulse" />
-    <circle cx="436" cy="252" r="6" fill="var(--status-green-text)" className="login-vector-pulse login-vector-delay" />
-    <circle cx="310" cy="378" r="6" fill="var(--status-yellow-text)" className="login-vector-pulse login-vector-delay-two" />
+    <circle cx="310" cy="126" r="6" fill="var(--accent)" className="login-vector-pulse" />
+    <circle cx="436" cy="252" r="6" fill="var(--accent)" className="login-vector-pulse login-vector-delay" />
+    <circle cx="310" cy="378" r="6" fill="var(--accent)" className="login-vector-pulse login-vector-delay-two" />
   </svg>
 );
 
@@ -10071,121 +9952,110 @@ const LoginScreen = ({
   isDark,
   onToggleTheme,
 }) => (
-  <div className="login-screen min-h-screen bg-[var(--canvas)] text-[var(--text)] dark:bg-[var(--canvas)] dark:text-[var(--text)]">
+  <div className="login-screen min-h-screen bg-[var(--canvas)] text-[var(--text)]">
     <header className="absolute inset-x-0 top-0 z-20 flex min-h-[76px] items-center justify-between px-5 sm:px-8 lg:px-12">
-      <div className="flex items-center gap-3">
-        <AgencyLogo className="h-9 w-9" />
-        <div>
-          <p className="brand-name text-base font-bold leading-none text-[var(--text)] dark:text-[var(--text)]">
-            CLUSTER
-          </p>
-          <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)] dark:text-[var(--text-muted)]">
+      <HStack gap={3} vAlign="center">
+        <AgencyLogo className="h-7 text-[var(--text)]" />
+        <VStack gap={0}>
+          <Text weight="bold">Cluster</Text>
+          <Text type="supporting" color="secondary">
             Agency OS
-          </p>
-        </div>
-      </div>
-      <button
-        type="button"
+          </Text>
+        </VStack>
+      </HStack>
+      <IconButton
+        variant="ghost"
+        label={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+        tooltip={isDark ? "Modo claro" : "Modo oscuro"}
+        icon={<Icon name={isDark ? "Sun" : "Moon"} size={18} />}
         onClick={onToggleTheme}
-        aria-label={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
-        className="quiet-action h-10 min-h-0 w-10 min-w-0 p-0"
-      >
-        <Icon name={isDark ? "Sun" : "Moon"} size={17} />
-      </button>
+      />
     </header>
 
     <main className="flex min-h-screen items-center justify-center px-4 pb-4 pt-24 sm:px-6 lg:px-10">
-      <section className="login-frame grid w-full max-w-[1120px] overflow-hidden rounded-2xl border border-[var(--border)] bg-white dark:border-white/10 dark:bg-[var(--surface)] lg:grid-cols-[1.08fr_0.92fr]" aria-labelledby="login-title">
-        <div className="login-art-panel order-2 relative min-h-[280px] overflow-hidden border-t border-[var(--border)] bg-[var(--surface-muted)] dark:border-white/10 dark:bg-[var(--surface)] lg:order-1 lg:min-h-[600px] lg:border-r lg:border-t-0">
+      <section
+        className="login-frame grid w-full max-w-[1120px] overflow-hidden rounded-[var(--radius-container)] border border-[var(--border)] bg-[var(--surface)] lg:grid-cols-[1.08fr_0.92fr]"
+        aria-labelledby="login-title"
+      >
+        <div className="login-art-panel relative order-2 min-h-[280px] overflow-hidden border-t border-[var(--border)] bg-[var(--surface-muted)] lg:order-1 lg:min-h-[600px] lg:border-r lg:border-t-0">
           <div className="pointer-events-none absolute inset-x-0 top-4 h-[72%] opacity-90 lg:h-[76%]">
             <LoginVectorArtwork />
           </div>
           <div className="relative z-10 flex h-full min-h-[280px] flex-col justify-between p-6 sm:p-8 lg:min-h-[600px] lg:p-10">
-            <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)] dark:text-[var(--text-muted)]">
-              <span className="h-2 w-2 rounded-full bg-[var(--status-green-text)] login-vector-pulse" />
-              Operación conectada
-            </div>
-            <div className="max-w-md">
-              <p className="eyebrow mb-3">Todo el equipo, una sola vista</p>
-              <h2 className="editorial-title text-3xl text-[var(--text)] dark:text-[var(--text)] sm:text-4xl lg:text-5xl">
+            <HStack gap={2} vAlign="center">
+              <StatusDot variant="success" label="Operación conectada" />
+              <Text type="supporting" color="secondary">
+                Operación conectada
+              </Text>
+            </HStack>
+            <VStack gap={3} maxWidth={448}>
+              <Text type="supporting" color="secondary" weight="medium">
+                Clientes, producción y equipo en una sola vista
+              </Text>
+              <Heading level={2} type="display-3" textWrap="balance">
                 El trabajo fluye cuando todo está conectado.
-              </h2>
-              <div className="mt-5 hidden flex-wrap gap-2 sm:flex">
-                {["Clientes", "Producción", "Equipo"].map((label) => (
-                  <span key={label} className="rounded-full border border-[var(--border)] bg-white/70 px-3 py-1.5 text-xs font-semibold text-[var(--text-muted)] dark:border-white/10 dark:bg-[var(--surface-raised)] dark:text-[var(--text-muted)]">
-                    {label}
-                  </span>
-                ))}
-              </div>
-            </div>
+              </Heading>
+            </VStack>
           </div>
         </div>
 
         <div className="login-form-panel order-1 flex items-center p-6 sm:p-10 lg:order-2 lg:p-12">
-          <div className="w-full max-w-[390px] mx-auto">
-            <div className="mb-8">
-              <p className="eyebrow mb-2">Acceso seguro</p>
-              <h1 id="login-title" className="editorial-title text-[40px] leading-tight text-[var(--text)] dark:text-[var(--text)]">
+          <VStack gap={6} width="100%" maxWidth={390} className="mx-auto">
+            <VStack gap={2}>
+              <Heading level={1} type="display-3" id="login-title">
                 Bienvenido de nuevo
-              </h1>
-              <p className="mt-3 text-sm leading-6 text-[var(--text-muted)] dark:text-[var(--text-muted)]">
+              </Heading>
+              <Text color="secondary">
                 Entra a tu espacio para gestionar clientes, tareas y producción.
-              </p>
-            </div>
+              </Text>
+            </VStack>
 
-            <button
+            <AstryxButton
+              variant="secondary"
+              size="lg"
+              width="100%"
+              label="Continuar con Google"
+              icon={<span className="text-base font-bold" aria-hidden="true">G</span>}
+              isLoading={isSigningIn}
+              isDisabled={isSendingLoginLink}
               onClick={onGoogleSignIn}
-              disabled={isSigningIn || isSendingLoginLink}
-              className="quiet-action w-full justify-center px-4 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSigningIn ? (
-                <Icon name="Loader2" size={17} className="animate-spin" />
-              ) : (
-                <span className="text-base font-bold text-blue-600" aria-hidden="true">G</span>
-              )}
-              Continuar con Google
-            </button>
+            />
 
-            <div className="my-6 flex items-center gap-4">
-              <div className="h-px flex-1 bg-[var(--surface-muted)] dark:bg-[var(--surface-muted)]" />
-              <span className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)]">O usa tu correo</span>
-              <div className="h-px flex-1 bg-[var(--surface-muted)] dark:bg-[var(--surface-muted)]" />
-            </div>
+            <Divider label="O usa tu correo" />
 
-            <form onSubmit={onEmailSubmit} className="space-y-4">
-              <div>
-                <label htmlFor="login-email" className="mb-2 block text-sm font-medium text-[var(--text)] dark:text-[var(--text)]">
-                  Correo electrónico
-                </label>
-                <div className="relative">
-                  <Icon name="Mail" size={17} className="pointer-events-none absolute left-3.5 top-3.5 text-[var(--text-faint)]" />
-                  <input
-                    id="login-email"
-                    type="email"
-                    value={email}
-                    onChange={(event) => onEmailChange(event.target.value)}
-                    placeholder="nombre@empresa.com"
-                    autoComplete="email"
-                    className="min-h-[46px] w-full rounded-md border border-[var(--border)] bg-white pl-11 pr-4 text-sm text-[var(--text)] outline-none transition placeholder:text-slate-400 focus:border-[var(--focus)] focus:ring-2 focus:ring-black/10 dark:border-[var(--border-strong)] dark:bg-[var(--surface)] dark:text-[var(--text)]"
-                  />
-                </div>
-              </div>
-
-              <button
+            <VStack as="form" gap={4} onSubmit={onEmailSubmit} noValidate>
+              <TextInput
+                type="email"
+                label="Correo electrónico"
+                htmlName="email"
+                value={email || ""}
+                onChange={(value) => onEmailChange(value)}
+                placeholder="nombre@empresa.com"
+                autoComplete="email"
+                inputMode="email"
+                enterKeyHint="send"
+                startIcon={<Icon name="Mail" size={16} />}
+                size="lg"
+              />
+              <AstryxButton
                 type="submit"
-                disabled={isSigningIn || isSendingLoginLink}
-                className="primary-action w-full justify-center px-4 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Icon name={isSendingLoginLink ? "Loader2" : "Send"} size={17} className={isSendingLoginLink ? "animate-spin" : ""} />
-                {isSendingLoginLink ? "Enviando enlace" : "Enviar enlace de acceso"}
-              </button>
-            </form>
+                variant="primary"
+                size="lg"
+                width="100%"
+                label={isSendingLoginLink ? "Enviando enlace" : "Enviar enlace de acceso"}
+                icon={<Icon name="Send" size={16} />}
+                isLoading={isSendingLoginLink}
+                isDisabled={isSigningIn}
+              />
+            </VStack>
 
-            <div className="mt-6 flex items-center justify-center gap-2 text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)]">
-              <Icon name="ShieldCheck" size={15} />
-              Acceso exclusivo para cuentas autorizadas
-            </div>
-          </div>
+            <HStack gap={2} vAlign="center" hAlign="center">
+              <Icon name="ShieldCheck" size={16} className="text-[var(--text-muted)]" />
+              <Text type="supporting" color="secondary">
+                Acceso exclusivo para cuentas autorizadas
+              </Text>
+            </HStack>
+          </VStack>
         </div>
       </section>
     </main>
@@ -10193,21 +10063,17 @@ const LoginScreen = ({
 );
 
 const SearchBar = ({ searchTerm, setSearchTerm, placeholder }) => (
-  <div className="relative w-full md:w-64 shrink-0">
-    <Icon
-      name="Search"
-      className="absolute left-3 top-3 text-slate-500 dark:text-slate-400"
-      size={16}
-    />
-    <input
-      type="text"
-      aria-label={placeholder || "Buscar"}
-      placeholder={placeholder}
-      value={searchTerm}
-      onChange={(e) => setSearchTerm(e.target.value)}
-      className="min-h-[46px] w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-slate-700 dark:text-slate-200 placeholder:text-slate-500 dark:placeholder:text-slate-500"
-    />
-  </div>
+  <TextInput
+    type="search"
+    label={placeholder || "Buscar"}
+    isLabelHidden
+    placeholder={placeholder}
+    value={searchTerm || ""}
+    onChange={(value) => setSearchTerm(value)}
+    startIcon={<Icon name="Search" size={16} />}
+    hasClear
+    containerClassName="w-full shrink-0 md:w-64"
+  />
 );
 
 const StatCard = ({
@@ -15280,17 +15146,12 @@ const ClientsView = ({
       </div>
 
       <div className="flex items-center gap-3 overflow-x-auto kanban-mobile-scroll">
-        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0">
-          {statusFilters.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => setStatusFilter(f.id)}
-              className={`shrink-0 px-3 py-1.5 text-[13px] font-semibold rounded-lg transition-all ${statusFilter === f.id ? "bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"}`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <ViewTabs
+          label="Filtrar clientes por estado"
+          items={statusFilters}
+          active={statusFilter}
+          onChange={setStatusFilter}
+        />
         <span className="text-xs font-medium text-slate-400 dark:text-slate-500 shrink-0">
           {filteredClients.length} de {clients.length}
         </span>
@@ -18907,7 +18768,7 @@ const ClientChatView = ({
       {/* Popup de confirmación de borrado (estilo WhatsApp) */}
       {deleteTarget && (
         <div
-          className="chat-dialog-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="modal-scrim chat-dialog-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
           onClick={() => setDeleteTarget(null)}
         >
           <div
@@ -18953,7 +18814,7 @@ const ClientChatView = ({
       {/* Reenviar a otro cliente */}
       {forwardTarget && (
         <div
-          className="chat-dialog-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="modal-scrim chat-dialog-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
           onClick={() => setForwardTarget(null)}
         >
           <div
@@ -19016,7 +18877,7 @@ const ClientChatView = ({
       {membersOpen &&
         createPortal(
           <div
-            className="chat-members-overlay fixed inset-0 z-[85] flex items-center justify-center bg-black/50 p-4"
+            className="modal-scrim chat-members-overlay fixed inset-0 z-[85] flex items-center justify-center p-4"
             onClick={() => !savingMembers && setMembersOpen(false)}
           >
             <div
@@ -19221,7 +19082,7 @@ const ClientChatView = ({
       {callPicker &&
         createPortal(
           <div
-            className="chat-dialog-overlay fixed inset-0 z-[80] flex items-center justify-center p-4"
+            className="modal-scrim chat-dialog-overlay fixed inset-0 z-[80] flex items-center justify-center p-4"
             onClick={() => setCallPicker(null)}
           >
           <div
@@ -19404,7 +19265,7 @@ const ClientChatView = ({
       {dmPickerOpen &&
         createPortal(
           <div
-            className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 p-4"
+            className="modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
             onClick={() => setDmPickerOpen(false)}
           >
             <div
@@ -19481,7 +19342,7 @@ const ClientChatView = ({
       {createGroupOpen &&
         createPortal(
           <div
-            className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 p-4"
+            className="modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
             onClick={() => setCreateGroupOpen(false)}
           >
             <div
@@ -19558,7 +19419,7 @@ const ClientChatView = ({
       {assignOpen &&
         createPortal(
           <div
-            className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 p-4"
+            className="modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
             onClick={() => setAssignOpen(false)}
           >
             <div
@@ -19971,20 +19832,15 @@ const GeneralCalendarGrid = ({ activities, onDayClick, onMoveActivity }) => {
     <>
       <div className="flex justify-between items-center p-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-            <button
-              onClick={() => setViewMode("week")}
-              className={`shrink-0 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${viewMode === "week" ? "bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 dark:text-slate-400 hover:text-slate-700"}`}
-            >
-              Semana
-            </button>
-            <button
-              onClick={() => setViewMode("month")}
-              className={`shrink-0 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${viewMode === "month" ? "bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 dark:text-slate-400 hover:text-slate-700"}`}
-            >
-              Mes
-            </button>
-          </div>
+          <ViewTabs
+            label="Vista del calendario"
+            items={[
+              { id: "week", label: "Semana" },
+              { id: "month", label: "Mes" },
+            ]}
+            active={viewMode}
+            onChange={setViewMode}
+          />
           <button
             onClick={() => setDate(new Date())}
             className="px-3 py-1.5 text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-all"
@@ -20133,7 +19989,7 @@ const EventActionModal = ({
   if (!config.isOpen || !config.event) return null;
   return (
     <div
-      className="fixed inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200"
+      className="modal-scrim fixed inset-0 z-[70] flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
@@ -21007,7 +20863,7 @@ const TaskDetailModal = ({
   return (
     <>
     <div
-      className="task-detail-overlay fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-[var(--surface-overlay)] p-3 backdrop-blur-sm md:p-6"
+      className="modal-scrim task-detail-overlay fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto p-3 md:p-6"
       onClick={onClose}
     >
       <div
@@ -23087,7 +22943,7 @@ const TaskDetailModal = ({
     {shareChatOpen &&
       createPortal(
         <div
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4"
+          className="modal-scrim fixed inset-0 z-[120] flex items-center justify-center p-4"
           onClick={() => !sharingTask && setShareChatOpen(false)}
         >
           <div
@@ -23215,7 +23071,7 @@ const DayDetailsModal = ({
 
   return (
     <div
-      className="fixed inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200"
+      className="modal-scrim fixed inset-0 z-[80] flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
@@ -23936,7 +23792,7 @@ const CreateTaskModal = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm z-[90] flex items-start justify-center pt-12 pb-8 px-4"
+      className="modal-scrim fixed inset-0 z-[90] flex items-start justify-center pt-12 pb-8 px-4"
       onClick={onClose}
     >
       <div
@@ -24876,7 +24732,7 @@ const CreateTaskModal = ({
       {/* Popup confirmación sin fecha */}
       {confirmNoDate && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          className="modal-scrim fixed inset-0 z-[100] flex items-center justify-center p-4"
           onClick={() => setConfirmNoDate(false)}
         >
           <div
@@ -25156,7 +25012,7 @@ const Modal = ({
 
   return (
     <div
-      className="fixed inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200"
+      className="modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
@@ -25685,138 +25541,54 @@ const Modal = ({
   );
 };
 
-const DeleteConfirmModal = ({ config, onClose, onConfirm }) => {
-  const dialogRef = useDialogA11y(config.isOpen, onClose);
-  const dialogTitleId = useId();
-  return (
-    <div
-      className="fixed inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div
-        ref={dialogRef}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={dialogTitleId}
-        tabIndex={-1}
-        className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-sm p-6 text-center border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 outline-none"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="w-16 h-16 bg-red-100 dark:bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600 dark:text-red-400">
-          <Icon name="AlertTriangle" size={32} />
-        </div>
-        <h3
-          id={dialogTitleId}
-          className="text-lg font-black text-slate-800 dark:text-white mb-2"
-        >
-          ¿Eliminar {config.title}?
-        </h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-8">
-          Esta acción es permanente y no se puede deshacer.
-        </p>
-        <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={onConfirm}
-            className="flex-1 py-4 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-colors"
-          >
-            Confirmar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const Toast = ({ message, type }) => (
-  <div
-    role={type === "error" ? "alert" : "status"}
-    className={`pointer-events-auto px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 fade-in ${type === "error" ? "bg-red-600 text-white" : "bg-slate-800 dark:bg-white text-white dark:text-slate-900"}`}
-  >
-    <Icon
-      name={type === "success" ? "CheckCircle2" : "AlertTriangle"}
-      size={20}
-      className={type === "success" ? "text-green-400" : ""}
-    />
-    <span className="font-bold text-sm">{message}</span>
-  </div>
+// Destructive confirmation: Astryx AlertDialog (focus trap, Escape, scrim and motion built in).
+const DeleteConfirmModal = ({ config, onClose, onConfirm }) => (
+  <AlertDialog
+    isOpen={Boolean(config.isOpen)}
+    onOpenChange={(isOpen) => {
+      if (!isOpen) onClose();
+    }}
+    title={`¿Eliminar ${config.title || "este elemento"}?`}
+    description="Esta acción es permanente y no se puede deshacer."
+    actionLabel="Eliminar"
+    cancelLabel="Cancelar"
+    onAction={onConfirm}
+  />
 );
 
+// KPI tiles: the number in ink, label and context in secondary text. A status hue only
+// tints the icon beside its label (warning, success, danger); colour never carries the meaning alone.
+const STAT_TONE_ICON = {
+  amber: "text-[var(--status-yellow-text)]",
+  emerald: "text-[var(--status-green-text)]",
+  rose: "text-[var(--status-red-text)]",
+};
 const ReportStatCard = ({ label, value, color, icon, sub }) => (
-  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 flex flex-col gap-2">
-    <div className="flex items-center justify-between">
-      <span className="text-xs font-black uppercase tracking-widest text-slate-500">
+  <div className="surface flex flex-col gap-2 p-5">
+    <div className="flex items-center justify-between gap-3">
+      <Text type="supporting" color="secondary" weight="medium">
         {label}
-      </span>
-      <div
-        className={`w-8 h-8 rounded-xl bg-${color}-50 dark:bg-${color}-500/20 flex items-center justify-center`}
-      >
-        <Icon name={icon} size={16} className={`text-${color}-500`} />
-      </div>
+      </Text>
+      <Icon
+        name={icon}
+        size={16}
+        className={STAT_TONE_ICON[color] || "text-[var(--text-faint)]"}
+      />
     </div>
-    <p
-      className={`text-3xl font-black text-${color}-600 dark:text-${color}-400`}
-    >
+    <p className="text-3xl font-bold leading-none tracking-tight text-[var(--text)]">
       {value}
     </p>
-    {sub && <p className="text-xs text-slate-500">{sub}</p>}
+    {sub && (
+      <Text type="supporting" color="secondary">
+        {sub}
+      </Text>
+    )}
   </div>
 );
 
-const AccentStatCard = ({ label, value, icon, sub, tone = "indigo" }) => {
-  const toneClasses = {
-    amber: {
-      shell: "bg-amber-50 dark:bg-amber-500/20 border-amber-200 dark:border-amber-500/20",
-      icon: "text-amber-600 dark:text-amber-300",
-      value: "text-amber-700 dark:text-amber-300",
-    },
-    emerald: {
-      shell: "bg-emerald-50 dark:bg-emerald-500/20 border-emerald-200 dark:border-emerald-500/20",
-      icon: "text-emerald-600 dark:text-emerald-300",
-      value: "text-emerald-700 dark:text-emerald-300",
-    },
-    indigo: {
-      shell: "bg-indigo-50 dark:bg-indigo-500/20 border-indigo-200 dark:border-indigo-500/20",
-      icon: "text-indigo-600 dark:text-indigo-300",
-      value: "text-indigo-700 dark:text-indigo-300",
-    },
-    rose: {
-      shell: "bg-rose-50 dark:bg-rose-500/20 border-rose-200 dark:border-rose-500/20",
-      icon: "text-rose-600 dark:text-rose-300",
-      value: "text-rose-700 dark:text-rose-300",
-    },
-    cyan: {
-      shell: "bg-cyan-50 dark:bg-cyan-500/20 border-cyan-200 dark:border-cyan-500/20",
-      icon: "text-cyan-600 dark:text-cyan-300",
-      value: "text-cyan-700 dark:text-cyan-300",
-    },
-    slate: {
-      shell: "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700",
-      icon: "text-slate-600 dark:text-slate-300",
-      value: "text-slate-700 dark:text-slate-200",
-    },
-  };
-  const classes = toneClasses[tone] || toneClasses.indigo;
-  return (
-    <div className={`rounded-2xl border p-5 ${classes.shell}`}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-          {label}
-        </span>
-        <div className={`rounded-xl bg-white/70 p-2 dark:bg-slate-900/70 ${classes.icon}`}>
-          <Icon name={icon} size={16} />
-        </div>
-      </div>
-      <p className={`mt-4 text-3xl font-black ${classes.value}`}>{value}</p>
-      {sub && <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{sub}</p>}
-    </div>
-  );
-};
+const AccentStatCard = ({ label, value, icon, sub, tone }) => (
+  <ReportStatCard label={label} value={value} icon={icon} sub={sub} color={tone} />
+);
 
 const getModuleStatusMeta = (value = "", kind = "production") => {
   const normalized = String(value || "").trim().toLowerCase();
@@ -28787,7 +28559,7 @@ const PerformanceView = ({
       </section>
       {activityPerson && (
         <div
-          className="fixed inset-0 z-[135] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+          className="modal-scrim fixed inset-0 z-[135] flex items-center justify-center p-4"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) setActivityPerson(null);
           }}
@@ -28876,7 +28648,7 @@ const NotificationCenter = ({
 
   return (
     <div
-      className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+      className="modal-scrim fixed inset-0 z-[130] flex items-center justify-center p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose?.();
       }}

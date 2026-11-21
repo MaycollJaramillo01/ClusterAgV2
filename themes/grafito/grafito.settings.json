@@ -1,0 +1,108 @@
+{
+  "name": "grafito",
+  "like": "neutral",
+  "mode": "both",
+  "settings": [
+    {
+      "thing": "corners",
+      "value": "medium",
+      "source": "dial"
+    },
+    {
+      "thing": "accent",
+      "value": "#3a3f42",
+      "source": "dial"
+    },
+    {
+      "thing": "neutral",
+      "value": "#18191a",
+      "source": "dial"
+    },
+    {
+      "thing": "success",
+      "value": "#08795e",
+      "source": "dial"
+    },
+    {
+      "thing": "warning",
+      "value": "#b86e00",
+      "source": "dial"
+    },
+    {
+      "thing": "danger",
+      "value": "#b4312b",
+      "source": "dial"
+    },
+    {
+      "thing": "info",
+      "value": "#196aaf",
+      "source": "dial"
+    },
+    {
+      "thing": "font",
+      "value": "figtree",
+      "source": "dial"
+    },
+    {
+      "thing": "headings",
+      "value": "bold",
+      "source": "dial",
+      "axis": "weight"
+    },
+    {
+      "thing": "background-color",
+      "value": "var(--color-text-primary)",
+      "source": "property",
+      "on": "button",
+      "when": "variant:primary"
+    },
+    {
+      "thing": "color",
+      "value": "var(--color-background-surface)",
+      "source": "property",
+      "on": "button",
+      "when": "variant:primary"
+    },
+    {
+      "thing": "background-color",
+      "value": "color-mix(in oklab, var(--color-text-primary) 84%, var(--color-background-surface))",
+      "source": "property",
+      "on": "button",
+      "when": "variant:primary",
+      "state": "hover"
+    },
+    {
+      "thing": "--color-text-primary",
+      "value": "#18191a",
+      "source": "token",
+      "mode": "light"
+    },
+    {
+      "thing": "--color-text-primary",
+      "value": "#f0f0ef",
+      "source": "token",
+      "mode": "dark"
+    },
+    {
+      "thing": "--color-background-body",
+      "value": "#f5f5f4",
+      "source": "token",
+      "mode": "light"
+    },
+    {
+      "thing": "color",
+      "value": "#ffffff",
+      "source": "property",
+      "on": "toast",
+      "when": "type:error"
+    },
+    {
+      "thing": "text-decoration-line",
+      "value": "underline",
+      "source": "property",
+      "on": "link"
+    }
+  ],
+  "palette": "268dfb50b5fa4bfe79dd98a57bcefa966a0f49e25d0a7d948a783e5b9f4df934",
+  "lifted": []
+}

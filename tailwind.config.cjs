@@ -23,89 +23,22 @@ const dynamicColors = [
     'rose'
 ];
 
-const neutral = {
-    50: '#f8faf6',
-    100: '#f0f3ed',
-    200: '#e0e5dd',
-    300: '#c8d0c8',
-    400: '#929d94',
-    500: '#68746b',
-    600: '#4f5b52',
-    700: '#39433b',
-    800: '#252d27',
-    900: '#171d19',
-    950: '#0d110e'
-};
+// Each family reads the active Astryx palette theme (themes/shared/legacyBridge.ts):
+// --cl-<family>-<shade> holds "R G B" channels, so opacity modifiers keep working.
+const family = (name) =>
+    Object.fromEntries(
+        ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900', '950'].map((shade) => [
+            shade,
+            `rgb(var(--cl-${name}-${shade}) / <alpha-value>)`
+        ])
+    );
 
-const accent = {
-    50: '#f7faea',
-    100: '#eff5d2',
-    200: '#dfeaa7',
-    300: '#c9db72',
-    400: '#adc743',
-    500: '#8fa82b',
-    600: '#70851e',
-    700: '#586918',
-    800: '#46541a',
-    900: '#39451a',
-    950: '#1c2409'
-};
-
-const info = {
-    50: '#f0f7f8',
-    100: '#dcecef',
-    200: '#b9d9df',
-    300: '#88bdc8',
-    400: '#5a9ca9',
-    500: '#407f8d',
-    600: '#356875',
-    700: '#305661',
-    800: '#2b4851',
-    900: '#283d44',
-    950: '#132328'
-};
-
-const success = {
-    50: '#f0f7f1',
-    100: '#dcecdf',
-    200: '#bbd9c1',
-    300: '#8fbd99',
-    400: '#64a176',
-    500: '#48855f',
-    600: '#386c4c',
-    700: '#31563f',
-    800: '#2a4636',
-    900: '#253a30',
-    950: '#122119'
-};
-
-const warning = {
-    50: '#fbf7ed',
-    100: '#f5ecd2',
-    200: '#ebd69f',
-    300: '#dbb96a',
-    400: '#c99a3f',
-    500: '#b17e25',
-    600: '#93631b',
-    700: '#744a19',
-    800: '#603d1b',
-    900: '#50331b',
-    950: '#2d1a0b'
-};
-
-const danger = {
-    50: '#fbf2f0',
-    100: '#f7e2de',
-    200: '#efc8c1',
-    300: '#e5a59a',
-    400: '#d87d70',
-    500: '#c75e52',
-    600: '#ad473e',
-    700: '#8f3934',
-    800: '#77322f',
-    900: '#642e2c',
-    950: '#351514'
-};
+const neutral = family('neutral');
+const accent = family('accent');
+const info = family('info');
+const success = family('success');
+const warning = family('warning');
+const danger = family('danger');
 
 const shades = ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900', '950'];
 const alphaSuffixes = ['/5', '/10', '/20', '/30', '/40', '/50', '/60'];
@@ -160,8 +93,8 @@ module.exports = {
             inherit: 'inherit',
             current: 'currentColor',
             transparent: 'transparent',
-            black: '#0d110e',
-            white: '#fcfdf9',
+            black: 'rgb(var(--cl-black) / <alpha-value>)',
+            white: 'rgb(255 255 255 / <alpha-value>)',
             slate: neutral,
             gray: neutral,
             zinc: neutral,
@@ -184,6 +117,23 @@ module.exports = {
             red: danger,
             rose: danger,
             pink: danger
+        },
+        // Type and corners come from the Astryx theme too.
+        fontFamily: {
+            sans: ['var(--font-family-body)'],
+            display: ['var(--font-family-heading)'],
+            mono: ['var(--font-family-code)']
+        },
+        borderRadius: {
+            none: '0px',
+            sm: '4px',
+            DEFAULT: 'var(--radius-inner)',
+            md: 'var(--radius-inner)',
+            lg: 'var(--radius-element)',
+            xl: 'var(--radius-container)',
+            '2xl': 'var(--radius-container)',
+            '3xl': 'calc(var(--radius-container) * 1.5)',
+            full: '9999px'
         },
         extend: {}
     }

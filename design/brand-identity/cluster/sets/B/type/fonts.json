@@ -1,0 +1,30 @@
+{
+  "display": {
+    "family": "Bricolage Grotesque",
+    "file": "C:\\Users\\Mayco\\.cache\\brand-identity\\fonts\\instances\\BricolageGrotesque-da650bf191d5e4a2.ttf",
+    "location": {
+      "wght": 800,
+      "opsz": 96,
+      "wdth": 100
+    },
+    "weights": [
+      800
+    ],
+    "features": []
+  },
+  "text": {
+    "family": "Hanken Grotesk",
+    "file": "C:\\Users\\Mayco\\.cache\\brand-identity\\fonts\\instances\\HankenGrotesk-cb05c3745ddd267d.ttf",
+    "location": {
+      "wght": 400
+    },
+    "weights": [
+      400,
+      500,
+      600
+    ],
+    "features": [
+      "tnum"
+    ]
+  }
+}

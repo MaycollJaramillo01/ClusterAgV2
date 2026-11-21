@@ -1,0 +1,237 @@
+{
+  "schema": "brand-identity/sets@1",
+  "sets": [
+    {
+      "identity": {
+        "set": {
+          "id": "A",
+          "name": "Trama",
+          "recommended": true,
+          "mechanism": "El trazo continuo del símbolo, tres figuras tejidas con una sola línea, ordena todo: una grotesca de trazo parejo y puntos redondos como las cabezas, sobre tinta y papel frío, con un único turquesa que aparece solo donde hay un resultado.",
+          "expression_move": "El turquesa Caribe es el único color fuerte: marca lo entregado, el avance del día y el KPI propio; todo lo demás es tinta.",
+          "differs_by": "Monday, ClickUp y Notion viven entre el azul y el violeta, y Asana en el rosa; Cluster queda en un turquesa que ninguno usa y en una interfaz de tinta, no de colores por estado."
+        },
+        "axes": {
+          "quiet_loud": -1,
+          "warm_cool": 1,
+          "playful_serious": 1
+        },
+        "type": {
+          "pairing_mode": "single-family",
+          "display": {
+            "family": "Figtree",
+            "source": "google",
+            "license": "OFL-1.1",
+            "weights": [700],
+            "location": {"wght": 700},
+            "features": [],
+            "case": "as-is",
+            "tracking": -20,
+            "fallback": "system-ui, sans-serif",
+            "file": null
+          },
+          "text": {
+            "family": "Figtree",
+            "source": "google",
+            "license": "OFL-1.1",
+            "weights": [400, 500, 600],
+            "location": {"wght": 400},
+            "features": ["tnum"],
+            "case": "as-is",
+            "tracking": 0,
+            "fallback": "system-ui, sans-serif",
+            "file": null
+          },
+          "mono": null
+        },
+        "logo": null,
+        "palette_build": {
+          "strategy": null,
+          "accent": "#009597",
+          "light_bg": "#f4f8f8",
+          "dark_bg": null,
+          "neutral_tint": "primary",
+          "neutral_chroma": null,
+          "extra": []
+        },
+        "defaults_used": [],
+        "rationale": [
+          {"claim": "Los cuatro competidores nombrados usan primarios entre azul y violeta (monday #6161ff, ClickUp #6647f0, Notion #0075de) o rosa (Asana #ffc9ff); el turquesa (h 196) queda fuera de esa franja.", "evidence": "measured", "source": "site/competitors.json"},
+          {"claim": "Una sola familia con cifras tabulares sirve a títulos, tablas y KPIs sin un segundo archivo de fuente.", "evidence": "practice"},
+          {"claim": "El trazo parejo y los puntos redondos de Figtree repiten el trazo monolineal y las cabezas del símbolo.", "evidence": "judgement"},
+          {"claim": "El color reservado para resultados deja el rojo, el ámbar y el verde libres para vencido, en riesgo y completado.", "evidence": "judgement"}
+        ]
+      },
+      "palette": {
+        "schema": "brand-identity/palette@1",
+        "name": "Trama",
+        "direction": "Tinta fría sobre papel, un turquesa Caribe solo para lo entregado.",
+        "brand": [
+          {"id": "brand-1", "name": "Tinta", "hex": "#131d1e", "source": "chosen", "locked": true, "usage": "texto, botón principal, iconos"},
+          {"id": "brand-2", "name": "Turquesa Caribe", "hex": "#009597", "source": "chosen", "locked": true, "usage": "dato principal, avance, KPI propio, foco"}
+        ],
+        "feels": ["ordenado", "preciso", "fresco"]
+      },
+      "symbol_svg": null,
+      "symbol_small_svg": null
+    },
+    {
+      "identity": {
+        "set": {
+          "id": "B",
+          "name": "Sala de edición",
+          "recommended": false,
+          "mechanism": "La sala de edición a oscuras: fondo grafito como la línea de tiempo, el magenta del cabezal de reproducción como único color, y titulares de Bricolage en su tamaño óptico mayor, donde las trampas de tinta se abren como cortes.",
+          "expression_move": "Los titulares de Bricolage a tamaño grande, con sus muescas de corte; la paleta se queda en grafito y un magenta pequeño.",
+          "differs_by": "Es la única dirección pensada desde lo oscuro y desde el oficio de editar video; los competidores son claros, de sans geométrica y violeta."
+        },
+        "axes": {
+          "quiet_loud": 2,
+          "warm_cool": 0,
+          "playful_serious": -1
+        },
+        "type": {
+          "pairing_mode": "contrast",
+          "display": {
+            "family": "Bricolage Grotesque",
+            "source": "google",
+            "license": "OFL-1.1",
+            "weights": [800],
+            "location": {"wght": 800, "opsz": 96, "wdth": 100},
+            "features": [],
+            "case": "as-is",
+            "tracking": -25,
+            "fallback": "system-ui, sans-serif",
+            "file": null
+          },
+          "text": {
+            "family": "Hanken Grotesk",
+            "source": "google",
+            "license": "OFL-1.1",
+            "weights": [400, 500, 600],
+            "location": {"wght": 400},
+            "features": ["tnum"],
+            "case": "as-is",
+            "tracking": 0,
+            "fallback": "system-ui, sans-serif",
+            "file": null
+          },
+          "mono": null
+        },
+        "logo": null,
+        "card": {"ground": "dark"},
+        "palette_build": {
+          "strategy": null,
+          "accent": "#231d22",
+          "light_bg": null,
+          "dark_bg": "#110e11",
+          "neutral_tint": "#3d2e3a",
+          "neutral_chroma": null,
+          "extra": []
+        },
+        "defaults_used": [],
+        "rationale": [
+          {"claim": "El magenta (h 357) está a más de 30 grados del rojo de alerta; los estados se acompañan siempre de icono y texto, nunca solo de color.", "evidence": "judgement"},
+          {"claim": "Bricolage Grotesque tiene eje opsz 12-96: en titulares abre las trampas de tinta y a tamaño de interfaz se vuelve tranquila.", "evidence": "practice"},
+          {"claim": "Ningún competidor nombrado usa un fondo oscuro como identidad; todos son claros.", "evidence": "measured", "source": "site/competitors.json"}
+        ]
+      },
+      "palette": {
+        "schema": "brand-identity/palette@1",
+        "name": "Sala de edición",
+        "direction": "Grafito de sala de edición y el magenta del cabezal de reproducción.",
+        "brand": [
+          {"id": "brand-1", "name": "Magenta corte", "hex": "#d02179", "source": "chosen", "locked": true, "usage": "cabezal, dato principal, selección"},
+          {"id": "brand-2", "name": "Grafito", "hex": "#231d22", "source": "chosen", "locked": true, "usage": "fondo de sala, texto, botón principal"}
+        ],
+        "feels": ["creativo", "nocturno", "intenso"]
+      },
+      "symbol_svg": null,
+      "symbol_small_svg": null
+    },
+    {
+      "identity": {
+        "set": {
+          "id": "C",
+          "name": "Hoja de llamado",
+          "recommended": false,
+          "mechanism": "La hoja de llamado de un rodaje: horas, nombres y lugares que se leen bien a la primera; una sans hiperlegible con su versión mono para horas y cifras, la tinta del propio logo y el amarillo del resaltador que marca lo que ya se hizo.",
+          "expression_move": "El amarillo resaltador como campo de color detrás de lo marcado; la tipografía se mantiene sobria.",
+          "differs_by": "Cálida y de oficio donde los competidores son tecnológicos y fríos; amarillo y tinta frente a sus violetas y azules."
+        },
+        "axes": {
+          "quiet_loud": 1,
+          "warm_cool": -2,
+          "playful_serious": 2
+        },
+        "type": {
+          "pairing_mode": "data-face",
+          "display": {
+            "family": "Atkinson Hyperlegible Next",
+            "source": "google",
+            "license": "OFL-1.1",
+            "weights": [700],
+            "location": {"wght": 700},
+            "features": [],
+            "case": "as-is",
+            "tracking": -15,
+            "fallback": "system-ui, sans-serif",
+            "file": null
+          },
+          "text": {
+            "family": "Atkinson Hyperlegible Next",
+            "source": "google",
+            "license": "OFL-1.1",
+            "weights": [400, 600],
+            "location": {"wght": 400},
+            "features": ["tnum"],
+            "case": "as-is",
+            "tracking": 0,
+            "fallback": "system-ui, sans-serif",
+            "file": null
+          },
+          "mono": {
+            "family": "Atkinson Hyperlegible Mono",
+            "source": "google",
+            "license": "OFL-1.1",
+            "weights": [400, 500],
+            "location": {"wght": 400},
+            "features": [],
+            "case": "as-is",
+            "tracking": 0,
+            "fallback": "ui-monospace, monospace",
+            "file": null
+          }
+        },
+        "logo": null,
+        "palette_build": {
+          "strategy": null,
+          "accent": "#f5d336",
+          "light_bg": "#f1efeb",
+          "dark_bg": null,
+          "neutral_tint": "#7a7461",
+          "neutral_chroma": null,
+          "extra": []
+        },
+        "defaults_used": [],
+        "rationale": [
+          {"claim": "La tinta de la marca es la del símbolo (#1d1d1b), así el logo y el texto son el mismo negro.", "evidence": "measured", "source": "src/app/assets/cluster-mark.png"},
+          {"claim": "Atkinson Hyperlegible se diseñó para distinguir formas que se confunden (I, l, 1; 0, O); en una app de horas, IDs y metas eso evita lecturas erróneas.", "evidence": "practice"},
+          {"claim": "El amarillo se usa como relleno detrás de texto en tinta (13:1), nunca como texto sobre claro.", "evidence": "measured"}
+        ]
+      },
+      "palette": {
+        "schema": "brand-identity/palette@1",
+        "name": "Hoja de llamado",
+        "direction": "La tinta del logo sobre papel piedra y el amarillo del resaltador.",
+        "brand": [
+          {"id": "brand-1", "name": "Tinta Cluster", "hex": "#1d1d1b", "source": "chosen", "locked": true, "usage": "logo, texto, botón principal"},
+          {"id": "brand-2", "name": "Resaltador", "hex": "#f5d336", "source": "chosen", "locked": true, "usage": "lo marcado, selección, dato principal en oscuro"}
+        ],
+        "feels": ["legible", "de oficio", "enérgico"]
+      },
+      "symbol_svg": null,
+      "symbol_small_svg": null
+    }
+  ]
+}

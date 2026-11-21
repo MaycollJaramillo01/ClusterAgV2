@@ -1,0 +1,39 @@
+{
+  "display": {
+    "family": "Atkinson Hyperlegible Next",
+    "file": "C:\\Users\\Mayco\\.cache\\brand-identity\\fonts\\instances\\AtkinsonHyperlegibleNext-866c3e8550177dd9.ttf",
+    "location": {
+      "wght": 700
+    },
+    "weights": [
+      700
+    ],
+    "features": []
+  },
+  "text": {
+    "family": "Atkinson Hyperlegible Next",
+    "file": "C:\\Users\\Mayco\\.cache\\brand-identity\\fonts\\instances\\AtkinsonHyperlegibleNext-e42e3b74932fdaa5.ttf",
+    "location": {
+      "wght": 400
+    },
+    "weights": [
+      400,
+      600
+    ],
+    "features": [
+      "tnum"
+    ]
+  },
+  "mono": {
+    "family": "Atkinson Hyperlegible Mono",
+    "file": "C:\\Users\\Mayco\\.cache\\brand-identity\\fonts\\instances\\AtkinsonHyperlegibleMono-c8b6016ea786384a.ttf",
+    "location": {
+      "wght": 400
+    },
+    "weights": [
+      400,
+      500
+    ],
+    "features": []
+  }
+}
