@@ -12,12 +12,25 @@ import {
 } from "@astryxdesign/core/SideNav";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Avatar } from "@astryxdesign/core/Avatar";
+import { AvatarGroup, AvatarGroupOverflow } from "@astryxdesign/core/AvatarGroup";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button as AstryxButton } from "@astryxdesign/core/Button";
 import { Breadcrumbs, BreadcrumbItem } from "@astryxdesign/core/Breadcrumbs";
+import { Card } from "@astryxdesign/core/Card";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
+import { Dialog } from "@astryxdesign/core/Dialog";
+import { Drawer } from "@astryxdesign/core/Drawer";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
+import { MultiSelector } from "@astryxdesign/core/MultiSelector";
+import { SelectableCard } from "@astryxdesign/core/SelectableCard";
+import { Selector } from "@astryxdesign/core/Selector";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
+import { ToggleButton } from "@astryxdesign/core/ToggleButton";
 import { Divider } from "@astryxdesign/core/Divider";
 import { EmptyState as AstryxEmptyState } from "@astryxdesign/core/EmptyState";
 import { Heading } from "@astryxdesign/core/Heading";
+import { Grid } from "@astryxdesign/core/Grid";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Item } from "@astryxdesign/core/Item";
@@ -263,7 +276,6 @@ import {
   resolveCallLink,
 } from "./lib/call-links.js";
 import { registerFirebaseWebPush } from "./lib/firebase-web-push.js";
-import { createPortal } from "react-dom";
 
 const EMBEDDED_UPLOAD_MAX_BYTES = 3 * 1024 * 1024;
 const DEFAULT_TASK_DUE_TIME = "17:00";
@@ -402,15 +414,6 @@ const Icon = ({ name, size = 18, className = "", weight, ...props }) => {
   ) : null;
 };
 
-const FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "button:not([disabled])",
-  "textarea:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  '[tabindex]:not([tabindex="-1"])',
-].join(",");
-
 const slugifyId = (value = "") =>
   String(value || "")
     .normalize("NFD")
@@ -418,72 +421,6 @@ const slugifyId = (value = "") =>
     .replace(/[^a-zA-Z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
-
-const useDialogA11y = (isOpen, onClose) => {
-  const dialogRef = useRef(null);
-  const previousActiveElementRef = useRef(null);
-  const onCloseRef = useRef(onClose);
-
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-
-  useEffect(() => {
-    if (!isOpen || typeof document === "undefined") return undefined;
-    previousActiveElementRef.current = document.activeElement;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    const focusTimer = window.setTimeout(() => {
-      const dialog = dialogRef.current;
-      if (!dialog) return;
-      const focusable = dialog.querySelector(FOCUSABLE_SELECTOR);
-      (focusable || dialog).focus?.();
-    }, 30);
-
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        onCloseRef.current?.();
-        return;
-      }
-      if (event.key !== "Tab") return;
-
-      const dialog = dialogRef.current;
-      if (!dialog) return;
-      const focusable = Array.from(
-        dialog.querySelectorAll(FOCUSABLE_SELECTOR),
-      ).filter(
-        (element) =>
-          element.offsetParent !== null || element === document.activeElement,
-      );
-      if (focusable.length === 0) {
-        event.preventDefault();
-        dialog.focus?.();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.clearTimeout(focusTimer);
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = originalOverflow;
-      previousActiveElementRef.current?.focus?.();
-    };
-  }, [isOpen]);
-
-  return dialogRef;
-};
 
 // The Cluster mark (src/app/assets/cluster-mark.png) painted in currentColor, so it
 // reads as ink in light mode and as paper in dark mode.
@@ -2123,23 +2060,23 @@ function ComplianceAlertBanner({
     <div
       role="alert"
       aria-live="assertive"
-      className="sticky top-0 z-40 w-full border-b border-red-500/40 bg-red-950/95 text-red-100 px-4 py-2.5 shadow-md"
+      className="sticky top-0 z-40 w-full border-b border-[var(--border)] bg-[var(--status-red-bg)] text-[var(--text)] px-4 py-2.5 shadow-md"
     >
       <div className="mx-auto flex max-w-[1360px] flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-600/30 text-red-300 ring-1 ring-red-400/40">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface)] text-[var(--status-red-text)]">
             <Icon name="AlertTriangle" size={18} />
           </span>
           <div className="min-w-0 text-xs sm:text-sm">
-            <p className="font-semibold text-white">
+            <p className="font-semibold text-[var(--text)]">
               Alerta de cumplimiento en el sistema
               {quotaPenalty > 0 && (
-                <span className="ml-2 inline-flex items-center rounded bg-red-500/30 px-1.5 py-0.5 text-xs font-bold text-red-200">
+                <span className="ml-2 inline-flex items-center rounded bg-[var(--surface)] px-1.5 py-0.5 text-xs font-bold text-[var(--status-red-text)]">
                   −{quotaPenalty} pts en KPI
                 </span>
               )}
             </p>
-            <p className="truncate text-red-200/90 text-xs">
+            <p className="truncate text-[var(--text-muted)] text-xs">
               {messages.join(" · ")}
             </p>
           </div>
@@ -2147,26 +2084,24 @@ function ComplianceAlertBanner({
 
         <div className="flex items-center gap-2">
           {(compliance.overdueTasks?.length > 0 || compliance.dueSoonTasks?.length > 0) && (
-            <button
-              type="button"
+            <AstryxButton
+              label="Resolver tarea"
+              icon={<Icon name="Timer" size={16} />}
+              variant="destructive"
+              size="sm"
               onClick={() => {
                 const first = compliance.overdueTasks?.[0] || compliance.dueSoonTasks?.[0];
                 if (first) onOpenTask?.(first, first._taskType || "editingTask");
               }}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm transition hover:bg-red-500"
-            >
-              <Icon name="Timer" size={14} />
-              <span>Resolver tarea</span>
-            </button>
+            />
           )}
-          <button
-            type="button"
+          <AstryxButton
+            label="Ver detalles"
+            endContent={<Icon name="ArrowRight" size={16} />}
+            variant="secondary"
+            size="sm"
             onClick={onOpenDetails}
-            className="inline-flex items-center gap-1 rounded-lg border border-red-400/30 bg-red-900/40 px-2.5 py-1 text-xs font-medium text-red-100 hover:bg-red-800/50"
-          >
-            <span>Ver detalles</span>
-            <Icon name="ArrowRight" size={13} />
-          </button>
+          />
         </div>
       </div>
     </div>
@@ -2191,55 +2126,57 @@ function ComplianceAlertModal({
     quotaPenalty,
   } = compliance;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
+  return (
+    <Dialog
+      isOpen
+      onOpenChange={(open) => { if (!open) onClose?.(); }}
       aria-labelledby="compliance-alert-title"
+      width="42rem"
+      maxHeight="90dvh"
+      padding={0}
     >
-      <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-red-500/40 bg-neutral-900 text-neutral-100 shadow-2xl">
-        <div className="flex items-start justify-between border-b border-red-500/30 bg-red-950/70 p-5">
+      <div className="flex flex-col overflow-hidden">
+        <div className="flex items-start justify-between border-b border-[var(--border)] bg-[var(--status-red-bg)] p-5">
           <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-600/30 text-red-300 ring-1 ring-red-400/50">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--surface)] text-[var(--status-red-text)]">
               <Icon name="AlertTriangle" size={24} />
             </span>
             <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-red-400">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--status-red-text)]">
                 Aviso de Rendimiento y Cumplimiento
               </span>
               <h2
                 id="compliance-alert-title"
-                className="text-lg font-bold text-white"
+                className="text-lg font-bold text-[var(--text)]"
               >
                 Eventos de incumplimiento activos
               </h2>
             </div>
           </div>
-          <button
-            type="button"
+          <IconButton
+            label="Cerrar aviso"
+            icon={<Icon name="X" size={16} />}
+            variant="ghost"
+            size="sm"
+            tooltip="Cerrar aviso"
             onClick={onClose}
-            aria-label="Cerrar aviso"
-            className="rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-800 hover:text-white"
-          >
-            <Icon name="X" size={18} />
-          </button>
+          />
         </div>
 
         <div className="space-y-4 overflow-y-auto p-5">
           {quotaPenalty > 0 && (
-            <div className="rounded-xl border border-red-500/40 bg-red-950/40 p-4">
+            <div className="rounded-xl border border-red-500/40 bg-[var(--status-red-bg)] p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <strong className="text-sm font-bold text-red-300">
+                  <strong className="text-sm font-bold text-[var(--status-red-text)]">
                     Penalización activa en tu KPI
                   </strong>
-                  <p className="mt-0.5 text-xs text-red-200/80">
+                  <p className="mt-0.5 text-xs text-[var(--status-red-text)]">
                     Este incumplimiento deduce puntos de tu calificación mensual
                     mientras no se regularice.
                   </p>
                 </div>
-                <span className="rounded-lg bg-red-600 px-3 py-1.5 text-base font-black text-white">
+                <span className="rounded-lg bg-[var(--status-red-bg)] px-3 py-1.5 text-base font-black text-[var(--status-red-text)]">
                   −{quotaPenalty} pts
                 </span>
               </div>
@@ -2247,32 +2184,32 @@ function ComplianceAlertModal({
           )}
 
           {dueSoonCount > 0 && (
-            <div className="space-y-3 rounded-xl border border-neutral-700 bg-neutral-800/60 p-4">
+            <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Icon name="Timer" size={18} className="text-amber-400" />
-                  <h3 className="text-sm font-bold text-white">
+                  <Icon name="Timer" size={18} className="text-[var(--status-yellow-text)]" />
+                  <h3 className="text-sm font-bold text-[var(--text)]">
                     Por vencer ({dueSoonCount})
                   </h3>
                 </div>
-                <span className="text-xs font-semibold text-amber-400">
+                <span className="text-xs font-semibold text-[var(--status-yellow-text)]">
                   Falta menos de una hora
                 </span>
               </div>
-              <p className="text-xs text-neutral-300">
+              <p className="text-xs text-[var(--text-muted)]">
                 Estas tareas todavía no están vencidas. El aviso aparece recién en la última hora.
               </p>
-              <div className="max-h-48 divide-y divide-neutral-700/60 overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-900/60">
+              <div className="max-h-48 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
                 {dueSoonTasks.map((task) => (
                   <div
                     key={`soon-${task._taskType || "task"}-${task.id}`}
-                    className="flex items-center justify-between gap-2 p-3 hover:bg-neutral-800/50"
+                    className="flex items-center justify-between gap-2 p-3 hover:bg-[var(--surface-muted)]"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-white">
+                      <p className="truncate text-sm font-semibold text-[var(--text)]">
                         {task.title || "Tarea sin título"}
                       </p>
-                      <p className="text-xs text-amber-300/80">
+                      <p className="text-xs text-[var(--status-yellow-text)]">
                         Vence:{" "}
                         {formatTaskDueLabel({
                           date: task.date,
@@ -2281,17 +2218,17 @@ function ComplianceAlertModal({
                         }) || task.date || "Sin fecha"}
                       </p>
                     </div>
-                    <button
-                      type="button"
+                    <AstryxButton
+                      label="Abrir"
+                      endContent={<Icon name="ExternalLink" size={16} />}
+                      variant="primary"
+                      size="sm"
                       onClick={() => {
                         onClose?.();
                         onOpenTask?.(task, task._taskType || "editingTask");
                       }}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md bg-neutral-700 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-amber-600"
-                    >
-                      <span>Abrir</span>
-                      <Icon name="ExternalLink" size={12} />
-                    </button>
+                      className="shrink-0"
+                    />
                   </div>
                 ))}
               </div>
@@ -2299,33 +2236,33 @@ function ComplianceAlertModal({
           )}
 
           {overdueCount > 0 && (
-            <div className="space-y-3 rounded-xl border border-neutral-700 bg-neutral-800/60 p-4">
+            <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Icon name="Timer" size={18} className="text-red-400" />
-                  <h3 className="text-sm font-bold text-white">
+                  <Icon name="Timer" size={18} className="text-[var(--status-red-text)]" />
+                  <h3 className="text-sm font-bold text-[var(--text)]">
                     Tareas vencidas ({overdueCount})
                   </h3>
                 </div>
-                <span className="text-xs font-semibold text-red-400">
+                <span className="text-xs font-semibold text-[var(--status-red-text)]">
                   Requiere entrega inmediata
                 </span>
               </div>
-              <p className="text-xs text-neutral-300">
+              <p className="text-xs text-[var(--text-muted)]">
                 Las siguientes tareas asignadas han superado su fecha/hora límite sin haberse completado:
               </p>
 
-              <div className="max-h-48 divide-y divide-neutral-700/60 overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-900/60">
+              <div className="max-h-48 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
                 {overdueTasks.map((task) => (
                   <div
                     key={`${task._taskType || "task"}-${task.id}`}
-                    className="flex items-center justify-between gap-2 p-3 hover:bg-neutral-800/50"
+                    className="flex items-center justify-between gap-2 p-3 hover:bg-[var(--surface-muted)]"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-white">
+                      <p className="truncate text-sm font-semibold text-[var(--text)]">
                         {task.title || "Tarea sin título"}
                       </p>
-                      <p className="text-xs text-red-300/80">
+                      <p className="text-xs text-[var(--status-red-text)]">
                         Venció:{" "}
                         {formatTaskDueLabel({
                           date: task.date,
@@ -2334,17 +2271,17 @@ function ComplianceAlertModal({
                         }) || task.date || "Sin fecha"}
                       </p>
                     </div>
-                    <button
-                      type="button"
+                    <AstryxButton
+                      label="Abrir"
+                      endContent={<Icon name="ExternalLink" size={16} />}
+                      variant="primary"
+                      size="sm"
                       onClick={() => {
                         onClose?.();
                         onOpenTask?.(task, task._taskType || "editingTask");
                       }}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md bg-neutral-700 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-red-600"
-                    >
-                      <span>Abrir</span>
-                      <Icon name="ExternalLink" size={12} />
-                    </button>
+                      className="shrink-0"
+                    />
                   </div>
                 ))}
               </div>
@@ -2352,22 +2289,22 @@ function ComplianceAlertModal({
           )}
 
           {editorDaily?.applies && editorDaily?.missed && (
-            <div className="space-y-2 rounded-xl border border-neutral-700 bg-neutral-800/60 p-4">
+            <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Icon name="CheckSquare" size={18} className="text-amber-400" />
-                  <h3 className="text-sm font-bold text-white">
+                  <Icon name="CheckSquare" size={18} className="text-[var(--status-yellow-text)]" />
+                  <h3 className="text-sm font-bold text-[var(--text)]">
                     Meta diaria por editor
                   </h3>
                 </div>
-                <span className="text-xs font-bold text-amber-400">
+                <span className="text-xs font-bold text-[var(--status-yellow-text)]">
                   {editorDaily.completed} / {editorDaily.target} piezas
                 </span>
               </div>
-              <p className="text-xs text-neutral-300">
+              <p className="text-xs text-[var(--text-muted)]">
                 No se está completando la cantidad de tareas diarias por editor ({editorDaily.target} piezas nuevas diarias fuera de correcciones).
               </p>
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-700">
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--surface-muted)]">
                 <div
                   className="h-2.5 rounded-full bg-amber-500"
                   style={{
@@ -2375,7 +2312,7 @@ function ComplianceAlertModal({
                   }}
                 />
               </div>
-              <div className="flex justify-between text-xs text-neutral-400">
+              <div className="flex justify-between text-xs text-[var(--text-muted)]">
                 <span>Déficit: {editorDaily.shortfall} piezas</span>
                 <span>Penalización: −{editorDaily.penalty} pts</span>
               </div>
@@ -2383,30 +2320,30 @@ function ComplianceAlertModal({
           )}
 
           {accountWeekly?.warn && (
-            <div className="space-y-3 rounded-xl border border-neutral-700 bg-neutral-800/60 p-4">
+            <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Icon name="BarChart3" size={18} className="text-amber-400" />
-                  <h3 className="text-sm font-bold text-white">
+                  <Icon name="BarChart3" size={18} className="text-[var(--status-yellow-text)]" />
+                  <h3 className="text-sm font-bold text-[var(--text)]">
                     Ritmo semanal de Account Manager
                   </h3>
                 </div>
-                <span className="text-xs font-bold text-amber-400">
+                <span className="text-xs font-bold text-[var(--status-yellow-text)]">
                   Retraso: {accountWeekly.penalty} pts
                 </span>
               </div>
-              <p className="text-xs text-neutral-300">
+              <p className="text-xs text-[var(--text-muted)]">
                 La proporción del trabajo semanal está por debajo del porcentaje transcurrido de la semana laborable:
               </p>
               <div className="space-y-2">
                 <div>
                   <div className="mb-1 flex justify-between text-xs">
-                    <span className="text-neutral-400">Tiempo de semana transcurrido</span>
-                    <span className="font-semibold text-neutral-200">
+                    <span className="text-[var(--text-muted)]">Tiempo de semana transcurrido</span>
+                    <span className="font-semibold text-[var(--text)]">
                       {accountWeekly.elapsedPercent}%
                     </span>
                   </div>
-                  <div className="h-2 w-full rounded-full bg-neutral-700">
+                  <div className="h-2 w-full rounded-full bg-[var(--surface-muted)]">
                     <div
                       className="h-2 rounded-full bg-neutral-400"
                       style={{ width: `${accountWeekly.elapsedPercent}%` }}
@@ -2415,12 +2352,12 @@ function ComplianceAlertModal({
                 </div>
                 <div>
                   <div className="mb-1 flex justify-between text-xs">
-                    <span className="text-neutral-400">Publicaciones completadas</span>
-                    <span className="font-semibold text-amber-400">
+                    <span className="text-[var(--text-muted)]">Publicaciones completadas</span>
+                    <span className="font-semibold text-[var(--status-yellow-text)]">
                       {accountWeekly.progressPercent}% ({accountWeekly.completed}/{accountWeekly.assigned})
                     </span>
                   </div>
-                  <div className="h-2 w-full rounded-full bg-neutral-700">
+                  <div className="h-2 w-full rounded-full bg-[var(--surface-muted)]">
                     <div
                       className="h-2 rounded-full bg-amber-500"
                       style={{ width: `${accountWeekly.progressPercent}%` }}
@@ -2432,47 +2369,43 @@ function ComplianceAlertModal({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-neutral-800 bg-neutral-900/80 px-5 py-3">
-          <p className="text-xs text-neutral-400">
+        <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-subtle)] px-5 py-3">
+          <p className="text-xs text-[var(--text-muted)]">
             Se envían avisos continuos al usuario y superiores hasta regularizar.
           </p>
           <div className="flex items-center gap-2">
             {editorDaily?.applies && (
-              <button
-                type="button"
+              <AstryxButton
+                label="Sala Edición"
+                variant="secondary"
+                size="sm"
                 onClick={() => {
                   onClose?.();
                   onNavigate?.("editing");
                 }}
-                className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800"
-              >
-                Sala Edición
-              </button>
+              />
             )}
             {accountWeekly?.applies && (
-              <button
-                type="button"
+              <AstryxButton
+                label="Sala Accounts"
+                variant="secondary"
+                size="sm"
                 onClick={() => {
                   onClose?.();
                   onNavigate?.("account");
                 }}
-                className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800"
-              >
-                Sala Accounts
-              </button>
+              />
             )}
-            <button
-              type="button"
+            <AstryxButton
+              label="Entendido"
+              variant="primary"
+              size="sm"
               onClick={onClose}
-              className="rounded-lg bg-neutral-700 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-neutral-600"
-            >
-              Entendido
-            </button>
+            />
           </div>
         </div>
       </div>
-    </div>,
-    document.body,
+    </Dialog>
   );
 }
 
@@ -9269,13 +9202,12 @@ function App() {
           <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
             Moviste “{pendingKanban.title}”
           </p>
-          <button
-            type="button"
+          <AstryxButton
+            label="Deshacer"
+            variant="primary"
+            size="sm"
             onClick={undoPendingKanban}
-            className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white dark:bg-white dark:text-slate-900"
-          >
-            Deshacer
-          </button>
+          />
         </div>
       )}
       {((currentUserCompliance?.isAlerting && !complianceModalDismissed) ||
@@ -9481,15 +9413,17 @@ function App() {
         editingTasks={editingTasks}
         managementTasks={managementTasks}
       />
-      {incomingCall &&
-        createPortal(
-          <div
-            className="modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="incoming-call-title"
-          >
-            <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-white/10 bg-slate-900 p-6 text-center shadow-2xl">
+      {incomingCall && (
+        <Dialog
+          isOpen
+          onOpenChange={() => {}}
+          aria-labelledby="incoming-call-title"
+          width="24rem"
+          maxHeight="90dvh"
+          padding={0}
+          purpose="required"
+        >
+            <div className="p-6 text-center">
               <div className="mx-auto mb-4 flex h-20 w-20 animate-pulse items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-400/25">
                 <Icon name="Phone" size={34} />
               </div>
@@ -9498,7 +9432,7 @@ function App() {
               </p>
               <h2
                 id="incoming-call-title"
-                className="text-xl font-black text-white"
+                className="text-xl font-black text-[var(--text)]"
               >
                 {incomingCall.authorName || "Alguien"} te está llamando
               </h2>
@@ -9507,64 +9441,29 @@ function App() {
                   "Conversación"}
               </p>
               <div className="mt-6 grid grid-cols-2 gap-3">
-                <button
-                  type="button"
+                <AstryxButton
+                  label="Rechazar"
+                  icon={<Icon name="X" size={20} />}
+                  variant="destructive"
+                  size="lg"
                   onClick={() => handleIncomingCall(false)}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-red-700"
-                >
-                  <Icon name="X" size={18} />
-                  Rechazar
-                </button>
-                <button
-                  type="button"
+                />
+                <AstryxButton
+                  label="Contestar"
+                  icon={<Icon name="Phone" size={20} />}
+                  variant="primary"
+                  size="lg"
                   onClick={() => handleIncomingCall(true)}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-emerald-700"
-                >
-                  <Icon name="Phone" size={18} />
-                  Contestar
-                </button>
+                />
               </div>
             </div>
-          </div>,
-          document.body,
+          </Dialog>
         )}
     </>
   );
 }
 
 // --- SUBCOMPONENTES ---
-const SIDEBAR_ACCENT_HEX = {
-  purple: "var(--primary)",
-  blue: "var(--status-blue-text)",
-  indigo: "var(--primary)",
-  violet: "var(--primary)",
-  amber: "var(--status-yellow-text)",
-  emerald: "var(--status-green-text)",
-  slate: "var(--text-faint)",
-};
-
-const SidebarItem = ({ active, onClick, icon, label, color, badge }) => (
-  <button
-    onClick={onClick}
-    aria-current={active ? "page" : undefined}
-    className={`group relative flex w-full items-center gap-3 rounded-lg px-3 py-2 transition-colors ${active ? "bg-[var(--primary-soft)] text-[var(--text)] dark:bg-[var(--primary-soft)] dark:text-[var(--text)]" : "text-[var(--text-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--text)] dark:text-[var(--text-muted)] dark:hover:bg-[var(--surface-muted)] dark:hover:text-[var(--text)]"}`}
-  >
-    <span
-      className={`absolute left-0 top-1/2 -translate-y-1/2 rounded-r-full transition-all ${active ? "h-5 w-1" : "h-0 w-0"}`}
-      style={active ? { backgroundColor: SIDEBAR_ACCENT_HEX[color] || "var(--primary)" } : undefined}
-    />
-    <Icon name={icon} size={18} className="shrink-0 text-[inherit]" />
-    <span className="flex-1 truncate text-left text-sm font-medium text-[inherit]">
-      {label}
-    </span>
-    {badge != null && (
-      <span className="rounded-full bg-[var(--surface-muted)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-muted)] dark:bg-[var(--surface-muted)] dark:text-[var(--text-muted)]">
-        {badge}
-      </span>
-    )}
-  </button>
-);
-
 // Shared primitives, built on Astryx so every view that uses them follows the system.
 const ViewTabs = ({ items, active, onChange, label = "Cambiar vista" }) => (
   <SegmentedControl value={active} onChange={onChange} label={label}>
@@ -9782,44 +9681,40 @@ const FirstTimeView = ({ role, onNavigate }) => {
   const steps = stepsByRole[normalizedRole] || stepsByRole.viewer;
 
   return (
-    <div className="min-h-full flex items-center">
-      <section className="w-full max-w-5xl mx-auto">
-        <div className="mb-8 max-w-2xl">
-          <p className="text-xs font-black uppercase tracking-widest text-purple-600 dark:text-purple-400 mb-3">
-            Inicio rápido
-          </p>
-          <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white leading-tight">
-            Prepara ClusterAG para operar
-          </h2>
-          <p className="mt-3 text-sm md:text-base text-slate-600 dark:text-slate-300 leading-7">
-            Empieza por la estructura mínima de equipo, clientes y salas de
-            trabajo.
-          </p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {steps.map((step) => (
-            <button
-              key={step.title}
-              onClick={() => onNavigate(step.view)}
-              className="group min-h-[180px] text-left rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 hover:border-purple-300 dark:hover:border-purple-700 hover:shadow-lg transition-all"
-            >
-              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-purple-50 dark:bg-purple-500/15 text-purple-600 dark:text-purple-300">
-                <Icon name={step.icon} size={20} />
-              </div>
-              <h3 className="text-base font-black text-slate-900 dark:text-white">
-                {step.title}
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
-                {step.desc}
-              </p>
-              <span className="mt-4 inline-flex items-center gap-1 text-xs font-black uppercase tracking-wider text-purple-600 dark:text-purple-400">
-                Abrir <Icon name="ArrowRight" size={13} />
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
-    </div>
+    <VStack gap={8} width="100%" maxWidth={1024} minHeight="100%" vAlign="center" className="mx-auto">
+      <VStack gap={3} maxWidth={672}>
+        <Text type="supporting" color="secondary" weight="bold">
+          Inicio rápido
+        </Text>
+        <Heading level={2} type="display-2">
+          Prepara ClusterAG para operar
+        </Heading>
+        <Text color="secondary">
+          Empieza por la estructura mínima de equipo, clientes y salas de
+          trabajo.
+        </Text>
+      </VStack>
+      <Grid columns={{ minWidth: 240, max: 3 }} gap={4}>
+        {steps.map((step) => (
+          <ClickableCard
+            key={step.title}
+            label={`${step.title}: ${step.desc}`}
+            onClick={() => onNavigate(step.view)}
+            padding={5}
+          >
+            <VStack gap={2}>
+              <Icon name={step.icon} size={24} />
+              <Heading level={3}>{step.title}</Heading>
+              <Text color="secondary">{step.desc}</Text>
+              <HStack gap={1} vAlign="center">
+                <Text type="supporting" weight="bold">Abrir</Text>
+                <Icon name="ArrowRight" size={14} />
+              </HStack>
+            </VStack>
+          </ClickableCard>
+        ))}
+      </Grid>
+    </VStack>
   );
 };
 
@@ -9850,12 +9745,14 @@ const MobileBottomNav = ({ view, onNavigate, currentUserProfile }) => {
       {items.map((item) => {
         const active = isItemActive(item.view);
         return (
-          <button
+          <AstryxButton
+            label={item.label}
+            variant="ghost"
+            size="sm"
             key={item.view}
-            type="button"
             onClick={() => onNavigate(item.view)}
             aria-current={active ? "page" : undefined}
-            className={`flex min-h-[60px] min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors duration-[var(--duration-quick)] ${
+            className={`view-button-content flex min-h-[60px] min-w-0 flex-1 flex-col items-center justify-center gap-1 px-0 text-[11px] font-semibold transition-colors duration-[var(--duration-quick)] ${
               active
                 ? "text-[var(--text)]"
                 : "text-[var(--text-muted)] hover:text-[var(--text)]"
@@ -9869,7 +9766,7 @@ const MobileBottomNav = ({ view, onNavigate, currentUserProfile }) => {
               <Icon name={item.icon} size={20} weight={active ? "fill" : undefined} />
             </span>
             <span className="max-w-full truncate">{item.label}</span>
-          </button>
+          </AstryxButton>
         );
       })}
     </nav>
@@ -10221,26 +10118,19 @@ const PhotoUploader = ({
           )}
         </div>
         <div className="flex flex-col gap-2">
-          <button
-            type="button"
+          <AstryxButton
+            label={photo ? "Cambiar foto" : "Subir foto"}
+            icon={<Icon name={busy ? "Loader2" : "UserPlus"} className={busy ? "animate-spin" : ""} size={16} />}
+            variant="secondary"
             onClick={() => fileRef.current?.click()}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-          >
-            <Icon
-              name={busy ? "Loader2" : "UserPlus"}
-              size={15}
-              className={busy ? "animate-spin" : ""}
-            />
-            {photo ? "Cambiar foto" : "Subir foto"}
-          </button>
+          />
           {photo && (
-            <button
-              type="button"
+            <AstryxButton
+              label="Quitar"
+              icon={<Icon name="Trash2" size={16} />}
+              variant="ghost"
               onClick={() => setPhoto("")}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
-            >
-              <Icon name="Trash2" size={15} /> Quitar
-            </button>
+            />
           )}
         </div>
       </div>
@@ -10255,20 +10145,6 @@ const PhotoUploader = ({
     </div>
   );
 };
-
-const CheckItem = ({ label, checked, onToggle }) => (
-  <button
-    onClick={onToggle}
-    className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all duration-200 ${checked ? "bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30 text-green-800 dark:text-green-400" : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-blue-300 dark:hover:border-blue-600"}`}
-  >
-    <span className="font-bold text-sm">{label}</span>
-    {checked ? (
-      <Icon name="CheckCircle2" size={20} className="text-green-500" />
-    ) : (
-      <Icon name="Circle" size={20} />
-    )}
-  </button>
-);
 
 const DASHBOARD_PALETTE = {
   emerald: { solid: "var(--status-green-bg)", strong: "var(--status-green-text)" },
@@ -10703,111 +10579,84 @@ const DashboardView = ({
                 {dueTodayCount} para hoy · {overdueTasks.length} vencidas
               </p>
             </div>
-            <button
-              type="button"
-              className="pd-calendar-link"
+            <AstryxButton
+              label="Ver calendario"
+              icon={<Icon name="CalendarIcon" size={16} />}
+              variant="ghost"
               onClick={() => onNavigate("calendar")}
-            >
-              <Icon name="CalendarIcon" size={16} />
-              Ver calendario
-            </button>
+            />
           </div>
 
-          <div className="pd-task-tabs" role="tablist" aria-label="Filtrar tareas">
+          <TabList value={taskScope} onChange={setTaskScope} size="sm" hasDivider>
             {taskScopes.map((scope) => (
-              <button
-                type="button"
-                role="tab"
-                aria-selected={taskScope === scope.id}
+              <Tab
                 key={scope.id}
-                className={taskScope === scope.id ? "is-active" : ""}
-                onClick={() => setTaskScope(scope.id)}
-              >
-                {scope.label}
-                {scope.id === "all" && (
-                  <span>{openPersonalTasks.length}</span>
-                )}
-              </button>
+                value={scope.id}
+                label={scope.label}
+                endContent={
+                  scope.id === "all" ? (
+                    <Badge label={String(openPersonalTasks.length)} />
+                  ) : undefined
+                }
+              />
             ))}
-          </div>
+          </TabList>
 
-          <div className="pd-task-head" aria-hidden="true">
-            <span>Tarea</span>
-            <span>Cliente</span>
-            <span>Sala</span>
-            <span>Vence</span>
-            <span />
-          </div>
-
-          <div className="pd-task-list" role="tabpanel">
-            {visiblePersonalTasks.length === 0 ? (
-              <div className="pd-empty-state">
-                <span>
-                  <Icon name="Check" size={18} />
-                </span>
-                <div>
-                  <strong>Todo despejado</strong>
-                  <p>No tienes tareas pendientes en este período.</p>
-                </div>
-              </div>
-            ) : (
-              visiblePersonalTasks.map((task, index) => {
+          {visiblePersonalTasks.length === 0 ? (
+            <AstryxEmptyState
+              isCompact
+              icon={<Icon name="Check" size={28} />}
+              title="Todo despejado"
+              description="No tienes tareas pendientes en este período."
+            />
+          ) : (
+          <VStack as="ul" gap={0} className="pd-task-list">
+            {visiblePersonalTasks.map((task, index) => {
                 const isOverdue = isDateBeforeDateString(
                   task.date,
                   todayStr,
                 );
                 return (
-                  <button
-                    type="button"
+                  <Item
+                    as="li"
                     key={`${task._taskType}-${task.id}`}
-                    className={`pd-task-row ${isOverdue ? "is-overdue" : ""}`}
+                    className="pd-task-item"
                     style={{ "--pd-row-index": index }}
                     onClick={() => onOpenTask(task, task._taskType)}
-                    aria-label={`Abrir tarea ${task.title}`}
-                  >
-                    <span className="pd-task-title-cell">
-                      <span className="pd-task-check" aria-hidden="true" />
-                      <span>
-                        <strong>{task.title || "Tarea sin título"}</strong>
-                        <small>
-                          {task.priority
-                            ? `Prioridad ${task.priority}`
-                            : "Prioridad normal"}
-                        </small>
-                      </span>
-                    </span>
-                    <span className="pd-task-client">
-                      <i aria-hidden="true" />
-                      {clientNames.get(task.clientId) || "Interno"}
-                    </span>
-                    <span className="pd-task-area">{task._area}</span>
-                    <span className="pd-task-due">
-                      {formatDueDate(task)}
-                    </span>
-                    <Icon
-                      name="ExternalLink"
-                      size={17}
-                      className="pd-task-arrow"
-                    />
-                  </button>
+                    label={task.title || "Tarea sin título"}
+                    description={[
+                      clientNames.get(task.clientId) || "Interno",
+                      task._area,
+                      task.priority ? `Prioridad ${task.priority}` : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    endContent={
+                      <HStack gap={2} vAlign="center">
+                        {isOverdue && <StatusDot variant="error" label="Vencida" />}
+                        <Text type="supporting" color={isOverdue ? "primary" : "secondary"} weight={isOverdue ? "semibold" : undefined}>
+                          {isOverdue ? `Vencida · ${formatDueDate(task)}` : formatDueDate(task)}
+                        </Text>
+                        <Icon name="ArrowRight" size={16} />
+                      </HStack>
+                    }
+                  />
                 );
-              })
-            )}
-          </div>
+              })}
+          </VStack>
+          )}
 
           {tasksByScope[taskScope]?.length > visiblePersonalTasks.length && (
-            <button
-              type="button"
-              className="pd-view-more"
+            <AstryxButton
+              label={`Ver las ${tasksByScope[taskScope].length} tareas`}
+              endContent={<Icon name="ArrowRight" size={16} />}
+              variant="ghost"
               onClick={() =>
                 onNavigate(
                   visiblePersonalTasks[0]?._room || "calendar",
                 )
               }
-            >
-              Ver las {tasksByScope[taskScope].length} tareas
-              <Icon name="ArrowRight" size={15} />
-            </button>
+            />
           )}
         </section>
 
@@ -10866,16 +10715,15 @@ const DashboardView = ({
             <div>
               <p>Próxima acción</p>
               {nextTask ? (
-                <button
-                  type="button"
+                <Item
+                  density="compact"
                   onClick={() => onOpenTask(nextTask, nextTask._taskType)}
-                >
-                  <strong>{nextTask.title}</strong>
-                  <small>
-                    {clientNames.get(nextTask.clientId) || "Interno"} ·{" "}
-                    {formatDueDate(nextTask)}
-                  </small>
-                </button>
+                  label={nextTask.title}
+                  labelLines={1}
+                  descriptionLines={1}
+                  description={`${clientNames.get(nextTask.clientId) || "Interno"} · ${formatDueDate(nextTask)}`}
+                  endContent={<Icon name="ArrowRight" size={16} />}
+                />
               ) : (
                 <strong>Sin pendientes</strong>
               )}
@@ -10968,14 +10816,12 @@ const DashboardView = ({
               <h3 id="pd-user-kpi-title">KPI por usuario</h3>
               <p>{dashboardPeriod.label} · avance 70% + puntualidad 30% · el ritmo ajusta la nota</p>
             </div>
-            <button
-              type="button"
-              className="pd-user-kpi-link"
+            <AstryxButton
+              label="Ver reporte"
+              endContent={<Icon name="ArrowRight" size={16} />}
+              variant="ghost"
               onClick={() => onNavigate("performance")}
-            >
-              Ver reporte
-              <Icon name="ArrowRight" size={14} />
-            </button>
+            />
           </div>
 
           {visibleUserKpis.length > 0 ? (
@@ -11282,55 +11128,46 @@ const ProfileSettingsView = ({
                 <p className="profile-theme-description">
                   Combina una paleta con el modo que mejor se adapte a tu espacio.
                 </p>
-                <div className="profile-mode-switch" aria-label="Modo de color">
-                  <button
-                    type="button"
-                    className={!isDark ? "is-active" : ""}
-                    aria-pressed={!isDark}
-                    onClick={() => onModeChange("light")}
-                  >
-                    <Icon name="Sun" size={16} />
-                    Claro
-                  </button>
-                  <button
-                    type="button"
-                    className={isDark ? "is-active" : ""}
-                    aria-pressed={isDark}
-                    onClick={() => onModeChange("dark")}
-                  >
-                    <Icon name="Moon" size={16} />
-                    Oscuro
-                  </button>
-                </div>
-                <div className="profile-palette-grid">
+                <SegmentedControl
+                  value={isDark ? "dark" : "light"}
+                  onChange={onModeChange}
+                  label="Modo de color"
+                  layout="fill"
+                >
+                  <SegmentedControlItem value="light" label="Claro" icon={<Icon name="Sun" size={16} />} />
+                  <SegmentedControlItem value="dark" label="Oscuro" icon={<Icon name="Moon" size={16} />} />
+                </SegmentedControl>
+                <VStack gap={2}>
                   {THEME_PALETTES.map((palette) => {
                     const colors = isDark
                       ? palette.darkSwatches
                       : palette.swatches;
                     return (
-                      <button
-                        type="button"
+                      <SelectableCard
                         key={palette.id}
-                        className={themePalette === palette.id ? "is-active" : ""}
-                        aria-pressed={themePalette === palette.id}
-                        onClick={() => onPaletteChange(palette.id)}
+                        label={`Paleta ${palette.name}`}
+                        isSelected={themePalette === palette.id}
+                        onChange={() => onPaletteChange(palette.id)}
+                        padding={3}
                       >
-                        <span className="profile-palette-preview">
-                          {colors.map((color) => (
-                            <i key={color} style={{ backgroundColor: color }} />
-                          ))}
-                        </span>
-                        <span>
-                          <strong>{palette.name}</strong>
-                          <small>{palette.description}</small>
-                        </span>
-                        {themePalette === palette.id && (
-                          <Icon name="CheckCircle2" size={17} />
-                        )}
-                      </button>
+                        <HStack gap={3} vAlign="center">
+                          {/* Swatches show the palette's own colours: they are the data here. */}
+                          <span className="profile-palette-preview" aria-hidden="true">
+                            {colors.map((color) => (
+                              <i key={color} style={{ backgroundColor: color }} />
+                            ))}
+                          </span>
+                          <VStack gap={0.5}>
+                            <Text weight="semibold">{palette.name}</Text>
+                            <Text type="supporting" color="secondary">
+                              {palette.description}
+                            </Text>
+                          </VStack>
+                        </HStack>
+                      </SelectableCard>
                     );
                   })}
-                </div>
+                </VStack>
                 <div className="profile-theme-current">
                   <span style={{ background: "var(--primary)" }} />
                   <div>
@@ -11434,20 +11271,15 @@ const TeamUsagePanel = () => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {[7, 30].map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setDays(option)}
-              className={`min-h-10 rounded-xl px-3 text-xs font-black uppercase tracking-wide ${
-                days === option
-                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
-                  : "border border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"
-              }`}
-            >
-              {option} días
-            </button>
-          ))}
+          <SegmentedControl
+            value={String(days)}
+            onChange={(value) => setDays(Number(value))}
+            label="Periodo del informe"
+          >
+            {[7, 30].map((option) => (
+              <SegmentedControlItem key={option} value={String(option)} label={`${option} días`} />
+            ))}
+          </SegmentedControl>
           <Button
             color="indigo"
             icon="Download"
@@ -11595,28 +11427,26 @@ const TeamView = ({
                     Usuarios: no hay ficha propia que actualizar o borrar. */}
                 {!person.isOrganizationMember && (
                   <div className="absolute top-4 right-4 flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                    <button
+                    <IconButton
+                      label={`Editar ${person.name || "miembro"}`}
+                      icon={<Icon name="Edit" size={16} />}
+                      variant="ghost"
+                      tooltip="Editar"
                       onClick={(e) => {
                         e.stopPropagation();
                         onEdit(person);
                       }}
-                      aria-label={`Editar ${person.name || "miembro"}`}
-                      title="Editar"
-                      className="text-slate-500 dark:text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 p-3 md:p-2 bg-slate-50 dark:bg-slate-800 rounded-full hover:bg-blue-50 dark:hover:bg-slate-700"
-                    >
-                      <Icon name="Edit" size={16} />
-                    </button>
-                    <button
+                    />
+                    <IconButton
+                      label={`Eliminar ${person.name || "miembro"}`}
+                      icon={<Icon name="Trash2" size={16} />}
+                      variant="ghost"
+                      tooltip="Eliminar"
                       onClick={(e) => {
                         e.stopPropagation();
                         onDelete(person);
                       }}
-                      aria-label={`Eliminar ${person.name || "miembro"}`}
-                      title="Eliminar"
-                      className="text-slate-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 p-3 md:p-2 bg-slate-50 dark:bg-slate-800 rounded-full hover:bg-red-50 dark:hover:bg-slate-700"
-                    >
-                      <Icon name="Trash2" size={16} />
-                    </button>
+                    />
                   </div>
                 )}
                 <div className="flex items-center gap-4">
@@ -11679,13 +11509,13 @@ const PersonCalendarDetail = ({
         ]}
       />
       <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
-        <button
+        <IconButton
+          label={`Volver a ${parentLabel}`}
+          icon={<Icon name="ChevronLeft" size={16} />}
+          variant="ghost"
+          tooltip={`Volver a ${parentLabel}`}
           onClick={onBack}
-          aria-label={`Volver a ${parentLabel}`}
-          className="p-3 md:p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full text-slate-600 dark:text-slate-300"
-        >
-          <Icon name="ChevronLeft" />
-        </button>
+        />
         <div>
           <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-3">
             <div
@@ -11895,98 +11725,31 @@ const getClientStatus = (client) =>
   CLIENT_STATUSES[0];
 
 // Menú "⋯" con acciones de tarjeta (avanzar, volver, editar, eliminar).
+// Card overflow menu. Clicks stay inside it, so the card underneath does not open.
 const CardMenu = ({ items = [] }) => {
-  const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState({ top: 0, left: 0 });
-  const btnRef = useRef(null);
-  const menuRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDoc = (e) => {
-      if (
-        menuRef.current?.contains(e.target) ||
-        btnRef.current?.contains(e.target)
-      )
-        return;
-      setOpen(false);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    const onScroll = () => setOpen(false);
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onScroll);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, [open]);
-
   if (!items.length) return null;
-
-  const toggle = (e) => {
-    e.stopPropagation();
-    if (!open && btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect();
-      const menuWidth = 190;
-      let left = r.right - menuWidth;
-      if (left < 8) left = 8;
-      setCoords({ top: r.bottom + 6, left });
-    }
-    setOpen((o) => !o);
-  };
-
   return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={toggle}
-        aria-label="Más acciones"
-        aria-haspopup="true"
-        aria-expanded={open}
-        className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-      >
-        <Icon name="MoreHorizontal" size={16} />
-      </button>
-      {open && (
-        <div
-          ref={menuRef}
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: "fixed",
-            top: coords.top,
-            left: coords.left,
-            width: 190,
-            zIndex: 9999,
-          }}
-          className="py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl shadow-black/10 dark:shadow-black/50 fade-in"
-        >
-          {items.map((it) => (
-            <button
-              key={it.key}
-              disabled={it.disabled}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen(false);
-                it.onClick?.();
-              }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-[13px] font-semibold transition-colors disabled:opacity-40 ${
-                it.danger
-                  ? "text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10"
-                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-              }`}
-            >
-              <Icon name={it.icon} size={15} /> {it.label}
-            </button>
-          ))}
-        </div>
+    <DropdownMenu
+      alignment="end"
+      menuWidth={200}
+      items={items.map((it) => ({
+        id: it.key,
+        label: it.label,
+        icon: <Icon name={it.icon} size={16} />,
+        onClick: () => it.onClick?.(),
+        isDisabled: Boolean(it.disabled),
+        variant: it.danger ? "destructive" : "default",
+      }))}
+      renderTrigger={(triggerProps) => (
+        <IconButton
+          {...triggerProps}
+          label="Más acciones"
+          icon={<Icon name="MoreHorizontal" size={16} />}
+          variant="ghost"
+          size="sm"
+        />
       )}
-    </>
+    />
   );
 };
 
@@ -12121,7 +11884,11 @@ const KanbanCard = ({
             </span>
           )}
           {menuItems.length > 0 && (
-            <span className="opacity-70 group-hover:opacity-100 transition-opacity">
+            <span
+              className="opacity-70 group-hover:opacity-100 transition-opacity"
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
               <CardMenu items={menuItems} />
             </span>
           )}
@@ -12205,23 +11972,20 @@ const KanbanCard = ({
           <span />
         )}
         {activityAction && (
-          <button
-            type="button"
+          <AstryxButton
+            label="Bitácora"
+            aria-label={`Abrir bitácora de ${title}`}
+            icon={<Icon name="ClipboardList" size={16} />}
+            endContent={<Badge label={String(activityAction.count || 0)} />}
+            variant={activityAction.active ? "secondary" : "ghost"}
+            size="sm"
             onClick={(event) => {
               event.stopPropagation();
               activityAction.onClick?.();
             }}
             onPointerDown={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
-            className={`production-log-trigger ${activityAction.active ? "is-active" : ""}`}
-            aria-label={`Abrir bitácora de ${title}`}
-          >
-            <Icon name="ClipboardList" size={13} />
-            <span>Bitácora</span>
-            <span className="production-log-trigger-count">
-              {activityAction.count || 0}
-            </span>
-          </button>
+          />
         )}
         {assignee ? (
           assignee.photo ? (
@@ -12292,15 +12056,14 @@ const KanbanColumn = ({
           )}
         </div>
         {onAdd && (
-          <button
-            type="button"
+          <IconButton
+            label={`Añadir tarea en ${title}`}
+            icon={<Icon name="Plus" size={16} />}
+            variant="ghost"
+            size="sm"
+            tooltip="Añadir tarea"
             onClick={onAdd}
-            aria-label={`Añadir tarea en ${title}`}
-            title="Añadir tarea"
-            className="flex h-8 min-h-0 w-8 min-w-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] dark:text-[var(--text-muted)] dark:hover:bg-[var(--surface-muted)] dark:hover:text-[var(--text)]"
-          >
-            <Icon name="Plus" size={15} />
-          </button>
+          />
         )}
       </header>
       <div className="custom-scroll flex-1 space-y-3 overflow-y-auto overscroll-contain p-3">
@@ -12353,14 +12116,14 @@ const KanbanStage = ({
             </span>
           </div>
           {canCollapse && (
-            <button
-              type="button"
+            <IconButton
+              label={expanded ? `Contraer ${title}` : `Expandir ${title}`}
+              icon={<Icon name={expanded ? "ChevronUp" : "ChevronDown"} size={16} />}
+              variant="ghost"
+              size="sm"
+              tooltip={expanded ? `Contraer ${title}` : `Expandir ${title}`}
               onClick={() => setExpanded((value) => !value)}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-black/5 dark:text-slate-400 dark:hover:bg-white/5"
-              aria-label={expanded ? `Contraer ${title}` : `Expandir ${title}`}
-            >
-              <Icon name={expanded ? "ChevronUp" : "ChevronDown"} size={14} />
-            </button>
+            />
           )}
         </div>
       )}
@@ -12368,14 +12131,15 @@ const KanbanStage = ({
         {visibleTasks.map((task) => renderTask(task))}
       </div>
       {canCollapse && !expanded && (
-        <button
-          type="button"
+        <AstryxButton
+          label={`Ver ${tasks.length - collapsedLimit} más`}
+          endContent={<Icon name="ChevronDown" size={16} />}
+          variant="secondary"
+          size="sm"
+          width="100%"
           onClick={() => setExpanded(true)}
-          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border-strong)] px-3 py-2.5 text-xs font-semibold text-slate-500 hover:border-[var(--border-strong)] hover:text-slate-700 dark:border-white/15 dark:text-slate-400 dark:hover:border-white/25 dark:hover:text-slate-200"
-        >
-          Ver {tasks.length - collapsedLimit} más
-          <Icon name="ChevronDown" size={14} />
-        </button>
+          className="mt-2"
+        />
       )}
     </section>
   );
@@ -12434,14 +12198,14 @@ const TaskRoomInspector = ({
               {task.title}
             </h3>
           </div>
-          <button
-            type="button"
+          <IconButton
+            label="Cerrar inspector"
+            icon={<Icon name="X" size={16} />}
+            variant="ghost"
+            tooltip="Cerrar inspector"
             onClick={onClose}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-black/5 dark:text-slate-400 dark:hover:bg-white/5"
-            aria-label="Cerrar inspector"
-          >
-            <Icon name="X" size={18} />
-          </button>
+            className="shrink-0"
+          />
         </div>
 
         <div className="mb-6 grid grid-cols-2 gap-2">
@@ -12542,14 +12306,14 @@ const TaskRoomInspector = ({
         </div>
       </div>
       <div className="border-t border-[var(--border)] p-4 dark:border-white/10">
-        <button
-          type="button"
+        <AstryxButton
+          label="Abrir tarea completa"
+          endContent={<Icon name="ExternalLink" size={20} />}
+          variant="primary"
+          size="lg"
+          width="100%"
           onClick={onOpenFull}
-          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-3 text-sm font-semibold text-[var(--primary-contrast)] transition-colors hover:bg-[var(--primary-hover)] dark:bg-[var(--primary)] dark:text-[var(--primary-contrast)] dark:hover:bg-[var(--primary-hover)]"
-        >
-          Abrir tarea completa
-          <Icon name="ExternalLink" size={15} />
-        </button>
+        />
       </div>
     </aside>
   );
@@ -12583,14 +12347,6 @@ const ProductionLogPanel = ({
     setError("");
     setOptimisticEntries([]);
   }, [task?._key]);
-
-  useEffect(() => {
-    const handleEscape = (event) => {
-      if (event.key === "Escape") onClose?.();
-    };
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [onClose]);
 
   if (!task) return null;
 
@@ -12633,19 +12389,15 @@ const ProductionLogPanel = ({
   };
 
   return (
-    <div
-      className="production-log-overlay"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose?.();
-      }}
-      role="presentation"
+    <Drawer
+      isOpen
+      onOpenChange={(open) => { if (!open) onClose?.(); }}
+      label="Bitácora de producción"
+      width="50rem"
+      padding={0}
     >
     <aside
       className="production-log-panel"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="production-log-title"
-      tabIndex="-1"
     >
       <header className="production-log-panel-header">
         <div className="production-log-panel-topline">
@@ -12658,15 +12410,14 @@ const ProductionLogPanel = ({
               <span aria-hidden="true" />
               {statusMeta.label}
             </span>
-            <button
-              type="button"
+            <IconButton
+              label="Cerrar bitácora"
+              icon={<Icon name="X" size={16} />}
+              variant="ghost"
+              tooltip="Cerrar bitácora"
               onClick={onClose}
-              className="production-log-close"
-              aria-label="Cerrar bitácora"
-              autoFocus
-            >
-              <Icon name="X" size={18} />
-            </button>
+              autoFocus={true}
+            />
           </div>
         </div>
         <h3 id="production-log-title">{task._title}</h3>
@@ -12736,10 +12487,13 @@ const ProductionLogPanel = ({
         )}
         <div className="production-log-composer-actions">
           <span><Icon name="Zap" size={13} /> Ctrl + Enter para guardar</span>
-          <button type="submit" disabled={!draft.trim() || saving || !onAddEntry}>
-            <Icon name={saving ? "Loader2" : "Send"} size={16} className={saving ? "animate-spin" : ""} />
-            {saving ? "Guardando…" : "Guardar registro"}
-          </button>
+          <AstryxButton
+            type="submit"
+            label={saving ? "Guardando…" : "Guardar registro"}
+            icon={<Icon name={saving ? "Loader2" : "Send"} className={saving ? "animate-spin" : ""} size={16} />}
+            variant="ghost"
+            isDisabled={!draft.trim() || saving || !onAddEntry}
+          />
         </div>
       </form>
 
@@ -12789,16 +12543,17 @@ const ProductionLogPanel = ({
       </div>
 
       <footer className="production-log-footer">
-        <button type="button" onClick={onOpenFull}>
-          <span>
-            <Icon name="ExternalLink" size={15} />
-            Ver tarea completa
-          </span>
-          <Icon name="ArrowRight" size={14} />
-        </button>
+        <AstryxButton
+          label="Ver tarea completa"
+          icon={<Icon name="ExternalLink" size={16} />}
+          endContent={<Icon name="ArrowRight" size={16} />}
+          variant="secondary"
+          width="100%"
+          onClick={onOpenFull}
+        />
       </footer>
     </aside>
-    </div>
+    </Drawer>
   );
 };
 
@@ -12893,12 +12648,10 @@ const DateHeader = ({
       setRangeStart(val);
   };
 
-  const segBase =
-    "shrink-0 min-h-9 px-3 py-2 text-[12px] font-medium rounded-lg transition-colors flex items-center gap-1.5";
-  const segActive =
-    "bg-white text-[var(--text)] shadow-sm dark:bg-[var(--surface-muted)] dark:text-[var(--text)]";
-  const segIdle =
-    "text-slate-500 dark:text-slate-400 hover:bg-black/5 hover:text-slate-700 dark:hover:bg-white/5 dark:hover:text-slate-200";
+  const handleFilterMode = async (value) => {
+    if (value === "history" && onLoadHistory && !historyLoaded) await onLoadHistory();
+    setFilterMode(value);
+  };
 
   return (
     <header className="task-room-header shrink-0 border-b border-[var(--border)] pb-3 dark:border-white/10">
@@ -12939,65 +12692,31 @@ const DateHeader = ({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-          <div className="flex max-w-full overflow-x-auto rounded-lg bg-[var(--surface-muted)] p-1 kanban-mobile-scroll dark:bg-[var(--surface-raised)]">
-            <button
-              onClick={() => setFilterMode("date")}
-              className={`${segBase} ${filterMode === "date" ? segActive : segIdle}`}
-            >
-              <Icon name="CalendarDays" size={14} />
-              Día específico
-            </button>
-            {hasRangeSupport && (
-              <button
-                onClick={() => setFilterMode("range")}
-                className={`${segBase} ${filterMode === "range" ? segActive : segIdle}`}
-              >
-                <Icon name="CalendarRange" size={14} />
-                Rango
-              </button>
-            )}
-            <button
-              onClick={() => setFilterMode("overdue")}
-              className={`${segBase} ${filterMode === "overdue" ? "bg-[var(--status-red-bg)] text-[var(--status-red-text)] dark:bg-red-500/15 dark:text-red-300" : segIdle}`}
-            >
-              Atrasadas <Icon name="Flame" size={14} />
-            </button>
-            <button
-              onClick={() => setFilterMode("all")}
-              className={`${segBase} ${filterMode === "all" ? segActive : segIdle}`}
-            >
-              Este mes
-            </button>
-            {onLoadHistory && (
-              <button
-                onClick={async () => {
-                  if (!historyLoaded) await onLoadHistory();
-                  setFilterMode("history");
-                }}
-                disabled={historyLoading}
-                className={`${segBase} ${filterMode === "history" ? segActive : segIdle}`}
-              >
-                <Icon name="Clock" size={14} />
-                {historyLoading ? "Cargando" : "Histórico"}
-              </button>
-            )}
-          </div>
+          <HStack className="max-w-full overflow-x-auto kanban-mobile-scroll">
+            <SegmentedControl value={filterMode} onChange={handleFilterMode} label="Periodo de las tareas" size="sm">
+              <SegmentedControlItem value="date" label="Día específico" icon={<Icon name="CalendarDays" size={16} />} />
+              {hasRangeSupport && (
+                <SegmentedControlItem value="range" label="Rango" icon={<Icon name="CalendarRange" size={16} />} />
+              )}
+              <SegmentedControlItem value="overdue" label="Atrasadas" icon={<Icon name="Flame" size={16} />} />
+              <SegmentedControlItem value="all" label="Este mes" />
+              {onLoadHistory && (
+                <SegmentedControlItem
+                  value="history"
+                  label={historyLoading ? "Cargando" : "Histórico"}
+                  icon={<Icon name="Clock" size={16} />}
+                  isDisabled={historyLoading}
+                />
+              )}
+            </SegmentedControl>
+          </HStack>
           {setOwnershipFilter && (
-            <div className="flex max-w-full overflow-x-auto rounded-lg bg-[var(--surface-muted)] p-1 kanban-mobile-scroll dark:bg-[var(--surface-raised)]">
-              <button
-                onClick={() => setOwnershipFilter("all")}
-                className={`${segBase} ${ownershipFilter === "all" ? segActive : segIdle}`}
-              >
-                Todo el equipo
-              </button>
-              <button
-                onClick={() => setOwnershipFilter("mine")}
-                className={`${segBase} ${ownershipFilter === "mine" ? segActive : segIdle}`}
-              >
-                <Icon name="User" size={14} />
-                Asignadas a mí
-              </button>
-            </div>
+            <HStack className="max-w-full overflow-x-auto kanban-mobile-scroll">
+              <SegmentedControl value={ownershipFilter} onChange={setOwnershipFilter} label="Responsable" size="sm">
+                <SegmentedControlItem value="all" label="Todo el equipo" />
+                <SegmentedControlItem value="mine" label="Asignadas a mí" icon={<Icon name="User" size={16} />} />
+              </SegmentedControl>
+            </HStack>
           )}
           {filterMode === "date" && (
             <div className="flex items-center gap-2">
@@ -13058,11 +12777,12 @@ const MyDayStrip = ({
   if (!items.length) return null;
   const clientName = (task) => clients.find((client) => client.id === task.clientId)?.name || "";
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-white px-3 py-3 dark:border-white/10 dark:bg-[var(--surface-raised)]">
-      <p className="mb-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">
+    <Card padding={3}>
+      <VStack gap={2}>
+      <Text type="supporting" color="secondary" weight="semibold">
         Mi día · {items.length}
-      </p>
-      <div className="flex gap-2 overflow-x-auto">
+      </Text>
+      <HStack gap={2} className="overflow-x-auto">
         {items.map((task) => {
           const local = storedDueToViewer({
             date: task.date || task._date || "",
@@ -13071,23 +12791,28 @@ const MyDayStrip = ({
           const overdue = taskDueDates(task).every((date) => compareDateOnlyStrings(date, todayKey) < 0);
           const label = [clientName(task), local.time, overdue ? "vencida" : ""].filter(Boolean).join(" · ");
           return (
-            <button
+            <ClickableCard
               key={task.id || task._key}
-              type="button"
+              label={`Abrir ${task.title || task._title || "tarea"}`}
               onClick={() => onOpen?.(task)}
-              className="min-w-[180px] max-w-[240px] shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:border-slate-300 dark:border-white/10 dark:bg-slate-900/50"
+              variant="muted"
+              padding={2}
+              width={220}
             >
-              <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-                {task.title || task._title || "Sin título"}
-              </p>
-              <p className="mt-0.5 truncate text-[11px] text-slate-500">
-                {label || "Hoy"}
-              </p>
-            </button>
+              <Item
+                density="compact"
+                labelLines={1}
+                descriptionLines={1}
+                label={task.title || task._title || "Sin título"}
+                description={label || "Hoy"}
+                endContent={overdue ? <StatusDot variant="error" label="Vencida" /> : undefined}
+              />
+            </ClickableCard>
           );
         })}
-      </div>
-    </section>
+      </HStack>
+      </VStack>
+    </Card>
   );
 };
 
@@ -14116,45 +13841,35 @@ const ManagementRoomView = ({
           })}
         </div>
 
-        <button
+        <ClickableCard
+          label={showTeam ? "Ocultar equipo" : "Ver equipo"}
           onClick={() => setShowTeam((s) => !s)}
-          className="surface flex shrink-0 items-center gap-3 px-4 py-2.5 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 lg:max-w-[260px]"
+          padding={2}
         >
-          <div className="flex -space-x-2 shrink-0">
-            {members.slice(0, 4).map((m) => (
-              <div
-                key={m.id}
-                className={`w-7 h-7 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[9px] font-black text-white ${membersWithAlert.find((a) => a.id === m.id) ? "bg-amber-500" : "bg-violet-500"}`}
-              >
-                {(m.name || "?").slice(0, 2).toUpperCase()}
-              </div>
-            ))}
-            {members.length > 4 && (
-              <div className="w-7 h-7 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[9px] font-black bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                +{members.length - 4}
-              </div>
-            )}
-          </div>
-          <div className="text-left">
-            <p className="text-xs font-black text-slate-700 dark:text-slate-200">
-              Equipo
-            </p>
-            {membersWithAlert.length > 0 ? (
-              <p className="text-[10px] font-bold text-amber-500">
-                {membersWithAlert.length} sin email — ver detalles
-              </p>
-            ) : (
-              <p className="text-[10px] font-bold text-emerald-500">
-                Todos con email
-              </p>
-            )}
-          </div>
-          <Icon
-            name={showTeam ? "ChevronUp" : "ChevronDown"}
-            size={14}
-            className="text-slate-500 ml-1"
-          />
-        </button>
+          <HStack gap={3} vAlign="center">
+            <AvatarGroup size="sm">
+              {members.slice(0, 4).map((m) => (
+                <Avatar key={m.id} name={m.name || "?"} src={m.photo || undefined} tooltip={false} />
+              ))}
+              {members.length > 4 && <AvatarGroupOverflow count={members.length - 4} />}
+            </AvatarGroup>
+            <VStack gap={0.5}>
+              <Text weight="semibold">Equipo</Text>
+              <HStack gap={1} vAlign="center">
+                <StatusDot
+                  variant={membersWithAlert.length > 0 ? "warning" : "success"}
+                  label={membersWithAlert.length > 0 ? "Faltan correos" : "Correos completos"}
+                />
+                <Text type="supporting" color="secondary">
+                  {membersWithAlert.length > 0
+                    ? `${membersWithAlert.length} sin email — ver detalles`
+                    : "Todos con email"}
+                </Text>
+              </HStack>
+            </VStack>
+            <Icon name={showTeam ? "ChevronUp" : "ChevronDown"} size={16} />
+          </HStack>
+        </ClickableCard>
       </div>
 
       {/* Team expanded panel */}
@@ -14335,28 +14050,20 @@ const RankingRulesPanel = ({ rankingSettings, currentUserProfile, onSave }) => {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
-          <button
-            type="button"
+          <AstryxButton
+            label="Defaults"
+            variant="secondary"
             onClick={() =>
               setDraft(sanitizeRankingSettings(DEFAULT_RANKING_SETTINGS))
             }
-            className="min-h-[42px] rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            Defaults
-          </button>
-          <button
-            type="button"
+          />
+          <AstryxButton
+            label="Guardar reglas"
+            icon={<Icon name={saving ? "Loader2" : "Save"} className={saving ? "animate-spin" : ""} size={16} />}
+            variant="primary"
             onClick={handleSave}
-            disabled={saving}
-            className="min-h-[42px] rounded-xl bg-purple-600 px-4 text-sm font-black text-white hover:bg-purple-700 disabled:opacity-60 flex items-center justify-center gap-2"
-          >
-            <Icon
-              name={saving ? "Loader2" : "Save"}
-              size={15}
-              className={saving ? "animate-spin" : ""}
-            />
-            Guardar reglas
-          </button>
+            isDisabled={saving}
+          />
         </div>
       </div>
 
@@ -14793,46 +14500,44 @@ const UsersAccessView = ({
                     <div className="flex flex-col items-end gap-2">
                       {normalizeEmail(record.email) &&
                         !verificationMeta.isVerified && (
-                          <button
+                          <IconButton
+                            label="Reenviar acceso por correo"
+                            icon={<Icon name="Mail" size={16} />}
+                            variant="ghost"
+                            tooltip="Reenviar acceso por correo"
                             onClick={() => onResendVerification(record)}
-                            className="p-2 text-slate-500 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                            title="Reenviar acceso por correo"
-                          >
-                            <Icon name="Mail" size={18} />
-                          </button>
+                          />
                         )}
-                      <button
+                      <IconButton
+                        label="Editar usuario"
+                        icon={<Icon name="Edit" size={16} />}
+                        variant="ghost"
+                        tooltip="Editar usuario"
                         onClick={() => onEdit(record)}
-                        className="p-2 text-slate-500 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                        title="Editar usuario"
-                      >
-                        <Icon name="Edit" size={18} />
-                      </button>
+                      />
                       {record.isActive !== false &&
                         String(record.id) !== String(currentUserProfile?.id || "") &&
                         onDeactivate && (
-                          <button
-                            type="button"
+                          <AstryxButton
+                            label="Desactivar"
+                            icon={<Icon name="UserX" size={16} />}
+                            variant="secondary"
+                            size="sm"
                             onClick={() => onDeactivate(record)}
-                            className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-amber-200 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-amber-700 hover:bg-amber-50 dark:border-amber-500/30 dark:text-amber-300 dark:hover:bg-amber-500/10"
                             title="Desactivar usuario"
-                          >
-                            <Icon name="UserX" size={13} />
-                            Desactivar
-                          </button>
+                          />
                         )}
                       {record.isActive === false &&
                         String(record.id) !== String(currentUserProfile?.id || "") &&
                         onDelete && (
-                          <button
-                            type="button"
+                          <AstryxButton
+                            label="Eliminar"
+                            icon={<Icon name="Trash2" size={16} />}
+                            variant="secondary"
+                            size="sm"
                             onClick={() => onDelete(record)}
-                            className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-red-200 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-red-600 hover:bg-red-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10"
                             title="Eliminar usuario inactivo"
-                          >
-                            <Icon name="Trash2" size={13} />
-                            Eliminar
-                          </button>
+                          />
                         )}
                       </div>
                     </div>
@@ -14906,192 +14611,79 @@ const UsersAccessView = ({
 };
 
 // Selector de Account Manager con avatares (foto o iniciales).
+// Account manager picker on Astryx Selector: search appears once the list is long.
+const NO_MANAGER = "__none__";
 const ManagerPicker = ({
   managers = [],
   value = "",
   onChange,
   legacyColorMap = {},
-  buttonClassName = "",
-  align = "left",
   placeholder = "Sin asignar",
+  label = "Account manager",
+  variant = "ghost",
 }) => {
-  const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState({ top: 0, left: 0, width: 240 });
-  const [q, setQ] = useState("");
-  const btnRef = useRef(null);
-  const menuRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDoc = (e) => {
-      if (
-        menuRef.current?.contains(e.target) ||
-        btnRef.current?.contains(e.target)
-      )
-        return;
-      setOpen(false);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    const onScroll = () => setOpen(false);
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onScroll);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, [open]);
-
-  const current = managers.find((m) => m.id === value) || null;
-
-  const toggle = (e) => {
-    e.stopPropagation();
-    if (!open && btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect();
-      const width = Math.max(240, r.width);
-      let left = align === "right" ? r.right - width : r.left;
-      if (left + width > window.innerWidth - 8)
-        left = window.innerWidth - width - 8;
-      if (left < 8) left = 8;
-      setCoords({ top: r.bottom + 6, left, width });
-      setQ("");
-    }
-    setOpen((o) => !o);
-  };
-
-  const pick = (e, id) => {
-    e.stopPropagation();
-    setOpen(false);
-    if (id !== value) onChange?.(id);
-  };
-
-  const filtered = q
-    ? managers.filter((m) =>
-        (m.name || "").toLowerCase().includes(q.toLowerCase()),
-      )
-    : managers;
-
+  const byId = new Map(managers.map((m) => [String(m.id), m]));
+  const renderPerson = (option) => (
+    <HStack gap={2} vAlign="center">
+      <PersonAvatar person={byId.get(option.value) || null} size={22} legacyColorMap={legacyColorMap} />
+      <Text type="inherit">{option.label}</Text>
+    </HStack>
+  );
   return (
-    <>
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={toggle}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className={buttonClassName}
-      >
-        <PersonAvatar person={current} size={22} legacyColorMap={legacyColorMap} />
-        <span className="truncate">{current ? current.name : placeholder}</span>
-        <Icon name="ChevronDown" size={14} className="shrink-0 opacity-60" />
-      </button>
-      {open && (
-        <div
-          ref={menuRef}
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: "fixed",
-            top: coords.top,
-            left: coords.left,
-            width: coords.width,
-            zIndex: 9999,
-          }}
-          className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl shadow-black/10 dark:shadow-black/50 overflow-hidden fade-in"
-        >
-          {managers.length > 6 && (
-            <div className="p-2 border-b border-slate-100 dark:border-slate-800">
-              <input
-                autoFocus
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Buscar manager..."
-                className="w-full text-sm px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 outline-none text-slate-700 dark:text-slate-200"
-              />
-            </div>
-          )}
-          <div className="max-h-60 overflow-y-auto custom-scroll py-1">
-            <button
-              type="button"
-              onClick={(e) => pick(e, "")}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[13px] font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              <PersonAvatar person={null} size={22} /> Sin asignar
-            </button>
-            {filtered.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={(e) => pick(e, m.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-[13px] font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 ${m.id === value ? "text-blue-600 dark:text-blue-400" : "text-slate-700 dark:text-slate-200"}`}
-              >
-                <PersonAvatar
-                  person={m}
-                  size={22}
-                  legacyColorMap={legacyColorMap}
-                />
-                <span className="truncate flex-1">{m.name}</span>
-                {m.id === value && (
-                  <Icon name="Check" size={15} className="shrink-0" />
-                )}
-              </button>
-            ))}
-            {filtered.length === 0 && (
-              <p className="px-3 py-3 text-xs text-slate-400 text-center">
-                Sin resultados
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-    </>
+    <Selector
+      label={label}
+      isLabelHidden
+      variant={variant}
+      size="sm"
+      options={[
+        { value: NO_MANAGER, label: placeholder },
+        ...managers.map((m) => ({ value: String(m.id), label: m.name || "Sin nombre" })),
+      ]}
+      value={value ? String(value) : NO_MANAGER}
+      onChange={(next) => {
+        const id = next === NO_MANAGER || next == null ? "" : byId.get(next)?.id ?? next;
+        if (id !== value) onChange?.(id);
+      }}
+      onClick={(event) => event.stopPropagation()}
+      hasSearch={managers.length > 6}
+      searchPlaceholder="Buscar manager..."
+      emptySearchText="Sin resultados"
+      renderOption={renderPerson}
+      renderValue={renderPerson}
+    />
   );
 };
 
+// Status hue per client flag; the label always travels with it.
+const PRIORITY_DOT = { critica: "error", alta: "warning", media: "accent", baja: "neutral", ninguna: "neutral" };
+
 const ClientPriorityFlag = ({ client, onChange, compact = false }) => {
-  const [open, setOpen] = useState(false);
   const current = getClientPriority(client);
   return (
-    <div className="relative" data-priority-flag>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen((value) => !value);
-        }}
-        className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-black uppercase tracking-wide ${current.chip}`}
-        title="Prioridad del cliente"
-      >
-        <span className={`h-1.5 w-1.5 rounded-full ${current.dot}`} />
-        {compact ? current.label.slice(0, 1) : current.label}
-      </button>
-      {open && (
-        <div
-          className="absolute right-0 top-full z-30 mt-1 w-40 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-800"
-          onClick={(event) => event.stopPropagation()}
-        >
-          {CLIENT_PRIORITY_FLAGS.map((flag) => (
-            <button
-              key={flag.id}
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onChange?.(client, flag.id);
-                setOpen(false);
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              <span className={`h-2 w-2 rounded-full ${flag.dot}`} />
-              {flag.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    // Clicks stay here so the client card underneath does not open.
+    <span onClick={(event) => event.stopPropagation()}>
+      <DropdownMenu
+        alignment="end"
+        menuWidth={176}
+        hasChevron={false}
+        items={CLIENT_PRIORITY_FLAGS.map((flag) => ({
+          id: flag.id,
+          label: flag.label,
+          icon: <StatusDot variant={PRIORITY_DOT[flag.id] || "neutral"} label={flag.label} />,
+          onClick: () => onChange?.(client, flag.id),
+        }))}
+        renderTrigger={(triggerProps) => (
+          <AstryxButton
+            {...triggerProps}
+            label={compact ? current.label.slice(0, 1) : current.label}
+            aria-label={`Prioridad del cliente: ${current.label}`}
+            icon={<StatusDot variant={PRIORITY_DOT[current.id] || "neutral"} label={current.label} />}
+            variant="secondary"
+            size="sm"
+          />
+        )}
+      />
+    </span>
   );
 };
 
@@ -15206,18 +14798,17 @@ const ClientsView = ({
                     {status.label}
                   </span>
                     {inactive && onDelete && (
-                      <button
-                        type="button"
+                      <AstryxButton
+                        label="Borrar"
+                        icon={<Icon name="Trash2" size={16} />}
+                        variant="ghost"
+                        size="sm"
                         onClick={(event) => {
                           event.stopPropagation();
                           onDelete(c);
                         }}
-                        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-red-500 hover:text-red-600"
                         title="Eliminar cliente inactivo"
-                      >
-                        <Icon name="Trash2" size={12} />
-                        Borrar
-                      </button>
+                      />
                     )}
                   </div>
                 </div>
@@ -15239,7 +14830,6 @@ const ClientsView = ({
                       value={c.managerId || ""}
                       legacyColorMap={legacyColorMap}
                       onChange={(id) => onReassignManager(c, id)}
-                      buttonClassName="flex items-center gap-2 min-w-0 max-w-full text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg px-1.5 py-1 -ml-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                     />
                   ) : (
                     <span className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300 truncate min-w-0">
@@ -15294,89 +14884,80 @@ const ClientDetail = ({
         { label: client.name || "Detalle" },
       ]}
     />
-    <button
+    <AstryxButton
+      label="Volver a clientes"
+      icon={<Icon name="ChevronLeft" size={16} />}
+      variant="ghost"
       onClick={onBack}
-      className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 font-bold text-sm uppercase p-2 -ml-2"
-    >
-      <Icon name="ChevronLeft" size={16} /> Volver a clientes
-    </button>
+      className="-ml-2"
+    />
     <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
-      <div className="bg-slate-900 dark:bg-slate-950 p-6 md:p-8 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative group border-b border-slate-800">
-        <button
+      <HStack
+        gap={6}
+        className="group relative flex-col items-start justify-between border-b border-[var(--border)] bg-[var(--surface-subtle)] p-6 md:flex-row md:items-center md:p-8"
+      >
+        <IconButton
+          label="Editar cliente"
+          icon={<Icon name="Edit" size={16} />}
+          variant="ghost"
+          tooltip="Editar cliente"
           onClick={onEdit}
-          aria-label="Editar cliente"
-          className="absolute top-4 right-4 text-slate-500 hover:text-white p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-        >
-          <Icon name="Edit" size={18} />
-        </button>
+          className="absolute top-4 right-4 opacity-100 md:opacity-0 md:group-hover:opacity-100"
+        />
 
-        <div className="flex items-start md:items-center gap-6">
-          {client.photo ? (
-            <img
-              src={client.photo}
-              alt={client.name}
-              className="h-20 w-20 rounded-2xl object-cover shadow-inner shrink-0 border border-white/10"
-            />
-          ) : (
-            <div className="h-20 w-20 bg-white/10 rounded-2xl flex items-center justify-center text-4xl font-black shadow-inner shrink-0">
-              {client.name ? client.name.charAt(0).toUpperCase() : "C"}
-            </div>
-          )}
-          <div>
-            <h1 className="text-2xl md:text-3xl font-black">{client.name}</h1>
-
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+        <HStack gap={5} vAlign="center">
+          <Avatar
+            src={client.photo || undefined}
+            name={client.name || "Cliente"}
+            size={72}
+            shape="rounded"
+            tooltip={false}
+          />
+          <VStack gap={2}>
+            <Heading level={1} type="display-3">{client.name}</Heading>
+            <HStack gap={2} wrap="wrap" vAlign="center">
               <ManagerPicker
                 managers={managers}
                 value={client.managerId || ""}
                 legacyColorMap={legacyColorMap}
                 onChange={(id) => onReassignManager(client, id)}
                 placeholder="Asignar Account Manager..."
-                buttonClassName="flex items-center gap-2 bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg border border-white/10 text-white font-bold text-xs transition-all max-w-full"
+                variant="secondary"
               />
               {onChangePriority && (
                 <ClientPriorityFlag client={client} onChange={onChangePriority} />
               )}
-            </div>
+            </HStack>
             {onOpenChat && (
-              <button
+              <AstryxButton
+                label="Abrir chat interno"
+                icon={<Icon name="MessageSquare" size={16} />}
+                endContent={chatUnread > 0 ? <Badge label={String(chatUnread)} /> : undefined}
+                variant="primary"
+                size="sm"
                 onClick={onOpenChat}
-                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-blue-700"
-              >
-                <Icon name="MessageSquare" size={14} /> Abrir chat interno
-                {chatUnread > 0 && (
-                  <span className="rounded-full bg-white/25 px-1.5 py-0.5 text-[10px] font-black">
-                    {chatUnread}
-                  </span>
-                )}
-              </button>
+                className="self-start"
+              />
             )}
-          </div>
-        </div>
+          </VStack>
+        </HStack>
 
-        <div className="flex flex-col items-start md:items-end gap-1.5 shrink-0 mt-4 md:mt-0">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-white/50">
+        <VStack gap={1.5} className="shrink-0 md:items-end">
+          <Text type="supporting" color="secondary" weight="semibold">
             Estado
-          </span>
-          <div className="flex gap-1 bg-white/10 p-1 rounded-xl">
-            {CLIENT_STATUSES.map((s) => {
-              const active = (client.status || "Activo") === s.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => onUpdate(client.id, { status: s.id })}
-                  aria-label={`Marcar cliente como ${s.label}`}
-                  aria-pressed={active}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${active ? "bg-white text-slate-800 shadow-sm" : "text-white/70 hover:text-white hover:bg-white/10"}`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${s.dot}`} />
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+          </Text>
+          <SegmentedControl
+            value={client.status || "Activo"}
+            onChange={(status) => onUpdate(client.id, { status })}
+            label="Estado del cliente"
+            size="sm"
+          >
+            {CLIENT_STATUSES.map((status) => (
+              <SegmentedControlItem key={status.id} value={status.id} label={status.label} />
+            ))}
+          </SegmentedControl>
+        </VStack>
+      </HStack>
       <div>
         <div className="p-6 md:p-8 space-y-8">
           <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-2xl border border-slate-100 dark:border-slate-800">
@@ -15402,12 +14983,14 @@ const ClientDetail = ({
             </div>
           </div>
           {getClientStatus(client).id === "Inactivo" && (
-          <button
+          <AstryxButton
+            label="ELIMINAR CLIENTE INACTIVO"
+            icon={<Icon name="Trash2" size={16} />}
+            variant="ghost"
+            size="sm"
             onClick={onDelete}
-            className="text-red-400 hover:text-red-600 dark:text-red-500 dark:hover:text-red-400 text-xs font-bold flex items-center gap-2 p-2 -ml-2"
-          >
-            <Icon name="Trash2" size={14} /> ELIMINAR CLIENTE INACTIVO
-          </button>
+            className="-ml-2"
+          />
           )}
         </div>
       </div>
@@ -15738,25 +15321,26 @@ const ChatVoiceNote = ({
           <Icon name="Microphone" size={10} />
         </span>
       </div>
-      <button
-        type="button"
-        onClick={togglePlayback}
-        disabled={loading}
-        aria-label={
+      <IconButton
+        label={
           loading
             ? "Cargando nota de voz"
             : playing
               ? "Pausar nota de voz"
               : "Reproducir nota de voz"
         }
-        className="chat-voice-play"
-      >
-        <Icon
-          name={loading ? "Loader2" : playing ? "PauseCircle" : "Play"}
-          size={compact ? 25 : 28}
-          className={loading ? "animate-spin" : ""}
-        />
-      </button>
+        icon={<Icon name={loading ? "Loader2" : playing ? "PauseCircle" : "Play"} className={loading ? "animate-spin" : ""} size={16} />}
+        variant="ghost"
+        tooltip={
+          loading
+            ? "Cargando nota de voz"
+            : playing
+              ? "Pausar nota de voz"
+              : "Reproducir nota de voz"
+        }
+        onClick={togglePlayback}
+        isDisabled={loading}
+      />
       <div className="chat-voice-content">
         <div className="chat-voice-wave">
           <div className="chat-voice-wave-bars" aria-hidden="true">
@@ -15957,7 +15541,6 @@ const ClientChatView = ({
   const [callSearch, setCallSearch] = useState("");
   const [activeCall, setActiveCall] = useState(null);
   const [callError, setCallError] = useState("");
-  const [muteMenuOpen, setMuteMenuOpen] = useState(false);
   const [muteClock, setMuteClock] = useState(() => Date.now());
   const [membersOpen, setMembersOpen] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
@@ -16029,7 +15612,6 @@ const ClientChatView = ({
   const activeClientMuted = isChatMuteActive(activeMuteUntil, muteClock);
 
   useEffect(() => {
-    setMuteMenuOpen(false);
     setMembersOpen(false);
   }, [activeClient?.id]);
 
@@ -17007,15 +16589,14 @@ const ClientChatView = ({
     }
     if (!src && att.hasData && typeof onLoad === "function") {
       return (
-        <button
+        <AstryxButton
           key={key}
-          type="button"
+          label="Ver archivo"
+          icon={<Icon name="Image" size={16} />}
+          variant="secondary"
+          size="sm"
           onClick={onLoad}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200"
-        >
-          <Icon name="Image" size={14} />
-          Ver archivo
-        </button>
+        />
       );
     }
     return (
@@ -17047,18 +16628,18 @@ const ClientChatView = ({
         <div className="chat-list-header">
           <div className="chat-inbox-heading flex items-center gap-3">
             {showArchived && (
-              <button
-                type="button"
+              <IconButton
+                label="Volver a chats activos"
+                icon={<Icon name="ChevronLeft" size={16} />}
+                variant="ghost"
+                tooltip="Volver a chats activos"
                 onClick={() => {
                   setShowArchived(false);
                   setSearch("");
                   onSelectClient(null);
                 }}
-                aria-label="Volver a chats activos"
-                className="chat-header-button chat-archive-back shrink-0"
-              >
-                <Icon name="ChevronLeft" size={19} />
-              </button>
+                className="shrink-0"
+              />
             )}
             <span className="chat-section-icon">
               <Icon name={showArchived ? "Inbox" : "MessageSquare"} size={19} />
@@ -17088,31 +16669,29 @@ const ClientChatView = ({
             )}
             <div className="ml-auto flex shrink-0 items-center gap-1">
               {onOpenDirectMessage && (
-                <button
-                  type="button"
+                <IconButton
+                  label="Nuevo mensaje directo"
+                  icon={<Icon name="MessageSquare" size={16} />}
+                  variant="ghost"
+                  tooltip="Nuevo mensaje directo"
                   onClick={() => {
                     setDmSearch("");
                     setDmPickerOpen(true);
                   }}
-                  className="chat-header-button"
-                  title="Nuevo mensaje directo"
-                >
-                  <Icon name="MessageSquare" size={16} />
-                </button>
+                />
               )}
               {!showArchived && onCreateTeamGroup && (
-                <button
-                  type="button"
+                <IconButton
+                  label="Nuevo grupo"
+                  icon={<Icon name="Users" size={16} />}
+                  variant="ghost"
+                  tooltip="Nuevo grupo"
                   onClick={() => {
                     setGroupName("");
                     setGroupMemberIds(currentUserProfile?.id ? [currentUserProfile.id] : []);
                     setCreateGroupOpen(true);
                   }}
-                  className="chat-header-button"
-                  title="Nuevo grupo"
-                >
-                  <Icon name="Users" size={16} />
-                </button>
+                />
               )}
             </div>
           </div>
@@ -17135,24 +16714,21 @@ const ClientChatView = ({
         </div>
         <div className="chat-list-scroll custom-scroll flex-1 min-h-0 overflow-y-auto">
           {!showArchived && archivedClientCount > 0 && !term && (
-            <button
-              type="button"
+            <Item
               onClick={() => {
                 setShowArchived(true);
                 onSelectClient(null);
               }}
-              className="chat-archive-link flex w-full items-center gap-3 text-left"
-            >
-              <span className="chat-archive-icon">
-                <Icon name="Inbox" size={18} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <strong>Archivados</strong>
-                <small>Grupos en los que no participas</small>
-              </span>
-              <span className="chat-archive-count">{archivedClientCount}</span>
-              <Icon name="ChevronRight" size={15} className="chat-archive-chevron" />
-            </button>
+              startContent={<Icon name="Inbox" size={20} />}
+              label="Archivados"
+              description="Grupos en los que no participas"
+              endContent={
+                <HStack gap={1} vAlign="center">
+                  <Badge label={String(archivedClientCount)} />
+                  <Icon name="ChevronRight" size={16} />
+                </HStack>
+              }
+            />
           )}
           {showArchived && !term && (
             <div className="chat-archive-note">
@@ -17188,31 +16764,23 @@ const ClientChatView = ({
               </div>
               <div className="chat-online-strip flex gap-2 overflow-x-auto px-4 pb-2">
                 {onlinePeople.slice(0, 12).map((person) => (
-                  <button
-                    key={`online-${person.id}`}
-                    type="button"
-                    title={person.name || person.email || "En línea"}
-                    onClick={() => {
-                      setThreadRoot(null);
-                      onOpenDirectMessage?.(person);
-                    }}
-                    className="chat-online-person relative flex w-12 shrink-0 flex-col items-center gap-1"
-                  >
-                    <span className="chat-list-avatar-wrap relative">
-                      <span
-                        className="flex h-10 w-10 items-center justify-center rounded-xl text-[10px] font-black text-white"
-                        style={{
-                          backgroundColor: chatAvatarColor(person.id || person.name),
-                        }}
-                      >
-                        {(person.name || "U").slice(0, 2).toUpperCase()}
-                      </span>
-                      <span className="chat-presence-dot" />
-                    </span>
-                    <span className="w-full truncate text-center text-[10px] font-semibold text-slate-500">
-                      {(person.name || "").split(" ")[0] || "User"}
-                    </span>
-                  </button>
+                  <VStack key={`online-${person.id}`} gap={1} hAlign="center" className="w-12 shrink-0">
+                    <Avatar
+                      name={person.name || person.email || "Usuario"}
+                      src={person.photo || undefined}
+                      size={40}
+                      shape="rounded"
+                      tooltip={person.name || person.email || "En línea"}
+                      status={<StatusDot variant="success" label="En línea" />}
+                      onClick={() => {
+                        setThreadRoot(null);
+                        onOpenDirectMessage?.(person);
+                      }}
+                    />
+                    <Text type="supporting" color="secondary" className="w-full truncate text-center">
+                      {(person.name || "").split(" ")[0] || "Usuario"}
+                    </Text>
+                  </VStack>
                 ))}
               </div>
             </>
@@ -17228,35 +16796,30 @@ const ClientChatView = ({
               const last = lastMsgByClient[dm.id];
               const isActive = activeClient?.id === dm.id;
               return (
-                <button
+                <Item
                   key={dm.id}
-                  type="button"
                   onClick={() => {
                     setThreadRoot(null);
                     onSelectClient(dm);
                   }}
+                  isSelected={isActive}
                   aria-current={isActive ? "page" : undefined}
-                  className={`chat-list-item flex w-full items-center gap-3 text-left ${isActive ? "is-active" : ""}`}
-                >
-                  <span className="chat-list-avatar-wrap relative shrink-0">
-                    <span
-                      className="chat-list-avatar flex items-center justify-center text-xs font-black text-white"
-                      style={{ backgroundColor: chatAvatarColor(dm.name || dm.id) }}
-                    >
-                      {(dm.name || "DM").slice(0, 2).toUpperCase()}
-                    </span>
-                    {dm.online && <span className="chat-presence-dot" />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <strong className="block truncate">{dm.name}</strong>
-                    <small className="block truncate text-slate-500">
-                      {dm.online ? "En línea" : previewText(last)}
-                    </small>
-                  </span>
-                  {unread > 0 && (
-                    <span className="chat-item-unread">{unread}</span>
-                  )}
-                </button>
+                  startContent={
+                    <Avatar
+                      name={dm.name || "Mensaje directo"}
+                      src={dm.photo || undefined}
+                      size={40}
+                      shape="rounded"
+                      tooltip={false}
+                      status={dm.online ? <StatusDot variant="success" label="En línea" /> : undefined}
+                    />
+                  }
+                  label={dm.name}
+                  description={dm.online ? "En línea" : previewText(last)}
+                  labelLines={1}
+                  descriptionLines={1}
+                  endContent={unread > 0 ? <Badge variant="info" label={String(unread)} /> : undefined}
+                />
               );
             })}
           {!showArchived && visibleTeamGroups.length > 0 && (
@@ -17270,31 +16833,18 @@ const ClientChatView = ({
               const last = lastMsgByClient[group.id];
               const isActive = activeClient?.id === group.id;
               return (
-                <button
+                <Item
                   key={group.id}
-                  type="button"
                   onClick={() => onSelectClient(group)}
+                  isSelected={isActive}
                   aria-current={isActive ? "page" : undefined}
-                  className={`chat-list-item flex w-full items-center gap-3 text-left ${isActive ? "is-active" : ""}`}
-                >
-                  <span className="chat-list-avatar-wrap relative shrink-0">
-                    <span
-                      className="chat-list-avatar flex items-center justify-center text-xs font-black text-white"
-                      style={{ backgroundColor: chatAvatarColor(group.name || group.id) }}
-                    >
-                      <Icon name="Users" size={14} />
-                    </span>
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <strong className="block truncate">{group.name}</strong>
-                    <small className="block truncate text-slate-500">
-                      {previewText(last)}
-                    </small>
-                  </span>
-                  {unread > 0 && (
-                    <span className="chat-item-unread">{unread}</span>
-                  )}
-                </button>
+                  startContent={<Avatar name={group.name || "Grupo"} size={40} shape="rounded" tooltip={false} />}
+                  label={group.name}
+                  description={previewText(last)}
+                  labelLines={1}
+                  descriptionLines={1}
+                  endContent={unread > 0 ? <Badge variant="info" label={String(unread)} /> : undefined}
+                />
               );
             })}
           {!showArchived && visibleTeamGroups.length > 0 && (
@@ -17311,71 +16861,41 @@ const ClientChatView = ({
               muteClock,
             );
             return (
-              <button
+              <Item
                 key={client.id}
                 onClick={() => onSelectClient(client)}
+                isSelected={isActive}
                 aria-current={isActive ? "page" : undefined}
-                className={`chat-list-item flex w-full items-center gap-3 text-left ${isActive ? "is-active" : ""} ${showArchived ? "is-archived" : ""}`}
-              >
-                <span className="chat-list-avatar-wrap relative shrink-0">
-                  {client.photo ? (
-                    <img
-                      src={client.photo}
-                      alt={client.name}
-                      className="chat-list-avatar object-cover"
-                    />
-                  ) : (
-                    <span
-                      className="chat-list-avatar flex items-center justify-center text-xs font-black text-white"
-                      style={{ backgroundColor: chatAvatarColor(client.name || client.id) }}
-                    >
-                      {(client.name || "C").slice(0, 2).toUpperCase()}
-                    </span>
-                  )}
-                </span>
-                <div className="chat-list-copy min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p
-                      className={`chat-contact-name truncate ${unread > 0 ? "is-unread" : ""}`}
-                    >
+                startContent={
+                  <Avatar name={client.name || "Cliente"} src={client.photo || undefined} size={40} shape="rounded" tooltip={false} />
+                }
+                label={
+                  <HStack gap={1.5} vAlign="center">
+                    <Text type="inherit" weight={unread > 0 ? "bold" : undefined} className="truncate">
                       {client.name || "Cliente"}
-                    </p>
-                    {muted && (
-                      <Icon
-                        name="BellSlash"
-                        size={13}
-                        className="shrink-0 text-slate-400"
-                      />
-                    )}
+                    </Text>
+                    {muted && <Icon name="BellSlash" size={14} aria-label="Silenciado" />}
+                  </HStack>
+                }
+                description={
+                  last
+                    ? last.sticker
+                      ? "Sticker"
+                      : `${last.authorName ? `${last.authorName}: ` : ""}${previewText(last)}`
+                    : "Sin mensajes todavía"
+                }
+                descriptionLines={1}
+                endContent={
+                  <VStack gap={1} hAlign="end">
                     {last?.createdAt && (
-                      <span
-                        className={`chat-list-time ${unread > 0 ? "is-unread" : ""}`}
-                      >
+                      <Text type="supporting" color="secondary">
                         {chatShortTime(last.createdAt)}
-                      </span>
+                      </Text>
                     )}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-2">
-                    {last?.sticker && (
-                      <Icon name="Sticker" size={14} className="shrink-0" />
-                    )}
-                    <p
-                      className={`chat-contact-preview truncate ${unread > 0 ? "is-unread" : ""}`}
-                    >
-                      {last
-                        ? last.sticker
-                          ? "Sticker"
-                          : `${last.authorName ? `${last.authorName}: ` : ""}${previewText(last)}`
-                        : "Sin mensajes todavía"}
-                    </p>
-                  </div>
-                </div>
-                {unread > 0 && (
-                  <span className="chat-unread-badge ml-1 shrink-0">
-                    {unread}
-                  </span>
-                )}
-              </button>
+                    {unread > 0 && <Badge variant="info" label={String(unread)} />}
+                  </VStack>
+                }
+              />
             );
           })}
         </div>
@@ -17407,13 +16927,13 @@ const ClientChatView = ({
         ) : (
           <>
             <div className="chat-conversation-header flex shrink-0 items-center gap-3">
-              <button
+              <IconButton
+                label="Volver a la lista"
+                icon={<Icon name="ChevronLeft" size={16} />}
+                variant="ghost"
+                tooltip="Volver a la lista"
                 onClick={() => onSelectClient(null)}
-                aria-label="Volver a la lista"
-                className="chat-header-button chat-back-button"
-              >
-                <Icon name="ChevronLeft" size={20} />
-              </button>
+              />
               {activeClient.photo ? (
                 <img
                   src={activeClient.photo}
@@ -17464,12 +16984,13 @@ const ClientChatView = ({
                 </p>
               </div>
               {!isDmConversation && (
-                <button
-                  type="button"
+                <AstryxButton
+                  label="Ver integrantes del grupo"
+                  variant="ghost"
+                  size="sm"
                   onClick={openMembers}
-                  aria-label="Ver integrantes del grupo"
                   title="Integrantes del grupo"
-                  className="chat-members-button shrink-0"
+                  className="view-button-content chat-members-button shrink-0"
                 >
                   <span className="chat-member-stack" aria-hidden="true">
                     {activeGroupMembers.slice(0, 3).map((person) => (
@@ -17486,11 +17007,14 @@ const ClientChatView = ({
                   <span className="chat-members-count">
                     {activeGroupMembers.length || 0}
                   </span>
-                </button>
+                </AstryxButton>
               )}
               {onAssignTaskFromChat && (
-                <button
-                  type="button"
+                <IconButton
+                  label="Asignar tarea"
+                  icon={<Icon name="ClipboardList" size={16} />}
+                  variant="ghost"
+                  tooltip="Asignar tarea"
                   onClick={() => {
                     setAssignTitle("");
                     setAssignType("accountTask");
@@ -17502,102 +17026,60 @@ const ClientChatView = ({
                     setAssignClientId(activeClient.isTeamGroup ? "" : activeClient.id);
                     setAssignOpen(true);
                   }}
-                  className="chat-header-button shrink-0"
-                  title="Asignar tarea"
-                >
-                  <Icon name="ClipboardList" size={16} />
-                </button>
+                  className="shrink-0"
+                />
               )}
-              <div className="relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setMuteMenuOpen((open) => !open)}
-                  aria-label={
-                    activeClientMuted
-                      ? "Cambiar silencio del grupo"
-                      : "Silenciar grupo"
-                  }
-                  aria-expanded={muteMenuOpen}
-                  title={
-                    activeClientMuted
-                      ? `Silenciado ${formatChatMuteUntil(activeMuteUntil)}`
-                      : "Silenciar grupo"
-                  }
-                  className={`chat-header-button ${
-                    activeClientMuted ? "text-amber-500" : ""
-                  }`}
-                >
-                  <Icon
-                    name={activeClientMuted ? "BellSlash" : "Bell"}
-                    size={19}
+              <DropdownMenu
+                key={activeClient.id}
+                alignment="end"
+                menuWidth="16rem"
+                hasChevron={false}
+                items={[
+                  ...(activeClientMuted
+                    ? [{
+                        id: "unmute",
+                        label: "Activar notificaciones",
+                        icon: <Icon name="Bell" size={16} />,
+                        onClick: () => onSetMute?.(activeClient.id, null),
+                      }]
+                    : []),
+                  ...[
+                    { id: "8h", label: "8 horas" },
+                    { id: "1w", label: "1 semana" },
+                    { id: CHAT_MUTE_FOREVER, label: "Siempre" },
+                  ].map((option) => ({
+                    ...option,
+                    icon: <Icon name="BellSlash" size={16} />,
+                    onClick: () => onSetMute?.(activeClient.id, option.id),
+                  })),
+                ]}
+                renderTrigger={(triggerProps) => (
+                  <IconButton
+                    {...triggerProps}
+                    label={activeClientMuted ? "Cambiar silencio del grupo" : "Silenciar grupo"}
+                    icon={<Icon name={activeClientMuted ? "BellSlash" : "Bell"} size={19} />}
+                    variant="ghost"
+                    size="sm"
+                    tooltip={activeClientMuted ? `Silenciado ${formatChatMuteUntil(activeMuteUntil)}` : "Silenciar grupo"}
+                    className={activeClientMuted ? "chat-header-button text-amber-500" : "chat-header-button"}
                   />
-                </button>
-                {muteMenuOpen && (
-                  <>
-                    <button
-                      type="button"
-                      aria-label="Cerrar opciones de silencio"
-                      className="fixed inset-0 z-20 cursor-default"
-                      onClick={() => setMuteMenuOpen(false)}
-                    />
-                    <div className="chat-action-menu absolute right-0 top-full z-30 mt-2 w-64 p-1.5">
-                      <div className="border-b border-slate-200/70 px-3 py-2 dark:border-white/10">
-                        <p className="text-xs font-black text-slate-700 dark:text-slate-100">
-                          Notificaciones del grupo
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                          {activeClientMuted
-                            ? `Silenciado ${formatChatMuteUntil(activeMuteUntil)}`
-                            : "Elige durante cuánto tiempo silenciarlo."}
-                        </p>
-                      </div>
-                      {activeClientMuted && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSetMute?.(activeClient.id, null);
-                            setMuteMenuOpen(false);
-                          }}
-                          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-bold text-emerald-600 hover:bg-slate-50 dark:text-emerald-400 dark:hover:bg-slate-700"
-                        >
-                          <Icon name="Bell" size={16} />
-                          Activar notificaciones
-                        </button>
-                      )}
-                      {[
-                        { key: "8h", label: "8 horas" },
-                        { key: "1w", label: "1 semana" },
-                        { key: CHAT_MUTE_FOREVER, label: "Siempre" },
-                      ].map((option) => (
-                        <button
-                          key={option.key}
-                          type="button"
-                          onClick={() => {
-                            onSetMute?.(activeClient.id, option.key);
-                            setMuteMenuOpen(false);
-                          }}
-                          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          <Icon name="BellSlash" size={16} />
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
                 )}
-              </div>
-              <button
+              />
+              <AstryxButton
+                label="Nueva llamada"
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setCallSelected([]);
                   setCallSearch("");
                   setCallPicker({ mode: "start" });
                 }}
-                disabled={!canInteractWithActiveGroup}
-                className="chat-call-button flex shrink-0 items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"
+                isDisabled={!canInteractWithActiveGroup}
+                className="view-button-content chat-call-button flex shrink-0 items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Icon name="VideoCamera" size={18} />
                 <span className="hidden sm:inline">Nueva llamada</span>
-              </button>
+              </AstryxButton>
             </div>
 
             {pinnedMessages.length > 0 && (
@@ -17619,13 +17101,15 @@ const ClientChatView = ({
                           ? "Adjunto"
                           : "")}
                     </span>
-                    <button
+                    <IconButton
+                      label="Desfijar"
+                      icon={<Icon name="X" size={16} />}
+                      variant="ghost"
+                      size="sm"
+                      tooltip="Desfijar"
                       onClick={() => onPin && onPin(pinned)}
-                      aria-label="Desfijar"
-                      className="ml-auto shrink-0 text-slate-400 hover:text-red-500"
-                    >
-                      <Icon name="X" size={12} />
-                    </button>
+                      className="ml-auto shrink-0"
+                    />
                   </div>
                 ))}
               </div>
@@ -17698,35 +17182,40 @@ const ClientChatView = ({
                         className={`chat-bubble relative ${mine ? "is-mine" : "is-incoming"} ${stickerOnly ? "is-sticker" : ""}`}
                       >
                         {!message.deleted && (
-                          <button
+                          <IconButton
+                            label="Opciones del mensaje"
+                            icon={<Icon name="ChevronDown" size={16} />}
+                            variant="ghost"
+                            size="sm"
+                            tooltip="Opciones del mensaje"
                             onClick={() =>
                               setMenuFor(menuFor === message.id ? null : message.id)
                             }
-                            aria-label="Opciones del mensaje"
                             aria-expanded={menuFor === message.id}
-                            className="chat-message-options absolute right-0 top-0 z-30 flex items-center justify-center"
-                          >
-                            <Icon name="ChevronDown" size={14} />
-                          </button>
+                            className="absolute right-0 top-0 z-30"
+                          />
                         )}
                         {reactionPickerFor === message.id && (
                           <div
                             className={`chat-reaction-picker absolute bottom-full z-40 mb-2 flex items-center gap-1 ${mine ? "right-0" : "left-0"}`}
                           >
                             {CHAT_REACTION_PICKER.map((reaction) => (
-                              <button
+                              <AstryxButton
+                                label={reaction.label}
+                                variant="ghost"
+                                size="sm"
                                 key={reaction.key}
-                                onMouseDown={(event) => {
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={(event) => {
                                   event.preventDefault();
                                   if (onReact) onReact(message, reaction.key);
                                   setReactionPickerFor(null);
                                 }}
-                                aria-label={reaction.label}
                                 title={reaction.label}
-                                className="chat-reaction-option flex items-center justify-center"
+                                className="view-button-content chat-reaction-option flex items-center justify-center"
                               >
                                 <span aria-hidden="true">{reaction.emoji}</span>
-                              </button>
+                              </AstryxButton>
                             ))}
                           </div>
                         )}
@@ -17802,13 +17291,17 @@ const ClientChatView = ({
                             ]
                               .filter((item) => item.show)
                               .map((item) => (
-                                <button
+                                <AstryxButton
+                                  label={item.label}
+                                  variant="ghost"
+                                  size="sm"
                                   key={item.key}
-                                  onMouseDown={(event) => {
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={(event) => {
                                     event.preventDefault();
                                     item.on();
                                   }}
-                                  className="chat-action-item flex w-full items-center gap-2.5 px-2 text-sm font-medium"
+                                  className="view-button-content chat-action-item flex w-full items-center gap-2.5 px-2 text-sm font-medium"
                                 >
                                   <span
                                     className={`chat-action-icon is-${item.key} flex h-8 w-8 items-center justify-center`}
@@ -17816,24 +17309,28 @@ const ClientChatView = ({
                                     <Icon name={item.icon} size={15} />
                                   </span>
                                   {item.label}
-                                </button>
+                                </AstryxButton>
                               ))}
                             {mine && (
                               <>
                                 <div className="my-1 h-px bg-slate-100 dark:bg-white/10" />
-                                <button
-                                  onMouseDown={(event) => {
+                                <AstryxButton
+                                  label="Eliminar"
+                                  variant="destructive"
+                                  size="sm"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={(event) => {
                                     event.preventDefault();
                                     setMenuFor(null);
                                     setDeleteTarget(message);
                                   }}
-                                  className="chat-action-item is-danger flex w-full items-center gap-2.5 px-2 text-sm font-medium"
+                                  className="view-button-content chat-action-item is-danger flex w-full items-center gap-2.5 px-2 text-sm font-medium"
                                 >
                                   <span className="chat-action-icon is-delete flex h-8 w-8 items-center justify-center">
                                     <Icon name="Trash2" size={15} />
                                   </span>
                                   Eliminar
-                                </button>
+                                </AstryxButton>
                               </>
                             )}
                           </div>
@@ -17901,9 +17398,12 @@ const ClientChatView = ({
                               </div>
                             )}
                             {message.taskRef?.taskId && (
-                              <button
+                              <AstryxButton
+                                label={message.taskRef.taskTitle || "Abrir tarea"}
+                                variant="ghost"
+                                size="sm"
                                 onClick={() => onOpenTask(message.taskRef)}
-                                className={`mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-bold ${CHAT_TASK_CHIP_STYLES[message.taskRef.taskType] || CHAT_TASK_CHIP_STYLES.accountTask}`}
+                                className={`view-button-content mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-bold ${CHAT_TASK_CHIP_STYLES[message.taskRef.taskType] || CHAT_TASK_CHIP_STYLES.accountTask}`}
                               >
                                 <Icon
                                   name="ClipboardList"
@@ -17917,7 +17417,7 @@ const ClientChatView = ({
                                   ·{" "}
                                   {CHAT_TASK_LABELS[message.taskRef.taskType] || ""}
                                 </span>
-                              </button>
+                              </AstryxButton>
                             )}
                             {message.call?.roomId &&
                               (message.call.ended ? (
@@ -17938,7 +17438,10 @@ const ClientChatView = ({
                                   </span>
                                 </div>
                               ) : (
-                                <button
+                                <AstryxButton
+                                  label="Abrir archivo adjunto"
+                                  variant="ghost"
+                                  size="sm"
                                   onClick={() =>
                                     setActiveCall({
                                       roomId: message.call.roomId,
@@ -17948,7 +17451,7 @@ const ClientChatView = ({
                                         String(message.authorId || "") === myId,
                                     })
                                   }
-                                  className="chat-call-card is-live mt-1.5 flex w-full items-center gap-2 text-left"
+                                  className="view-button-content chat-call-card is-live mt-1.5 flex w-full items-center gap-2 text-left"
                                 >
                                   <span
                                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${mine ? "bg-white/20 text-white" : "bg-emerald-600 text-white"}`}
@@ -17967,7 +17470,7 @@ const ClientChatView = ({
                                       Toca para unirte
                                     </span>
                                   </span>
-                                </button>
+                                </AstryxButton>
                               ))}
                           </>
                         )}
@@ -17988,14 +17491,16 @@ const ClientChatView = ({
                                 const reaction =
                                   getChatReactionDefinition(reactionKey);
                                 return (
-                                  <button
+                                  <AstryxButton
+                                    label={`${reaction.label}: ${info.count}`}
+                                    variant="ghost"
+                                    size="sm"
                                     key={reactionKey}
                                     onClick={() =>
                                       onReact && onReact(message, reactionKey)
                                     }
-                                    aria-label={`${reaction.label}: ${info.count}`}
                                     title={info.names.join(", ")}
-                                    className={`chat-reaction-chip flex items-center gap-1 ${info.mine ? "is-mine" : ""}`}
+                                    className={`view-button-content chat-reaction-chip flex items-center gap-1 ${info.mine ? "is-mine" : ""}`}
                                   >
                                     <span
                                       className="chat-reaction-emoji"
@@ -18004,7 +17509,7 @@ const ClientChatView = ({
                                       {reaction.emoji}
                                     </span>
                                     <span>{info.count}</span>
-                                  </button>
+                                  </AstryxButton>
                                 );
                               },
                             )}
@@ -18012,18 +17517,20 @@ const ClientChatView = ({
                         )}
                       {(threadReplyCounts[message.id] > 0 ||
                         String(threadRoot?.id || "") === String(message.id)) && (
-                        <button
-                          type="button"
+                        <AstryxButton
+                          label={`${threadReplyCounts[message.id] || 0} respuestas`}
+                          variant="ghost"
+                          size="sm"
                           onClick={() => {
                             setThreadRoot(message);
                             setThreadText("");
                           }}
-                          className={`mt-1 inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:underline dark:text-indigo-300 ${mine ? "ml-auto" : ""}`}
+                          className={`view-button-content mt-1 inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:underline dark:text-indigo-300 ${mine ? "ml-auto" : ""}`}
                         >
                           <Icon name="MessageSquare" size={12} />
                           {threadReplyCounts[message.id] || 0} respuesta
                           {(threadReplyCounts[message.id] || 0) === 1 ? "" : "s"}
-                        </button>
+                        </AstryxButton>
                       )}
                     </div>
                   </div>
@@ -18052,14 +17559,13 @@ const ClientChatView = ({
                       {threadRoot.authorName || "Mensaje"}
                     </p>
                   </div>
-                  <button
-                    type="button"
+                  <IconButton
+                    label="Cerrar hilo"
+                    icon={<Icon name="X" size={16} />}
+                    variant="ghost"
+                    tooltip="Cerrar hilo"
                     onClick={() => setThreadRoot(null)}
-                    className="chat-header-button"
-                    aria-label="Cerrar hilo"
-                  >
-                    <Icon name="X" size={16} />
-                  </button>
+                  />
                 </div>
                 <div className="custom-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
                   {threadMessages.map((message) => (
@@ -18115,14 +17621,15 @@ const ClientChatView = ({
                       placeholder="Responder en el hilo…"
                       className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900"
                     />
-                    <button
+                    <AstryxButton
                       type="submit"
-                      disabled={sendingThread || !threadText.trim()}
-                      className="mt-2 inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
-                    >
-                      <Icon name="Send" size={13} />
-                      Enviar al hilo
-                    </button>
+                      label="Enviar al hilo"
+                      icon={<Icon name="Send" size={16} />}
+                      variant="primary"
+                      size="sm"
+                      isDisabled={sendingThread || !threadText.trim()}
+                      className="mt-2"
+                    />
                   </form>
                 )}
               </div>
@@ -18176,13 +17683,15 @@ const ClientChatView = ({
                           : "")}
                     </p>
                   </div>
-                  <button
+                  <IconButton
+                    label="Cancelar respuesta"
+                    icon={<Icon name="X" size={16} />}
+                    variant="ghost"
+                    size="sm"
+                    tooltip="Cancelar respuesta"
                     onClick={() => setReplyingTo(null)}
-                    aria-label="Cancelar respuesta"
-                    className="chat-composer-button shrink-0"
-                  >
-                    <Icon name="X" size={14} />
-                  </button>
+                    className="shrink-0"
+                  />
                 </div>
               )}
               {(taskRef || pending.length > 0) && (
@@ -18195,8 +17704,10 @@ const ClientChatView = ({
                       <span className="max-w-[220px] truncate">
                         {taskRef.taskTitle}
                       </span>
-                      <button
-                        type="button"
+                      <AstryxButton
+                        label="Enviar"
+                        variant="ghost"
+                        size="sm"
                         title="Compartir ahora"
                         onClick={async () => {
                           if (!activeClient?.id || submitting) return;
@@ -18227,17 +17738,15 @@ const ClientChatView = ({
                             setSubmitting(false);
                           }
                         }}
-                        className="rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
-                      >
-                        Enviar
-                      </button>
-                      <button
+                      />
+                      <IconButton
+                        label="Quitar tarea"
+                        icon={<Icon name="X" size={16} />}
+                        variant="ghost"
+                        size="sm"
+                        tooltip="Quitar tarea"
                         onClick={() => setTaskRef(null)}
-                        aria-label="Quitar tarea"
-                        className="opacity-70 hover:opacity-100"
-                      >
-                        <Icon name="X" size={11} />
-                      </button>
+                      />
                     </span>
                   )}
                   {pending.map((att) => (
@@ -18275,13 +17784,15 @@ const ClientChatView = ({
                           </span>
                         </div>
                       )}
-                      <button
+                      <IconButton
+                        label="Quitar archivo"
+                        icon={<Icon name="X" size={16} />}
+                        variant="primary"
+                        size="sm"
+                        tooltip="Quitar archivo"
                         onClick={() => removePendingAttachment(att.id)}
-                        aria-label="Quitar archivo"
-                        className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-700 text-white"
-                      >
-                        <Icon name="X" size={11} />
-                      </button>
+                        className="absolute -right-1.5 -top-1.5"
+                      />
                     </div>
                   ))}
                 </div>
@@ -18293,25 +17804,31 @@ const ClientChatView = ({
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                         Mencionar
                       </p>
-                      <button
-                        onMouseDown={(event) => {
+                      <IconButton
+                        label="Cerrar"
+                        variant="ghost"
+                        size="sm"
+                        icon={<Icon name="X" size={13} />}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={(event) => {
                           event.preventDefault();
                           setMentionOpen(false);
                         }}
-                        aria-label="Cerrar"
                         className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                      >
-                        <Icon name="X" size={13} />
-                      </button>
+                      />
                     </div>
                     {mentionSuggestions.map((person) => (
-                      <button
+                      <AstryxButton
+                        label={person.name}
+                        variant="ghost"
+                        size="sm"
                         key={person.id}
-                        onMouseDown={(event) => {
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={(event) => {
                           event.preventDefault();
                           insertMention(person);
                         }}
-                        className="flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700"
+                        className="view-button-content flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700"
                       >
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--text-muted)] text-[9px] font-black text-white">
                           {(person.name || person.email || "?")
@@ -18328,7 +17845,7 @@ const ClientChatView = ({
                             </p>
                           )}
                         </div>
-                      </button>
+                      </AstryxButton>
                     ))}
                   </div>
                 )}
@@ -18338,16 +17855,18 @@ const ClientChatView = ({
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                         Compartir tarea
                       </p>
-                      <button
-                        onMouseDown={(event) => {
+                      <IconButton
+                        label="Cerrar"
+                        variant="ghost"
+                        size="sm"
+                        icon={<Icon name="X" size={13} />}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={(event) => {
                           event.preventDefault();
                           setTaskPickerOpen(false);
                         }}
-                        aria-label="Cerrar"
                         className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                      >
-                        <Icon name="X" size={13} />
-                      </button>
+                      />
                     </div>
                     {shareableTasks.length === 0 && (
                       <p className="px-3 py-2 text-xs text-slate-400">
@@ -18359,9 +17878,12 @@ const ClientChatView = ({
                         key={`${task.type}-${task.id}`}
                         className="flex items-center gap-1 px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-700"
                       >
-                        <button
-                          type="button"
-                          onMouseDown={(event) => {
+                        <AstryxButton
+                          label={task.title || "Seleccionar tarea"}
+                          variant="ghost"
+                          size="sm"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={(event) => {
                             event.preventDefault();
                             setTaskRef({
                               taskId: task.id,
@@ -18370,7 +17892,7 @@ const ClientChatView = ({
                             });
                             setTaskPickerOpen(false);
                           }}
-                          className="flex min-w-0 flex-1 items-center gap-2 px-1 py-1 text-left"
+                          className="view-button-content flex min-w-0 flex-1 items-center gap-2 px-1 py-1 text-left"
                         >
                           <span
                             className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-black ${CHAT_TASK_CHIP_STYLES[task.type]}`}
@@ -18380,11 +17902,14 @@ const ClientChatView = ({
                           <span className="flex-1 truncate text-sm text-slate-700 dark:text-slate-200">
                             {task.title || "(sin título)"}
                           </span>
-                        </button>
-                        <button
-                          type="button"
+                        </AstryxButton>
+                        <AstryxButton
+                          label="Enviar"
+                          variant="primary"
+                          size="sm"
                           title="Compartir ahora"
-                          onMouseDown={async (event) => {
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={async (event) => {
                             event.preventDefault();
                             if (!activeClient?.id || submitting) return;
                             setTaskPickerOpen(false);
@@ -18405,9 +17930,7 @@ const ClientChatView = ({
                             }
                           }}
                           className="shrink-0 rounded-lg px-2 py-1.5 text-[10px] font-bold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
-                        >
-                          Enviar
-                        </button>
+                        />
                       </div>
                     ))}
                   </div>
@@ -18453,14 +17976,13 @@ const ClientChatView = ({
                     <div
                       className={`chat-recording-bar ${recordingPaused ? "is-paused" : ""}`}
                     >
-                      <button
-                        type="button"
+                      <IconButton
+                        label="Eliminar grabación"
+                        icon={<Icon name="Trash2" size={16} />}
+                        variant="ghost"
+                        tooltip="Eliminar grabación"
                         onClick={() => stopRecording(true)}
-                        aria-label="Eliminar grabación"
-                        className="chat-recording-control is-delete"
-                      >
-                        <Icon name="Trash2" size={21} />
-                      </button>
+                      />
                       <div className="chat-recording-timer" aria-live="polite">
                         <span className="chat-recording-dot" aria-hidden="true" />
                         <span>{formatVoiceDuration(recordSeconds)}</span>
@@ -18482,136 +18004,142 @@ const ClientChatView = ({
                           />
                         ))}
                       </div>
-                      <button
-                        type="button"
-                        onClick={toggleRecordingPause}
-                        aria-label={
+                      <IconButton
+                        label={
                           recordingPaused
                             ? "Continuar grabación"
                             : "Pausar grabación"
                         }
-                        className="chat-recording-control"
-                      >
-                        <Icon
-                          name={recordingPaused ? "Play" : "PauseCircle"}
-                          size={24}
-                        />
-                      </button>
-                      <button
-                        type="button"
+                        icon={<Icon name={recordingPaused ? "Play" : "PauseCircle"} size={16} />}
+                        variant="ghost"
+                        tooltip={
+                          recordingPaused
+                            ? "Continuar grabación"
+                            : "Pausar grabación"
+                        }
+                        onClick={toggleRecordingPause}
+                      />
+                      <IconButton
+                        label="Enviar nota de voz"
+                        icon={<Icon name={submitting ? "Loader2" : "Send"} className={submitting ? "animate-spin" : ""} size={16} />}
+                        variant="primary"
+                        tooltip="Enviar nota de voz"
                         onClick={() => stopRecording(false, true)}
-                        disabled={submitting}
-                        aria-label="Enviar nota de voz"
-                        className="chat-recording-send"
-                      >
-                        <Icon
-                          name={submitting ? "Loader2" : "Send"}
-                          size={20}
-                          className={submitting ? "animate-spin" : ""}
-                        />
-                      </button>
+                        isDisabled={submitting}
+                      />
                     </div>
                   ) : (
                     <>
                       {/* Adjuntar archivo (elegir tipo) */}
                       <div className="relative">
-                        <button
+                        <IconButton
+                          label="Adjuntar archivo"
+                          variant="ghost"
+                          size="sm"
+                          icon={<Icon
+                            name={uploading ? "Loader2" : "Paperclip"}
+                            size={18}
+                            className={uploading ? "animate-spin" : ""}
+                          />}
                           onClick={() => {
                             setAttachMenuOpen((open) => !open);
                             setMentionOpen(false);
                             setTaskPickerOpen(false);
                           }}
-                          aria-label="Adjuntar archivo"
-                          disabled={uploading}
+                          isDisabled={uploading}
                           className={`chat-composer-button flex items-center justify-center disabled:opacity-50 ${attachMenuOpen ? "is-active" : ""}`}
-                        >
-                          <Icon
-                            name={uploading ? "Loader2" : "Paperclip"}
-                            size={18}
-                            className={uploading ? "animate-spin" : ""}
-                          />
-                        </button>
+                        />
                         {attachMenuOpen && (
                           <div className="chat-picker absolute bottom-full left-0 z-30 mb-2 w-52 py-1">
-                            <button
-                              onMouseDown={(event) => {
+                            <AstryxButton
+                              label="Imagen"
+                              variant="ghost"
+                              size="sm"
+                              icon={<Icon name="Image" size={16} className="text-slate-500" />}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={(event) => {
                                 event.preventDefault();
                                 openFilePicker("image/*");
                               }}
                               className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
-                            >
-                              <Icon name="Image" size={16} className="text-slate-500" />
-                              Imagen
-                            </button>
-                            <button
-                              onMouseDown={(event) => {
+                            />
+                            <AstryxButton
+                              label="Video"
+                              variant="ghost"
+                              size="sm"
+                              icon={<Icon name="Video" size={16} className="text-slate-500" />}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={(event) => {
                                 event.preventDefault();
                                 openFilePicker("video/*");
                               }}
                               className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
-                            >
-                              <Icon name="Video" size={16} className="text-slate-500" />
-                              Video
-                            </button>
-                            <button
-                              onMouseDown={(event) => {
+                            />
+                            <AstryxButton
+                              label="Documento / PDF"
+                              variant="ghost"
+                              size="sm"
+                              icon={<Icon name="FileText" size={16} className="text-slate-500" />}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={(event) => {
                                 event.preventDefault();
                                 openFilePicker(
                                   "application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip",
                                 );
                               }}
                               className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
-                            >
-                              <Icon name="FileText" size={16} className="text-slate-500" />
-                              Documento / PDF
-                            </button>
-                            <button
-                              onMouseDown={(event) => {
+                            />
+                            <AstryxButton
+                              label="Cualquier archivo"
+                              variant="ghost"
+                              size="sm"
+                              icon={<Icon name="FilePlus" size={16} className="text-slate-500" />}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={(event) => {
                                 event.preventDefault();
                                 openFilePicker("");
                               }}
                               className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
-                            >
-                              <Icon name="FilePlus" size={16} className="text-slate-500" />
-                              Cualquier archivo
-                            </button>
+                            />
                           </div>
                         )}
                       </div>
                       {/* Nota de voz */}
-                      <button
+                      <IconButton
+                        label="Grabar nota de voz"
+                        icon={<Icon name="Microphone" size={16} />}
+                        variant="ghost"
+                        tooltip="Grabar nota de voz"
                         onClick={startRecording}
-                        aria-label="Grabar nota de voz"
-                        className="chat-composer-button flex items-center justify-center"
-                      >
-                        <Icon name="Microphone" size={18} />
-                      </button>
+                      />
                       {/* Enlazar tarea */}
-                      <button
+                      <IconButton
+                        label="Enlazar tarea"
+                        variant="ghost"
+                        size="sm"
+                        icon={<Icon name="ClipboardList" size={17} />}
                         onClick={() => {
                           setTaskPickerOpen((open) => !open);
                           setMentionOpen(false);
                           setAttachMenuOpen(false);
                         }}
-                        aria-label="Enlazar tarea"
                         className={`chat-composer-button flex items-center justify-center ${taskRef || taskPickerOpen ? "is-active" : ""}`}
-                      >
-                        <Icon name="ClipboardList" size={17} />
-                      </button>
+                      />
                       {/* Stickers */}
                       <div className="relative">
-                        <button
+                        <IconButton
+                          label="Stickers"
+                          variant="ghost"
+                          size="sm"
+                          icon={<Icon name="Sticker" size={18} />}
                           onClick={() => {
                             setStickerOpen((open) => !open);
                             setMentionOpen(false);
                             setTaskPickerOpen(false);
                             setAttachMenuOpen(false);
                           }}
-                          aria-label="Stickers"
                           className={`chat-composer-button flex items-center justify-center ${stickerOpen ? "is-active" : ""}`}
-                        >
-                          <Icon name="Sticker" size={18} />
-                        </button>
+                        />
                         {stickerOpen && (
                           <div className="chat-picker chat-sticker-picker absolute bottom-full right-0 z-40 mb-2 w-80 p-3 sm:left-0 sm:right-auto">
                             <input
@@ -18633,32 +18161,36 @@ const ClientChatView = ({
                                 </p>
                               </div>
                               <div className="flex items-center gap-1">
-                                <button
-                                  onMouseDown={(event) => {
+                                <AstryxButton
+                                  label="Subir"
+                                  variant="ghost"
+                                  size="sm"
+                                  icon={<Icon
+                                    name={uploadingSticker ? "Loader2" : "Plus"}
+                                    size={12}
+                                    className={uploadingSticker ? "animate-spin" : ""}
+                                  />}
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={(event) => {
                                     event.preventDefault();
                                     if (stickerInputRef.current)
                                       stickerInputRef.current.click();
                                   }}
-                                  disabled={uploadingSticker}
+                                  isDisabled={uploadingSticker}
                                   className="chat-picker-action flex items-center gap-1.5 px-2 text-xs font-bold disabled:opacity-50"
-                                >
-                                  <Icon
-                                    name={uploadingSticker ? "Loader2" : "Plus"}
-                                    size={12}
-                                    className={uploadingSticker ? "animate-spin" : ""}
-                                  />
-                                  Subir
-                                </button>
-                                <button
-                                  onMouseDown={(event) => {
+                                />
+                                <IconButton
+                                  label="Cerrar"
+                                  variant="ghost"
+                                  size="sm"
+                                  icon={<Icon name="X" size={13} />}
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={(event) => {
                                     event.preventDefault();
                                     setStickerOpen(false);
                                   }}
-                                  aria-label="Cerrar"
                                   className="chat-composer-button"
-                                >
-                                  <Icon name="X" size={13} />
-                                </button>
+                                />
                               </div>
                             </div>
                             <div className="mt-2 max-h-72 overflow-y-auto custom-scroll">
@@ -18669,22 +18201,31 @@ const ClientChatView = ({
                                       key={sticker.id}
                                       className="group/st relative"
                                     >
-                                      <button
-                                        onMouseDown={(event) => {
+                                      <AstryxButton
+                                        label={sticker.name}
+                                        variant="ghost"
+                                        size="sm"
+                                        onMouseDown={(event) => event.preventDefault()}
+                                        onClick={(event) => {
                                           event.preventDefault();
                                           handleSendSticker(sticker.id);
                                         }}
                                         title={sticker.name}
-                                        disabled={submitting}
-                                        className="chat-sticker-tile flex w-full items-center justify-center disabled:opacity-50"
+                                        isDisabled={submitting}
+                                        className="view-button-content chat-sticker-tile flex w-full items-center justify-center disabled:opacity-50"
                                       >
                                         {renderSticker(sticker.id, 60)}
-                                      </button>
+                                      </AstryxButton>
                                       {(canModerate ||
                                         String(sticker.authorId || "") ===
                                           myId) && (
-                                        <button
-                                          onMouseDown={(event) => {
+                                        <IconButton
+                                          label="Eliminar sticker"
+                                          variant="ghost"
+                                          size="sm"
+                                          icon={<Icon name="X" size={9} />}
+                                          onMouseDown={(event) => event.preventDefault()}
+                                          onClick={(event) => {
                                             event.preventDefault();
                                             if (
                                               onDeleteSticker &&
@@ -18694,23 +18235,24 @@ const ClientChatView = ({
                                             )
                                               onDeleteSticker(sticker.id);
                                           }}
-                                          aria-label="Eliminar sticker"
                                           className="chat-sticker-delete absolute -right-1 -top-1 items-center justify-center"
-                                        >
-                                          <Icon name="X" size={9} />
-                                        </button>
+                                        />
                                       )}
                                     </div>
                                   ))}
                                 </div>
                               ) : (
-                                <button
-                                  onMouseDown={(event) => {
+                                <AstryxButton
+                                  label="Subir sticker"
+                                  variant="ghost"
+                                  size="sm"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={(event) => {
                                     event.preventDefault();
                                     if (stickerInputRef.current)
                                       stickerInputRef.current.click();
                                   }}
-                                  className="flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-slate-400 transition-colors hover:border-blue-400 hover:text-blue-500 dark:border-white/15"
+                                  className="view-button-content flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-slate-400 transition-colors hover:border-blue-400 hover:text-blue-500 dark:border-white/15"
                                 >
                                   <Icon name="Sticker" size={28} />
                                   <span className="text-xs font-semibold">
@@ -18719,7 +18261,7 @@ const ClientChatView = ({
                                   <span className="text-[11px]">
                                     Pulsa para subir el primero (webp, gif o png)
                                   </span>
-                                </button>
+                                </AstryxButton>
                               )}
                             </div>
                           </div>
@@ -18728,20 +18270,17 @@ const ClientChatView = ({
                       <span className="chat-compose-hint ml-auto hidden sm:block">
                         Enter para enviar · Shift+Enter salto de línea
                       </span>
-                      <button
+                      <IconButton
+                        label="Enviar mensaje"
+                        icon={<Icon name={submitting ? "Loader2" : "Send"} className={submitting ? "animate-spin" : ""} size={16} />}
+                        variant="primary"
+                        tooltip="Enviar mensaje"
                         onClick={handleSubmit}
-                        disabled={
+                        isDisabled={
                           submitting || (!text.trim() && pending.length === 0)
                         }
-                        aria-label="Enviar mensaje"
-                        className="chat-send-button ml-auto flex items-center justify-center disabled:opacity-40"
-                      >
-                        <Icon
-                          name={submitting ? "Loader2" : "Send"}
-                          size={16}
-                          className={submitting ? "animate-spin" : ""}
-                        />
-                      </button>
+                        className="ml-auto"
+                      />
                     </>
                   )}
                 </div>
@@ -18767,13 +18306,16 @@ const ClientChatView = ({
 
       {/* Popup de confirmación de borrado (estilo WhatsApp) */}
       {deleteTarget && (
-        <div
-          className="modal-scrim chat-dialog-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
-          onClick={() => setDeleteTarget(null)}
+        <Dialog
+          isOpen
+          onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+          aria-label="Eliminar mensaje"
+          width="20rem"
+          maxHeight="90dvh"
+          padding={0}
         >
           <div
-            className="chat-dialog-panel w-full max-w-xs p-5"
-            onClick={(event) => event.stopPropagation()}
+            className="w-full p-5"
           >
             <h3 className="text-base font-black text-slate-800 dark:text-slate-100">
               ¿Eliminar mensaje?
@@ -18782,56 +18324,59 @@ const ClientChatView = ({
               Elige cómo eliminarlo. Queda registro de que se eliminó.
             </p>
             <div className="mt-4 flex flex-col gap-2">
-              <button
+              <AstryxButton
+                label="Eliminar para todos"
+                variant="destructive"
+                width="100%"
                 onClick={() => {
                   if (onDeleteForEveryone) onDeleteForEveryone(deleteTarget);
                   setDeleteTarget(null);
                 }}
-                className="w-full rounded-lg bg-red-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-red-700"
-              >
-                Eliminar para todos
-              </button>
-              <button
+              />
+              <AstryxButton
+                label="Eliminar para mí"
+                variant="secondary"
+                width="100%"
                 onClick={() => {
                   if (onDeleteForMe) onDeleteForMe(deleteTarget);
                   setDeleteTarget(null);
                 }}
-                className="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                Eliminar para mí
-              </button>
-              <button
+              />
+              <AstryxButton
+                label="Cancelar"
+                variant="ghost"
+                width="100%"
                 onClick={() => setDeleteTarget(null)}
-                className="w-full rounded-lg px-4 py-2 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
-              >
-                Cancelar
-              </button>
+              />
             </div>
           </div>
-        </div>
+        </Dialog>
       )}
 
       {/* Reenviar a otro cliente */}
       {forwardTarget && (
-        <div
-          className="modal-scrim chat-dialog-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
-          onClick={() => setForwardTarget(null)}
+        <Dialog
+          isOpen
+          onOpenChange={(open) => { if (!open) setForwardTarget(null); }}
+          aria-label="Reenviar mensaje"
+          width="24rem"
+          maxHeight="90dvh"
+          padding={0}
         >
           <div
-            className="chat-dialog-panel flex max-h-[70vh] w-full max-w-sm flex-col overflow-hidden"
-            onClick={(event) => event.stopPropagation()}
+            className="flex max-h-[70vh] w-full flex-col overflow-hidden"
           >
             <div className="flex items-center justify-between border-b border-slate-100 p-4 dark:border-white/10">
               <h3 className="text-base font-black text-slate-800 dark:text-slate-100">
                 Reenviar a…
               </h3>
-              <button
+              <IconButton
+                label="Cerrar"
+                icon={<Icon name="X" size={16} />}
+                variant="ghost"
+                tooltip="Cerrar"
                 onClick={() => setForwardTarget(null)}
-                aria-label="Cerrar"
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                <Icon name="X" size={18} />
-              </button>
+              />
             </div>
             <div className="p-3">
               <input
@@ -18852,13 +18397,16 @@ const ClientChatView = ({
                         .includes(forwardSearch.trim().toLowerCase())),
                 )
                 .map((client) => (
-                  <button
+                  <AstryxButton
+                    label={client.name}
+                    variant="ghost"
+                    size="sm"
                     key={client.id}
                     onClick={() => {
                       if (onForward) onForward(forwardTarget, client.id);
                       setForwardTarget(null);
                     }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
+                    className="view-button-content flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
                   >
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--text-muted)] text-[10px] font-black text-white">
                       {(client.name || "C").slice(0, 2).toUpperCase()}
@@ -18866,23 +18414,26 @@ const ClientChatView = ({
                     <span className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
                       {client.name || "Cliente"}
                     </span>
-                  </button>
+                  </AstryxButton>
                 ))}
             </div>
           </div>
-        </div>
+        </Dialog>
       )}
 
       {/* Todos los integrantes pueden agregar personas al grupo. */}
-      {membersOpen &&
-        createPortal(
-          <div
-            className="modal-scrim chat-members-overlay fixed inset-0 z-[85] flex items-center justify-center p-4"
-            onClick={() => !savingMembers && setMembersOpen(false)}
-          >
+      {membersOpen && (
+        <Dialog
+          isOpen
+          onOpenChange={(open) => { if (!open && !savingMembers) setMembersOpen(false); }}
+          aria-label="Integrantes del grupo"
+          width="28rem"
+          maxHeight="90dvh"
+          padding={0}
+          purpose="form"
+        >
             <div
-              className="chat-members-panel flex max-h-[82vh] w-full max-w-md flex-col overflow-hidden"
-              onClick={(event) => event.stopPropagation()}
+              className="chat-members-panel flex max-h-[82vh] w-full flex-col overflow-hidden"
             >
               <div className="chat-members-panel-header flex items-start justify-between gap-4">
                 <div>
@@ -18895,15 +18446,14 @@ const ClientChatView = ({
                       : "Lista inicial detectada del historial del chat."}
                   </p>
                 </div>
-                <button
-                  type="button"
+                <IconButton
+                  label="Cerrar"
+                  icon={<Icon name="X" size={16} />}
+                  variant="ghost"
+                  tooltip="Cerrar"
                   onClick={() => setMembersOpen(false)}
-                  aria-label="Cerrar"
-                  disabled={savingMembers}
-                  className="text-slate-400 hover:text-slate-600 disabled:opacity-40 dark:hover:text-slate-200"
-                >
-                  <Icon name="X" size={18} />
-                </button>
+                  isDisabled={savingMembers}
+                />
               </div>
 
               <div className="chat-members-panel-body custom-scroll flex-1 overflow-y-auto">
@@ -18952,8 +18502,23 @@ const ClientChatView = ({
                             </p>
                           </div>
                           {(canManageMembers || canRemove) && (
-                            <button
-                              type="button"
+                            <IconButton
+                              label={
+                                !canRemove && isSelf
+                                  ? "Los managers no pueden salir por sí mismos"
+                                  : isSelf
+                                    ? "Salir del grupo"
+                                    : "Quitar del grupo"
+                              }
+                              icon={<Icon name={isSelf ? "LogOut" : "UserX"} size={16} />}
+                              variant="ghost"
+                              tooltip={
+                                !canRemove && isSelf
+                                  ? "Los managers no pueden salir por sí mismos"
+                                  : isSelf
+                                    ? "Salir del grupo"
+                                    : "Quitar del grupo"
+                              }
                               onClick={() =>
                                 canRemove &&
                                 setMemberDraftIds((current) =>
@@ -18962,18 +18527,8 @@ const ClientChatView = ({
                                   ),
                                 )
                               }
-                              disabled={!canRemove || savingMembers}
-                              title={
-                                !canRemove && isSelf
-                                  ? "Los managers no pueden salir por sí mismos"
-                                  : isSelf
-                                    ? "Salir del grupo"
-                                    : "Quitar del grupo"
-                              }
-                              className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                            >
-                              <Icon name={isSelf ? "LogOut" : "UserX"} size={16} />
-                            </button>
+                              isDisabled={!canRemove || savingMembers}
+                            />
                           )}
                         </div>
                       );
@@ -19020,17 +18575,19 @@ const ClientChatView = ({
                         )
                         .slice(0, 20)
                         .map((person) => (
-                          <button
+                          <AstryxButton
+                            label={person.name}
+                            variant="ghost"
+                            size="sm"
                             key={person.id}
-                            type="button"
-                            disabled={savingMembers}
+                            isDisabled={savingMembers}
                             onClick={() =>
                               setMemberDraftIds((current) => [
                                 ...current,
                                 person.id,
                               ])
                             }
-                            className="chat-member-candidate flex w-full items-center gap-3 text-left"
+                            className="view-button-content chat-member-candidate flex w-full items-center gap-3 text-left"
                           >
                             <span className="chat-member-avatar flex h-8 w-8 shrink-0 items-center justify-center bg-slate-500 text-[10px] font-black text-white">
                               {(person.name || "U").slice(0, 2).toUpperCase()}
@@ -19043,7 +18600,7 @@ const ClientChatView = ({
                               size={16}
                               className="text-blue-600 dark:text-blue-400"
                             />
-                          </button>
+                          </AstryxButton>
                         ))}
                     </div>
                   </div>
@@ -19051,43 +18608,44 @@ const ClientChatView = ({
               </div>
 
               <div className="chat-members-panel-footer flex items-center justify-end gap-2">
-                <button
-                  type="button"
+                <AstryxButton
+                  label={canEditMembers ? "Cancelar" : "Cerrar"}
+                  variant="secondary"
                   onClick={() => setMembersOpen(false)}
-                  disabled={savingMembers}
-                  className="chat-member-secondary-action px-4 py-2 text-sm font-bold disabled:opacity-40"
-                >
-                  {canEditMembers ? "Cancelar" : "Cerrar"}
-                </button>
+                  isDisabled={savingMembers}
+                />
                 {canEditMembers && (
-                  <button
-                    type="button"
+                  <AstryxButton
+                    label="Guardar integrantes"
+                    variant="primary"
+                    size="sm"
                     onClick={saveMembers}
-                    disabled={savingMembers}
-                    className="chat-member-primary-action inline-flex items-center gap-2 px-4 py-2 text-sm font-bold disabled:opacity-50"
+                    isDisabled={savingMembers}
+                    className="view-button-content chat-member-primary-action inline-flex items-center gap-2 px-4 py-2 text-sm font-bold disabled:opacity-50"
                   >
                     {savingMembers && (
                       <Icon name="Loader2" size={15} className="animate-spin" />
                     )}
                     Guardar integrantes
-                  </button>
+                  </AstryxButton>
                 )}
               </div>
             </div>
-          </div>,
-          document.body,
+          </Dialog>
         )}
 
       {/* Selector de participantes para la llamada */}
-      {callPicker &&
-        createPortal(
+      {callPicker && (
+        <Dialog
+          isOpen
+          onOpenChange={(open) => { if (!open) setCallPicker(null); }}
+          aria-label="Participantes de la llamada"
+          width="24rem"
+          maxHeight="90dvh"
+          padding={0}
+        >
           <div
-            className="modal-scrim chat-dialog-overlay fixed inset-0 z-[80] flex items-center justify-center p-4"
-            onClick={() => setCallPicker(null)}
-          >
-          <div
-            className="chat-dialog-panel flex max-h-[75vh] w-full max-w-sm flex-col overflow-hidden"
-            onClick={(event) => event.stopPropagation()}
+            className="flex max-h-[75vh] w-full flex-col overflow-hidden"
           >
             <div className="flex items-center justify-between border-b border-slate-100 p-4 dark:border-white/10">
               <h3 className="text-base font-black text-slate-800 dark:text-slate-100">
@@ -19095,13 +18653,13 @@ const ClientChatView = ({
                   ? "Agregar a la llamada"
                   : "Iniciar llamada"}
               </h3>
-              <button
+              <IconButton
+                label="Cerrar"
+                icon={<Icon name="X" size={16} />}
+                variant="ghost"
+                tooltip="Cerrar"
                 onClick={() => setCallPicker(null)}
-                aria-label="Cerrar"
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                <Icon name="X" size={18} />
-              </button>
+              />
             </div>
             <div className="p-3">
               <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
@@ -19133,7 +18691,10 @@ const ClientChatView = ({
                 .map((person) => {
                   const checked = callSelected.includes(person.id);
                   return (
-                    <button
+                    <AstryxButton
+                      label={person.name}
+                      variant="ghost"
+                      size="sm"
                       key={person.id}
                       onClick={() =>
                         setCallSelected((prev) =>
@@ -19142,7 +18703,7 @@ const ClientChatView = ({
                             : [...prev, person.id],
                         )
                       }
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
+                      className="view-button-content flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
                     >
                       <span
                         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${checked ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 dark:border-slate-600"}`}
@@ -19159,12 +18720,16 @@ const ClientChatView = ({
                           </p>
                         )}
                       </div>
-                    </button>
+                    </AstryxButton>
                   );
                 })}
             </div>
             <div className="border-t border-slate-100 p-3 dark:border-white/10">
-              <button
+              <AstryxButton
+                label={callPicker.mode === "add" ? "Invitar" : "Iniciar llamada"}
+                icon={<Icon name="VideoCamera" size={16} />}
+                variant="primary"
+                width="100%"
                 onClick={async () => {
                   const room =
                     callPicker.mode === "add"
@@ -19193,22 +18758,23 @@ const ClientChatView = ({
                   setCallPicker(null);
                   setCallSelected([]);
                 }}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-emerald-700"
-              >
-                <Icon name="VideoCamera" size={16} />
-                {callPicker.mode === "add" ? "Invitar" : "Iniciar llamada"}
-              </button>
+              />
             </div>
           </div>
-          </div>,
-          document.body,
+          </Dialog>
         )}
 
-      {/* Llamada embebida (Jitsi) — portal a body para ocupar toda la ventana
-          sin que ningún contenedor con transform la recorte */}
-      {activeCall &&
-        createPortal(
-          <div className="fixed inset-0 z-[70] flex flex-col bg-slate-900">
+      {/* Llamada embebida (Jitsi) */}
+      {activeCall && (
+        <Dialog
+            isOpen
+            onOpenChange={() => {}}
+            aria-label="Videollamada"
+            variant="fullscreen"
+            purpose="required"
+            padding={0}
+          >
+          <div className="flex h-full min-h-0 flex-col bg-slate-900">
           <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-2.5">
             <div className="flex min-w-0 items-center gap-2 text-white">
               <Icon
@@ -19221,17 +18787,22 @@ const ClientChatView = ({
               </span>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button
+              <AstryxButton
+                label="Agregar personas"
+                icon={<Icon name="UserPlus" size={16} />}
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setCallSelected([]);
                   setCallSearch("");
                   setCallPicker({ mode: "add", roomId: activeCall.roomId });
                 }}
-                className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20"
-              >
-                <Icon name="UserPlus" size={14} /> Agregar personas
-              </button>
-              <button
+              />
+              <AstryxButton
+                label={activeCall.isHost ? "Finalizar llamada" : "Salir"}
+                icon={<Icon name="X" size={16} />}
+                variant="destructive"
+                size="sm"
                 onClick={() => {
                   if (activeCall.isHost && onEndCall) {
                     onEndCall(activeCall.messageId, {
@@ -19241,11 +18812,7 @@ const ClientChatView = ({
                   }
                   setActiveCall(null);
                 }}
-                className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700"
-              >
-                <Icon name="X" size={14} />
-                {activeCall.isHost ? "Finalizar llamada" : "Salir"}
-              </button>
+              />
             </div>
           </div>
           <div
@@ -19259,18 +18826,20 @@ const ClientChatView = ({
               </div>
             )}
           </div>
-        </div>,
-          document.body,
+        </div>
+          </Dialog>
         )}
-      {dmPickerOpen &&
-        createPortal(
-          <div
-            className="modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
-            onClick={() => setDmPickerOpen(false)}
-          >
+      {dmPickerOpen && (
+        <Dialog
+          isOpen
+          onOpenChange={(open) => { if (!open) setDmPickerOpen(false); }}
+          aria-label="Nuevo mensaje directo"
+          width="28rem"
+          maxHeight="90dvh"
+          padding={0}
+        >
             <div
-              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-              onClick={(event) => event.stopPropagation()}
+              className="w-full p-5"
             >
               <h3 className="text-lg font-black text-slate-800 dark:text-white">
                 Nuevo mensaje directo
@@ -19290,15 +18859,17 @@ const ClientChatView = ({
                   dmPeopleCandidates.map((person) => {
                     const personOnline = isPersonOnline(person);
                     return (
-                    <button
+                    <AstryxButton
+                      label={person.name}
+                      variant="ghost"
+                      size="sm"
                       key={person.id}
-                      type="button"
                       onClick={() => {
                         setThreadRoot(null);
                         onOpenDirectMessage?.(person);
                         setDmPickerOpen(false);
                       }}
-                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                      className="view-button-content flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
                     >
                       <span className="relative shrink-0">
                         <span
@@ -19321,33 +18892,33 @@ const ClientChatView = ({
                             : person.email || "Desconectado"}
                         </small>
                       </span>
-                    </button>
+                    </AstryxButton>
                     );
                   })
                 )}
               </div>
               <div className="mt-4 flex justify-end">
-                <button
-                  type="button"
+                <AstryxButton
+                  label="Cancelar"
+                  variant="ghost"
                   onClick={() => setDmPickerOpen(false)}
-                  className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500"
-                >
-                  Cancelar
-                </button>
+                />
               </div>
             </div>
-          </div>,
-          document.body,
+          </Dialog>
         )}
-      {createGroupOpen &&
-        createPortal(
-          <div
-            className="modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
-            onClick={() => setCreateGroupOpen(false)}
-          >
+      {createGroupOpen && (
+        <Dialog
+          isOpen
+          onOpenChange={(open) => { if (!open) setCreateGroupOpen(false); }}
+          aria-label="Nuevo grupo"
+          width="28rem"
+          maxHeight="90dvh"
+          padding={0}
+          purpose="form"
+        >
             <div
-              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-              onClick={(event) => event.stopPropagation()}
+              className="w-full p-5"
             >
               <h3 className="text-lg font-black text-slate-800 dark:text-white">Nuevo grupo</h3>
               <input
@@ -19360,9 +18931,11 @@ const ClientChatView = ({
                 {mentionables.map((person) => {
                   const checked = groupMemberIds.includes(person.id);
                   return (
-                    <button
+                    <AstryxButton
+                      label={person.name}
+                      variant="ghost"
+                      size="sm"
                       key={person.id}
-                      type="button"
                       onClick={() =>
                         setGroupMemberIds((current) =>
                           checked
@@ -19370,23 +18943,26 @@ const ClientChatView = ({
                             : [...current, person.id],
                         )
                       }
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                      className="view-button-content flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
                     >
                       <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300"}`}>
                         {checked ? <Icon name="Check" size={9} /> : null}
                       </span>
                       {person.name}
-                    </button>
+                    </AstryxButton>
                   );
                 })}
               </div>
               <div className="mt-4 flex justify-end gap-2">
-                <button type="button" onClick={() => setCreateGroupOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500">
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  disabled={savingGroup || !groupName.trim() || groupMemberIds.length < 1}
+                <AstryxButton
+                  label="Cancelar"
+                  variant="ghost"
+                  onClick={() => setCreateGroupOpen(false)}
+                />
+                <AstryxButton
+                  label={savingGroup ? "Creando…" : "Crear grupo"}
+                  variant="primary"
+                  isDisabled={savingGroup || !groupName.trim() || groupMemberIds.length < 1}
                   onClick={async () => {
                     setSavingGroup(true);
                     try {
@@ -19407,24 +18983,23 @@ const ClientChatView = ({
                       setSavingGroup(false);
                     }
                   }}
-                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white disabled:opacity-40"
-                >
-                  {savingGroup ? "Creando…" : "Crear grupo"}
-                </button>
+                />
               </div>
             </div>
-          </div>,
-          document.body,
+          </Dialog>
         )}
-      {assignOpen &&
-        createPortal(
-          <div
-            className="modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
-            onClick={() => setAssignOpen(false)}
-          >
+      {assignOpen && (
+        <Dialog
+          isOpen
+          onOpenChange={(open) => { if (!open) setAssignOpen(false); }}
+          aria-label="Asignar tarea"
+          width="28rem"
+          maxHeight="90dvh"
+          padding={0}
+          purpose="form"
+        >
             <div
-              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-              onClick={(event) => event.stopPropagation()}
+              className="w-full p-5"
             >
               <h3 className="text-lg font-black text-slate-800 dark:text-white">Asignar tarea</h3>
               <input
@@ -19460,9 +19035,11 @@ const ClientChatView = ({
                 {mentionables.map((person) => {
                   const checked = assignIds.includes(person.id);
                   return (
-                    <button
+                    <AstryxButton
+                      label={person.name}
+                      variant="ghost"
+                      size="sm"
                       key={person.id}
-                      type="button"
                       onClick={() =>
                         setAssignIds((current) =>
                           checked
@@ -19470,23 +19047,26 @@ const ClientChatView = ({
                             : [...current, person.id],
                         )
                       }
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                      className="view-button-content flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
                     >
                       <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300"}`}>
                         {checked ? <Icon name="Check" size={9} /> : null}
                       </span>
                       {person.name}
-                    </button>
+                    </AstryxButton>
                   );
                 })}
               </div>
               <div className="mt-4 flex justify-end gap-2">
-                <button type="button" onClick={() => setAssignOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500">
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  disabled={assigning || !assignTitle.trim() || assignIds.length < 1}
+                <AstryxButton
+                  label="Cancelar"
+                  variant="ghost"
+                  onClick={() => setAssignOpen(false)}
+                />
+                <AstryxButton
+                  label={assigning ? "Asignando…" : "Asignar"}
+                  variant="primary"
+                  isDisabled={assigning || !assignTitle.trim() || assignIds.length < 1}
                   onClick={async () => {
                     setAssigning(true);
                     try {
@@ -19502,14 +19082,10 @@ const ClientChatView = ({
                       setAssigning(false);
                     }
                   }}
-                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white disabled:opacity-40"
-                >
-                  {assigning ? "Asignando…" : "Asignar"}
-                </button>
+                />
               </div>
             </div>
-          </div>,
-          document.body,
+          </Dialog>
         )}
     </div>
   );
@@ -19554,29 +19130,29 @@ const CalendarGrid = ({
           Vista Mensual
         </div>
         <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-800 rounded-lg p-1">
-          <button
+          <IconButton
+            label="Mes anterior"
+            icon={<Icon name="ChevronLeft" size={16} />}
+            variant="ghost"
+            tooltip="Mes anterior"
             onClick={() => {
               userNavigatedRef.current = true;
               setDate(new Date(displayDate.getFullYear(), displayDate.getMonth() - 1, 1));
             }}
-            aria-label="Mes anterior"
-            className="p-3 md:p-2 hover:bg-white dark:hover:bg-slate-700 rounded-md text-slate-500 dark:text-slate-300 shadow-sm"
-          >
-            <Icon name="ChevronLeft" size={16} />
-          </button>
+          />
           <span className="font-black text-slate-700 dark:text-slate-200 w-32 text-center text-sm uppercase">
             {MONTH_NAMES[displayDate.getMonth()]} {displayDate.getFullYear()}
           </span>
-          <button
+          <IconButton
+            label="Mes siguiente"
+            icon={<Icon name="ChevronRight" size={16} />}
+            variant="ghost"
+            tooltip="Mes siguiente"
             onClick={() => {
               userNavigatedRef.current = true;
               setDate(new Date(displayDate.getFullYear(), displayDate.getMonth() + 1, 1));
             }}
-            aria-label="Mes siguiente"
-            className="p-3 md:p-2 hover:bg-white dark:hover:bg-slate-700 rounded-md text-slate-500 dark:text-slate-300 shadow-sm"
-          >
-            <Icon name="ChevronRight" size={16} />
-          </button>
+          />
         </div>
       </div>
       <div className="flex-1 overflow-x-auto overflow-y-auto bg-slate-50 dark:bg-slate-950 custom-scroll">
@@ -19841,71 +19417,79 @@ const GeneralCalendarGrid = ({ activities, onDayClick, onMoveActivity }) => {
             active={viewMode}
             onChange={setViewMode}
           />
-          <button
+          <AstryxButton
+            label="Hoy"
+            variant="secondary"
+            size="sm"
             onClick={() => setDate(new Date())}
-            className="px-3 py-1.5 text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-all"
-          >
-            Hoy
-          </button>
+          />
         </div>
         <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800 rounded-lg p-1 relative">
-          <button
-            onClick={navPrev}
-            aria-label={
+          <IconButton
+            label={
               viewMode === "week" ? "Semana anterior" : "Mes anterior"
             }
-            className="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-md text-slate-500 dark:text-slate-300 transition-colors"
-          >
-            <Icon name="ChevronLeft" size={16} />
-          </button>
-          <button
+            icon={<Icon name="ChevronLeft" size={16} />}
+            variant="ghost"
+            tooltip={
+              viewMode === "week" ? "Semana anterior" : "Mes anterior"
+            }
+            onClick={navPrev}
+          />
+          <AstryxButton
+            label={`${getDateLabel()}`}
+            variant="ghost"
             onClick={() => {
               setPickerYear(date.getFullYear());
               setShowPicker((s) => !s);
             }}
-            className="font-black text-slate-700 dark:text-slate-200 min-w-[180px] text-center text-sm uppercase hover:text-blue-500 dark:hover:text-blue-400 transition-colors px-2"
-          >
-            {getDateLabel()}
-          </button>
-          <button
-            onClick={navNext}
-            aria-label={
+          />
+          <IconButton
+            label={
               viewMode === "week" ? "Semana siguiente" : "Mes siguiente"
             }
-            className="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-md text-slate-500 dark:text-slate-300 transition-colors"
-          >
-            <Icon name="ChevronRight" size={16} />
-          </button>
+            icon={<Icon name="ChevronRight" size={16} />}
+            variant="ghost"
+            tooltip={
+              viewMode === "week" ? "Semana siguiente" : "Mes siguiente"
+            }
+            onClick={navNext}
+          />
           {showPicker && (
             <div
               className="absolute top-full right-0 mt-2 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl p-4 w-64"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-3">
-                <button
+                <IconButton
+                  label="Año anterior"
+                  icon={<Icon name="ChevronLeft" size={16} />}
+                  variant="ghost"
+                  size="sm"
+                  tooltip="Año anterior"
                   onClick={() => setPickerYear((y) => y - 1)}
-                  aria-label="Año anterior"
-                  className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-500 transition-colors"
-                >
-                  <Icon name="ChevronLeft" size={14} />
-                </button>
+                />
                 <span className="font-black text-slate-800 dark:text-white text-sm">
                   {pickerYear}
                 </span>
-                <button
+                <IconButton
+                  label="Año siguiente"
+                  icon={<Icon name="ChevronRight" size={16} />}
+                  variant="ghost"
+                  size="sm"
+                  tooltip="Año siguiente"
                   onClick={() => setPickerYear((y) => y + 1)}
-                  aria-label="Año siguiente"
-                  className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-500 transition-colors"
-                >
-                  <Icon name="ChevronRight" size={14} />
-                </button>
+                />
               </div>
               <div className="grid grid-cols-3 gap-1.5">
                 {SHORT_MONTHS.map((m, i) => {
                   const isSel =
                     pickerYear === date.getFullYear() && i === date.getMonth();
                   return (
-                    <button
+                    <AstryxButton
+                      label={m}
+                      variant="ghost"
+                      size="sm"
                       key={m}
                       onClick={() => {
                         setDate(new Date(pickerYear, i, 1));
@@ -19913,9 +19497,7 @@ const GeneralCalendarGrid = ({ activities, onDayClick, onMoveActivity }) => {
                         setShowPicker(false);
                       }}
                       className={`py-2 rounded-xl text-xs font-bold transition-all ${isSel ? "bg-blue-500 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"}`}
-                    >
-                      {m}
-                    </button>
+                    />
                   );
                 })}
               </div>
@@ -19984,22 +19566,20 @@ const EventActionModal = ({
   onEdit,
   onDelete,
 }) => {
-  const dialogRef = useDialogA11y(config.isOpen, onClose);
+
   const dialogTitleId = useId();
   if (!config.isOpen || !config.event) return null;
   return (
-    <div
-      className="modal-scrim fixed inset-0 z-[70] flex items-center justify-center p-4"
-      onClick={onClose}
+    <Dialog
+      isOpen
+      onOpenChange={(open) => { if (!open) onClose?.(); }}
+      aria-labelledby={dialogTitleId}
+      width="20rem"
+      maxHeight="90dvh"
+      padding={0}
     >
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={dialogTitleId}
-        tabIndex={-1}
-        className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-xs overflow-hidden border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 outline-none"
-        onClick={(event) => event.stopPropagation()}
+        className="w-full overflow-hidden"
       >
         <div className="p-6 text-center border-b border-slate-100 dark:border-slate-800">
           <div className="mx-auto w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-500 dark:text-slate-400 mb-4">
@@ -20018,24 +19598,28 @@ const EventActionModal = ({
         <div className="p-4 space-y-3">
           {canEdit ? (
             <>
-              <button
+              <AstryxButton
+                label="Editar elemento"
+                icon={<Icon name="Edit" size={20} />}
+                variant="ghost"
+                size="lg"
+                width="100%"
                 onClick={() => {
                   onClose();
                   onEdit(config.event, config.type);
                 }}
-                className="w-full flex items-center justify-center gap-3 py-4 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold rounded-2xl hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors"
-              >
-                <Icon name="Edit" size={20} /> Editar elemento
-              </button>
-              <button
+              />
+              <AstryxButton
+                label="Eliminar"
+                icon={<Icon name="Trash2" size={20} />}
+                variant="ghost"
+                size="lg"
+                width="100%"
                 onClick={() => {
                   onClose();
                   onDelete(config.event, config.type);
                 }}
-                className="w-full flex items-center justify-center gap-3 py-4 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 font-bold rounded-2xl hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
-              >
-                <Icon name="Trash2" size={20} /> Eliminar
-              </button>
+              />
             </>
           ) : (
             <div className="rounded-2xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-4 text-left">
@@ -20047,15 +19631,17 @@ const EventActionModal = ({
               </p>
             </div>
           )}
-          <button
+          <AstryxButton
+            label={canEdit ? "Cancelar" : "Cerrar"}
+            variant="ghost"
+            size="lg"
+            width="100%"
             onClick={onClose}
-            className="w-full py-4 text-slate-500 dark:text-slate-400 font-bold rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors mt-2"
-          >
-            {canEdit ? "Cancelar" : "Cerrar"}
-          </button>
+            className="mt-2"
+          />
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 };
 
@@ -20134,7 +19720,7 @@ const AttachmentLightbox = ({
   onDownload,
 }) => {
   const isOpen = index != null && Boolean(attachments[index]);
-  const dialogRef = useDialogA11y(isOpen, onClose);
+
   const dialogTitleId = useId();
   const attachment = isOpen ? attachments[index] : null;
   const src = attachment ? (attachment.data || urls[attachment.id] || attachmentMediaUrl(attachment) || "") : "";
@@ -20158,57 +19744,56 @@ const AttachmentLightbox = ({
 
   if (!isOpen || !attachment) return null;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 p-3 backdrop-blur-sm md:p-6"
-      onClick={onClose}
+  return (
+    <Dialog
+      isOpen
+      onOpenChange={(open) => { if (!open) onClose?.(); }}
+      aria-labelledby={dialogTitleId}
+      width="72rem"
+      maxHeight="92dvh"
+      padding={0}
     >
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={dialogTitleId}
-        tabIndex={-1}
-        className="relative flex h-[92dvh] w-full max-w-6xl flex-col outline-none"
-        onClick={(event) => event.stopPropagation()}
+        className="relative flex h-[92dvh] w-full flex-col p-3 md:p-6"
       >
-        <div className="mb-3 flex items-center gap-3 text-white">
+        <div className="mb-3 flex items-center gap-3 text-[var(--text)]">
           <div className="min-w-0 flex-1">
             <p id={dialogTitleId} className="truncate text-sm font-semibold">
               {attachment.name}
             </p>
-            <p className="text-xs text-white/60">
+            <p className="text-xs text-[var(--text-muted)]">
               {index + 1} / {total}
               {attachment.uploadedBy ? ` · ${attachment.uploadedBy}` : ""}
             </p>
           </div>
-          <button
-            type="button"
+          <IconButton
+            label="Descargar"
+            icon={<Icon name="ArrowRight" size={20} />}
+            variant="ghost"
+            size="lg"
+            tooltip="Descargar"
             onClick={() => onDownload(attachment)}
-            title="Descargar"
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/20"
-          >
-            <Icon name="ArrowRight" size={16} />
-          </button>
-          <button
-            type="button"
+          />
+          <IconButton
+            label="Cerrar"
+            icon={<Icon name="X" size={20} />}
+            variant="ghost"
+            size="lg"
+            tooltip="Cerrar"
             onClick={onClose}
-            title="Cerrar"
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/20"
-          >
-            <Icon name="X" size={16} />
-          </button>
+          />
         </div>
         <div className="relative flex min-h-0 flex-1 items-center justify-center">
           {total > 1 && (
-            <button
-              type="button"
+            <IconButton
+              label="Archivo anterior"
+              icon={<Icon name="ChevronLeft" size={20} />}
+              variant="ghost"
+              size="lg"
+              tooltip="Archivo anterior"
               onClick={() => onChangeIndex((index - 1 + total) % total)}
-              aria-label="Archivo anterior"
-              className="absolute left-0 z-10 flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
-            >
-              <Icon name="ChevronLeft" size={20} />
-            </button>
+              className="absolute left-0 z-10"
+            />
           )}
           <div className="flex h-full w-full items-center justify-center px-12">
             {!src ? (
@@ -20254,30 +19839,28 @@ const AttachmentLightbox = ({
                     Este tipo de archivo no tiene vista previa. Descárgalo para abrirlo.
                   </p>
                 </div>
-                <button
-                  type="button"
+                <AstryxButton
+                  label="Descargar"
+                  variant="secondary"
                   onClick={() => onDownload(attachment)}
-                  className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-900"
-                >
-                  Descargar
-                </button>
+                />
               </div>
             )}
           </div>
           {total > 1 && (
-            <button
-              type="button"
+            <IconButton
+              label="Archivo siguiente"
+              icon={<Icon name="ChevronRight" size={20} />}
+              variant="ghost"
+              size="lg"
+              tooltip="Archivo siguiente"
               onClick={() => onChangeIndex((index + 1) % total)}
-              aria-label="Archivo siguiente"
-              className="absolute right-0 z-10 flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
-            >
-              <Icon name="ChevronRight" size={20} />
-            </button>
+              className="absolute right-0 z-10"
+            />
           )}
         </div>
       </div>
-    </div>,
-    document.body,
+    </Dialog>
   );
 };
 
@@ -20361,10 +19944,7 @@ const TaskDetailModal = ({
   const [mentionStart, setMentionStart] = useState(-1);
   const [mentionedIds, setMentionedIds] = useState([]);
   const [lightboxIndex, setLightboxIndex] = useState(null);
-  const dialogRef = useDialogA11y(config.isOpen, () => {
-    if (lightboxIndex != null) return;
-    onClose();
-  });
+
   const dialogTitleId = useId();
   const [fullAttachments, setFullAttachments] = useState(null);
   const [clientChatText, setClientChatText] = useState("");
@@ -20862,20 +20442,16 @@ const TaskDetailModal = ({
 
   return (
     <>
-    <div
-      className="modal-scrim task-detail-overlay fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto p-3 md:p-6"
-      onClick={onClose}
+    <Dialog
+      isOpen
+      onOpenChange={(open) => { if (!open) onClose?.(); }}
+      aria-labelledby={dialogTitleId}
+      width="82.5rem"
+      maxHeight="92dvh"
+      padding={0}
     >
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={dialogTitleId}
-        tabIndex={-1}
-        className="task-detail-shell relative flex h-[92dvh] max-h-[860px] w-full max-w-[1320px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-subtle)] shadow-2xl outline-none dark:border-white/10 dark:bg-[var(--surface)]"
-        onClick={function (e) {
-          e.stopPropagation();
-        }}
+        className="task-detail-shell relative flex h-[92dvh] max-h-[860px] w-full flex-col overflow-hidden bg-[var(--surface-subtle)] dark:bg-[var(--surface)]"
         onDragEnter={(event) => {
           if (!canAct || !hasFileDrag(event)) return;
           event.preventDefault();
@@ -20944,30 +20520,35 @@ const TaskDetailModal = ({
           <div className="flex-1" />
           {canAct && (
             <div className="flex items-center gap-2" data-dropdown>
-              <button
+              <AstryxButton
+                label={`Editar ${task.title || "tarea"}`}
+                variant="ghost"
+                size="sm"
                 onClick={() => onEdit(task, type)}
-                aria-label={`Editar ${task.title || "tarea"}`}
                 title="Editar"
-                className="flex min-h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-muted)] dark:border-white/10 dark:bg-[var(--surface-raised)] dark:text-slate-200 dark:hover:border-white/20 dark:hover:bg-[var(--surface-muted)]"
+                className="view-button-content flex min-h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-muted)] dark:border-white/10 dark:bg-[var(--surface-raised)] dark:text-slate-200 dark:hover:border-white/20 dark:hover:bg-[var(--surface-muted)]"
               >
                 <Icon name="Pencil" size={14} />{" "}
                 <span className="hidden sm:inline">Editar</span>
-              </button>
+              </AstryxButton>
               <div className="relative">
-                <button
-                  type="button"
+                <IconButton
+                  label="Más acciones"
+                  icon={<Icon name="MoreHorizontal" size={20} />}
+                  variant="ghost"
+                  size="lg"
+                  tooltip="Más acciones"
                   onClick={() => setActionsOpen((value) => !value)}
-                  aria-label="Más acciones"
                   aria-expanded={actionsOpen}
-                  className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-[var(--border)] bg-white text-slate-500 transition-colors hover:border-[var(--border-strong)] hover:text-slate-800 dark:border-white/10 dark:bg-[var(--surface-raised)] dark:text-slate-400 dark:hover:border-white/20 dark:hover:text-slate-100"
-                >
-                  <Icon name="MoreHorizontal" size={18} />
-                </button>
+                />
                 {actionsOpen && (
                   <div className="absolute right-0 top-full z-30 mt-2 w-52 rounded-xl border border-[var(--border)] bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[var(--surface-raised)]">
                     {onShareTaskToChat && (
-                      <button
-                        type="button"
+                      <AstryxButton
+                        label="Compartir en chat"
+                        variant="ghost"
+                        size="sm"
+                        icon={<Icon name="MessageSquare" size={15} />}
                         onClick={() => {
                           setActionsOpen(false);
                           setShareChatSearch("");
@@ -20975,50 +20556,50 @@ const TaskDetailModal = ({
                           setShareChatOpen(true);
                         }}
                         className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                      >
-                        <Icon name="MessageSquare" size={15} />
-                        Compartir en chat
-                      </button>
+                      />
                     )}
-                    <button
-                      type="button"
+                    <AstryxButton
+                      label="Eliminar tarea"
+                      variant="destructive"
+                      size="sm"
+                      icon={<Icon name="Trash2" size={15} />}
                       onClick={() => {
                         setActionsOpen(false);
                         onDelete(task, type);
                       }}
                       className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
-                    >
-                      <Icon name="Trash2" size={15} />
-                      Eliminar tarea
-                    </button>
+                    />
                   </div>
                 )}
               </div>
             </div>
           )}
           {onShareTaskToChat && (
-            <button
-              type="button"
+            <AstryxButton
+              label="Compartir tarea en un chat"
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 setShareChatSearch("");
                 setShareChatNote("");
                 setShareChatOpen(true);
               }}
-              aria-label="Compartir tarea en un chat"
               title="Compartir en chat"
-              className="flex min-h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-muted)] dark:border-white/10 dark:bg-[var(--surface-raised)] dark:text-slate-200 dark:hover:border-white/20 dark:hover:bg-[var(--surface-muted)]"
+              className="view-button-content flex min-h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-muted)] dark:border-white/10 dark:bg-[var(--surface-raised)] dark:text-slate-200 dark:hover:border-white/20 dark:hover:bg-[var(--surface-muted)]"
             >
               <Icon name="Send" size={14} />
               <span className="hidden sm:inline">Compartir</span>
-            </button>
+            </AstryxButton>
           )}
-          <button
+          <IconButton
+            label="Cerrar modal"
+            icon={<Icon name="X" size={20} />}
+            variant="ghost"
+            size="lg"
+            tooltip="Cerrar modal"
             onClick={onClose}
-            aria-label="Cerrar modal"
-            className="ml-1 flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-transparent text-slate-500 transition-colors hover:border-[var(--border)] hover:bg-white hover:text-slate-800 dark:text-slate-400 dark:hover:border-white/10 dark:hover:bg-[var(--surface-raised)] dark:hover:text-slate-100"
-          >
-            <Icon name="X" size={16} />
-          </button>
+            className="ml-1"
+          />
         </div>
 
         {/* Cuerpo */}
@@ -21040,26 +20621,32 @@ const TaskDetailModal = ({
                 data-dropdown
               >
                 <div className="relative">
-                  <button
+                  <AstryxButton
+                    label={currentStatus?.label || task.status}
+                    variant="ghost"
+                    size="sm"
                     onClick={() => canAct && setStatusOpen((o) => !o)}
-                    className={`flex min-h-10 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold ${STATUS_COLOR_CLASSES[currentStatus?.color || "slate"]} ${canAct ? "cursor-pointer hover:opacity-90" : "cursor-default"} transition-opacity`}
+                    className={`view-button-content flex min-h-10 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold ${STATUS_COLOR_CLASSES[currentStatus?.color || "slate"]} ${canAct ? "cursor-pointer hover:opacity-90" : "cursor-default"} transition-opacity`}
                   >
                     {currentStatus?.label || task.status}
                     {canAct && <Icon name="ChevronDown" size={10} />}
-                  </button>
+                  </AstryxButton>
                   {statusOpen && canAct && (
                     <div
                       className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 py-1 min-w-[180px]"
                       data-dropdown
                     >
                       {statuses.map((s) => (
-                        <button
+                        <AstryxButton
+                          label={s.label}
+                          variant="ghost"
+                          size="sm"
                           key={s.id}
                           onClick={() => {
                             onChangeStatus(task, type, s.id);
                             setStatusOpen(false);
                           }}
-                          className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left ${task.status === s.id ? "text-purple-600 dark:text-purple-400" : "text-slate-700 dark:text-slate-200"}`}
+                          className={`view-button-content w-full flex items-center gap-2.5 px-4 py-2 text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left ${task.status === s.id ? "text-purple-600 dark:text-purple-400" : "text-slate-700 dark:text-slate-200"}`}
                         >
                           <span
                             className={`w-2 h-2 rounded-full bg-${s.color}-500 shrink-0`}
@@ -21072,7 +20659,7 @@ const TaskDetailModal = ({
                               className="ml-auto text-purple-500"
                             />
                           )}
-                        </button>
+                        </AstryxButton>
                       ))}
                     </div>
                   )}
@@ -21140,7 +20727,7 @@ const TaskDetailModal = ({
 
               <nav
                 aria-label="Secciones de la tarea"
-                className="sticky top-0 z-10 mb-5 flex gap-1 border-b border-[var(--border)] bg-[var(--surface-subtle)] backdrop-blur-sm dark:border-white/10 dark:bg-[var(--surface)]"
+                className="sticky top-0 z-10 mb-5 flex gap-1 overflow-x-auto border-b border-[var(--border)] bg-[var(--surface-subtle)] backdrop-blur-sm dark:border-white/10 dark:bg-[var(--surface)]"
               >
                 {[
                   ...(inReview ? [{ id: "task-delivery", label: "Entrega" }] : []),
@@ -21157,14 +20744,14 @@ const TaskDetailModal = ({
                       : `Archivos (${ticketAttachments.filter((att) => taskFileBucket(att) !== "voice").length})`,
                   },
                 ].map((item, index) => (
-                  <button
+                  <AstryxButton
+                    label={item.label}
+                    variant="ghost"
+                    size="sm"
                     key={item.id}
-                    type="button"
                     onClick={() => scrollToTaskSection(item.id)}
-                    className={`relative min-h-11 px-3 text-sm font-semibold transition-colors ${index === 0 ? "text-slate-900 after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-blue-500 dark:text-[var(--text)]" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"}`}
-                  >
-                    {item.label}
-                  </button>
+                    className={`relative min-h-11 shrink-0 px-3 text-sm font-semibold transition-colors ${index === 0 ? "text-slate-900 after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-blue-500 dark:text-[var(--text)]" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"}`}
+                  />
                 ))}
               </nav>
 
@@ -21201,9 +20788,12 @@ const TaskDetailModal = ({
                       <div className="flex flex-wrap gap-2">
                         {type === "editingTask" && canReviewEditedVideo && (
                           <>
-                            <button
-                              type="button"
-                              disabled={reviewingVideo}
+                            <AstryxButton
+                              label="Aprobar"
+                              icon={<Icon name="Check" size={16} />}
+                              variant="primary"
+                              size="sm"
+                              isDisabled={reviewingVideo}
                               onClick={async () => {
                                 setReviewingVideo(true);
                                 try {
@@ -21212,39 +20802,32 @@ const TaskDetailModal = ({
                                   setReviewingVideo(false);
                                 }
                               }}
-                              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
-                            >
-                              <Icon name="Check" size={13} />
-                              Aprobar
-                            </button>
-                            <button
-                              type="button"
+                            />
+                            <AstryxButton
+                              label="Devolver"
+                              icon={<Icon name="X" size={16} />}
+                              variant="secondary"
+                              size="sm"
                               onClick={() => onChangeStatus(task, type, "en_edicion")}
-                              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200"
-                            >
-                              <Icon name="X" size={13} />
-                              Devolver
-                            </button>
+                            />
                           </>
                         )}
                         {type === "accountTask" && canAct && (
                           <>
-                            <button
-                              type="button"
+                            <AstryxButton
+                              label="Aprobar"
+                              icon={<Icon name="Check" size={16} />}
+                              variant="primary"
+                              size="sm"
                               onClick={() => onChangeStatus(task, type, "aprobado_internamente")}
-                              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700"
-                            >
-                              <Icon name="Check" size={13} />
-                              Aprobar
-                            </button>
-                            <button
-                              type="button"
+                            />
+                            <AstryxButton
+                              label="Devolver"
+                              icon={<Icon name="X" size={16} />}
+                              variant="secondary"
+                              size="sm"
                               onClick={() => onChangeStatus(task, type, "por_disenar")}
-                              className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200"
-                            >
-                              <Icon name="X" size={13} />
-                              Devolver
-                            </button>
+                            />
                           </>
                         )}
                       </div>
@@ -21265,8 +20848,11 @@ const TaskDetailModal = ({
                     Descripción
                   </p>
                   {canAct && !recordingVoice && (
-                    <button
-                      type="button"
+                    <AstryxButton
+                      label="Nota de voz"
+                      icon={<Icon name="Microphone" size={16} />}
+                      variant="ghost"
+                      size="sm"
                       onClick={async () => {
                         if (!onAddAttachment) return;
                         const session = await startBrowserVoiceRecording({
@@ -21308,12 +20894,9 @@ const TaskDetailModal = ({
                           setRecordSeconds((value) => value + 1);
                         }, 1000);
                       }}
-                      className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
                       title="Grabar nota de voz"
-                    >
-                      <Icon name="Microphone" size={12} />
-                      Nota de voz
-                    </button>
+                      className="ml-auto"
+                    />
                   )}
                 </div>
                 {task.notes ? (
@@ -21323,9 +20906,12 @@ const TaskDetailModal = ({
                     </p>
                   </div>
                 ) : (
-                  <button
+                  <AstryxButton
+                    label="Adjuntar material"
+                    variant="ghost"
+                    size="sm"
                     onClick={canAct ? () => onEdit(task, type) : undefined}
-                    className={`w-full min-h-[54px] flex items-center gap-2 text-left px-4 py-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/60 text-sm text-slate-500 dark:text-slate-400 hover:border-blue-300 dark:hover:border-blue-600 hover:text-slate-700 dark:hover:text-slate-200 transition-colors ${canAct ? "cursor-pointer" : ""}`}
+                    className={`view-button-content w-full min-h-[54px] flex items-center gap-2 text-left px-4 py-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/60 text-sm text-slate-500 dark:text-slate-400 hover:border-blue-300 dark:hover:border-blue-600 hover:text-slate-700 dark:hover:text-slate-200 transition-colors ${canAct ? "cursor-pointer" : ""}`}
                   >
                     <Icon name="Plus" size={14} className="shrink-0" />
                     <span>
@@ -21336,12 +20922,16 @@ const TaskDetailModal = ({
                         Texto o nota de voz con contexto para el equipo.
                       </span>
                     </span>
-                  </button>
+                  </AstryxButton>
                 )}
                 {recordingVoice && (
                   <div className="mt-3 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 dark:border-red-500/30 dark:bg-red-500/10">
-                    <button
-                      type="button"
+                    <IconButton
+                      label="Cancelar grabación"
+                      icon={<Icon name="Trash2" size={16} />}
+                      variant="ghost"
+                      size="sm"
+                      tooltip="Cancelar grabación"
                       onClick={() => {
                         const active = voiceRecorderRef.current;
                         if (voiceTimerRef.current) {
@@ -21356,17 +20946,17 @@ const TaskDetailModal = ({
                         setRecordingPaused(false);
                         setRecordSeconds(0);
                       }}
-                      className="rounded-lg p-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-500/20"
-                      aria-label="Cancelar grabación"
-                    >
-                      <Icon name="Trash2" size={14} />
-                    </button>
+                    />
                     <span className="inline-flex items-center gap-2 text-sm font-bold text-red-700 dark:text-red-300">
                       <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
                       {formatVoiceDuration(recordSeconds)}
                     </span>
-                    <button
-                      type="button"
+                    <IconButton
+                      label={recordingPaused ? "Continuar" : "Pausar"}
+                      icon={<Icon name={recordingPaused ? "Play" : "PauseCircle"} size={16} />}
+                      variant="ghost"
+                      size="sm"
+                      tooltip={recordingPaused ? "Continuar" : "Pausar"}
                       onClick={() => {
                         const recorder = voiceRecorderRef.current?.recorder;
                         if (!recorder) return;
@@ -21385,13 +20975,11 @@ const TaskDetailModal = ({
                           }, 1000);
                         }
                       }}
-                      className="rounded-lg p-1.5 text-slate-600 hover:bg-white/70 dark:text-slate-200 dark:hover:bg-white/10"
-                      aria-label={recordingPaused ? "Continuar" : "Pausar"}
-                    >
-                      <Icon name={recordingPaused ? "Play" : "PauseCircle"} size={16} />
-                    </button>
-                    <button
-                      type="button"
+                    />
+                    <AstryxButton
+                      label="Guardar"
+                      variant="primary"
+                      size="sm"
                       onClick={() => {
                         const recorder = voiceRecorderRef.current?.recorder;
                         if (!recorder || recorder.state === "inactive") return;
@@ -21401,10 +20989,8 @@ const TaskDetailModal = ({
                         }
                         recorder.stop();
                       }}
-                      className="ml-auto rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white dark:bg-white dark:text-slate-900"
-                    >
-                      Guardar
-                    </button>
+                      className="ml-auto"
+                    />
                   </div>
                 )}
                 {ticketAttachments.some((att) => isImageAttachment(att) || isVideoAttachment(att)) && (
@@ -21415,9 +21001,11 @@ const TaskDetailModal = ({
                         const src = att.data || attachmentUrls[att.id] || "";
                         const bucket = taskFileBucket(att);
                         return (
-                          <button
+                          <AstryxButton
+                            label={att.name || "Ver adjunto"}
+                            variant="ghost"
+                            size="sm"
                             key={att.id}
-                            type="button"
                             onClick={async () => {
                               const nextIndex = ticketAttachments.findIndex((item) => item.id === att.id);
                               if (nextIndex < 0) return;
@@ -21429,7 +21017,7 @@ const TaskDetailModal = ({
                               }
                               setLightboxIndex(nextIndex);
                             }}
-                            className="group relative overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-left dark:border-white/10 dark:bg-slate-900"
+                            className="view-button-content group relative overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-left dark:border-white/10 dark:bg-slate-900"
                             title={att.name || "Previsualización"}
                           >
                             {isImageAttachment(att) && src ? (
@@ -21446,7 +21034,7 @@ const TaskDetailModal = ({
                             <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
                               {bucket === "editor" ? "Editor" : "Material"}
                             </span>
-                          </button>
+                          </AstryxButton>
                         );
                       })}
                   </div>
@@ -21633,19 +21221,13 @@ const TaskDetailModal = ({
                         rows={2}
                         className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 dark:border-white/10 dark:bg-[var(--surface)] dark:text-slate-100"
                       />
-                      <button
-                        type="button"
+                      <AstryxButton
+                        label="Agregar estado"
+                        icon={<Icon name={savingDevStatus ? "Loader2" : "Plus"} className={savingDevStatus ? "animate-spin" : ""} size={16} />}
+                        variant="primary"
                         onClick={handleAddDevStatus}
-                        disabled={!devStatusLabel.trim() || savingDevStatus}
-                        className="flex min-h-10 items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        <Icon
-                          name={savingDevStatus ? "Loader2" : "Plus"}
-                          size={13}
-                          className={savingDevStatus ? "animate-spin" : ""}
-                        />
-                        Agregar estado
-                      </button>
+                        isDisabled={!devStatusLabel.trim() || savingDevStatus}
+                      />
                     </div>
                   ) : null}
                 </section>
@@ -21724,10 +21306,12 @@ const TaskDetailModal = ({
                           key={item.id}
                           className="group flex min-h-11 items-center gap-3 rounded-lg border border-transparent px-3 py-2 transition-colors hover:border-[var(--border)] hover:bg-[var(--surface-subtle)] dark:hover:border-white/10 dark:hover:bg-[var(--surface-muted)]"
                         >
-                          <button
+                          <AstryxButton
+                            label={item.done ? `Marcar ${item.text} como pendiente` : `Completar ${item.text}`}
+                            variant="ghost"
+                            size="sm"
                             onClick={() => toggleItem(item.id)}
-                            aria-label={item.done ? `Marcar ${item.text} como pendiente` : `Completar ${item.text}`}
-                            className={`flex h-6 min-h-0 w-6 min-w-0 shrink-0 items-center justify-center rounded-md border-2 transition-all ${item.done ? "border-emerald-500 bg-emerald-500" : "border-slate-300 hover:border-emerald-400 dark:border-slate-600"}`}
+                            className={`view-button-content flex h-6 min-h-0 w-6 min-w-0 shrink-0 items-center justify-center rounded-md border-2 transition-all ${item.done ? "border-emerald-500 bg-emerald-500" : "border-slate-300 hover:border-emerald-400 dark:border-slate-600"}`}
                           >
                             {item.done && (
                               <Icon
@@ -21736,19 +21320,21 @@ const TaskDetailModal = ({
                                 className="text-white"
                               />
                             )}
-                          </button>
+                          </AstryxButton>
                           <span
                             className={`flex-1 text-sm ${item.done ? "line-through text-slate-500" : "text-slate-700 dark:text-slate-200"}`}
                           >
                             {item.text}
                           </span>
-                          <button
+                          <IconButton
+                            label={`Eliminar ${item.text}`}
+                            icon={<Icon name="X" size={16} />}
+                            variant="ghost"
+                            size="sm"
+                            tooltip={`Eliminar ${item.text}`}
                             onClick={() => deleteItem(item.id)}
-                            aria-label={`Eliminar ${item.text}`}
-                            className="flex h-9 min-h-0 w-9 min-w-0 items-center justify-center rounded-lg text-slate-500 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-red-500/10"
-                          >
-                            <Icon name="X" size={12} />
-                          </button>
+                            className="opacity-0 focus:opacity-100 group-hover:opacity-100"
+                          />
                         </div>
                       ))}
                     </div>
@@ -21769,23 +21355,27 @@ const TaskDetailModal = ({
                           placeholder="Nombre del elemento... (Enter para guardar)"
                           className="flex-1 text-sm bg-transparent outline-none text-slate-700 dark:text-slate-200 placeholder-slate-400"
                         />
-                        <button
+                        <IconButton
+                          label="Cancelar elemento"
+                          variant="ghost"
+                          size="sm"
+                          icon={<Icon name="X" size={13} />}
                           onClick={() => {
                             setAddingCheck(false);
                             setNewCheckItem("");
                           }}
                           className="text-slate-500 hover:text-slate-600 transition-colors"
-                        >
-                          <Icon name="X" size={13} />
-                        </button>
+                        />
                       </div>
                     ) : (
-                      <button
+                      <AstryxButton
+                        label="Agregar elemento"
+                        variant="ghost"
+                        size="sm"
+                        icon={<Icon name="Plus" size={13} />}
                         onClick={() => canAct && setAddingCheck(true)}
                         className={`mt-3 flex min-h-11 w-full items-center gap-2 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface-subtle)] px-4 py-2 text-sm text-slate-500 transition-colors hover:border-[var(--border-strong)] hover:text-slate-700 dark:border-white/15 dark:bg-[var(--surface)] dark:hover:border-white/25 dark:hover:text-slate-200 ${!canAct ? "cursor-default opacity-40" : ""}`}
-                      >
-                        <Icon name="Plus" size={13} /> Agregar elemento
-                      </button>
+                      />
                     )}
                   </section>
                 );
@@ -21933,15 +21523,15 @@ const TaskDetailModal = ({
                           </p>
                           <span className="text-xs text-slate-500">{group.files.length}</span>
                           {group.canUpload && (
-                            <button
-                              type="button"
+                            <AstryxButton
+                              label={uploadingFile ? "Subiendo..." : "Subir"}
+                              icon={<Icon name={uploadingFile ? "Loader2" : "Plus"} className={uploadingFile ? "animate-spin" : ""} size={16} />}
+                              variant="secondary"
+                              size="sm"
                               onClick={() => openFilePicker(group.role)}
-                              disabled={uploadingFile}
-                              className="ml-auto flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                            >
-                              <Icon name={uploadingFile ? "Loader2" : "Plus"} size={11} className={uploadingFile ? "animate-spin" : ""} />
-                              {uploadingFile ? "Subiendo..." : "Subir"}
-                            </button>
+                              isDisabled={uploadingFile}
+                              className="ml-auto"
+                            />
                           )}
                         </div>
                         {group.hint ? (
@@ -21965,32 +21555,34 @@ const TaskDetailModal = ({
                                   compact
                                 />
                                 <div className="flex items-center justify-end gap-1">
-                                  <button
-                                    type="button"
+                                  <IconButton
+                                    label="Descargar"
+                                    icon={<Icon name="ArrowRight" size={16} />}
+                                    variant="ghost"
+                                    size="sm"
+                                    tooltip="Descargar"
                                     onClick={() => openAttachment(att, true)}
-                                    title="Descargar"
-                                    className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
-                                  >
-                                    <Icon name="ArrowRight" size={13} />
-                                  </button>
+                                  />
                                   {(canAct || (taskFileBucket(att) === "editor" && canUploadEditedVideo)) && (
-                                    <button
-                                      type="button"
+                                    <IconButton
+                                      label="Eliminar"
+                                      icon={<Icon name="X" size={16} />}
+                                      variant="ghost"
+                                      size="sm"
+                                      tooltip="Eliminar"
                                       onClick={() => onRemoveAttachment(task, type, att.id)}
-                                      title="Eliminar"
-                                      className="rounded-lg p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
-                                    >
-                                      <Icon name="X" size={13} />
-                                    </button>
+                                    />
                                   )}
                                 </div>
                               </div>
                             ) : (
                             <div className="flex items-center gap-3">
-                            <button
-                              type="button"
+                            <AstryxButton
+                              label={att.name || "Ver adjunto"}
+                              variant="ghost"
+                              size="sm"
                               onClick={() => openLightbox(att)}
-                              className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+                              className="view-button-content shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
                               title="Ver archivo"
                             >
                             {isImageAttachment(att) && previewUrl(att) ? (
@@ -22014,11 +21606,13 @@ const TaskDetailModal = ({
                                 />
                               </div>
                             )}
-                            </button>
-                            <button
-                              type="button"
+                            </AstryxButton>
+                            <AstryxButton
+                              label={att.name || "Ver adjunto"}
+                              variant="ghost"
+                              size="sm"
                               onClick={() => openLightbox(att)}
-                              className="min-w-0 flex-1 text-left"
+                              className="view-button-content min-w-0 flex-1 text-left"
                             >
                               <p className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
                                 {att.name}
@@ -22027,40 +21621,44 @@ const TaskDetailModal = ({
                                 {formatFileSize(att.size)} · {att.uploadedBy} ·{" "}
                                 {relativeTime(att.uploadedAt)}
                               </p>
-                            </button>
+                            </AstryxButton>
                             <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                              <button
-                                type="button"
+                              <IconButton
+                                label="Vista previa"
+                                icon={<Icon name="Eye" size={16} />}
+                                variant="ghost"
+                                size="sm"
+                                tooltip="Vista previa"
                                 onClick={() => openLightbox(att)}
-                                title="Vista previa"
-                                className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                              >
-                                <Icon name="Eye" size={13} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => openAttachment(att, true)}
-                                title={
+                              />
+                              <IconButton
+                                label={
                                   isLoadingData(att)
                                     ? "Cargando adjunto..."
                                     : "Descargar"
                                 }
-                                disabled={isLoadingData(att)}
-                                className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-40 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                              >
-                                <Icon name="ArrowRight" size={13} />
-                              </button>
+                                icon={<Icon name="ArrowRight" size={16} />}
+                                variant="ghost"
+                                size="sm"
+                                tooltip={
+                                  isLoadingData(att)
+                                    ? "Cargando adjunto..."
+                                    : "Descargar"
+                                }
+                                onClick={() => openAttachment(att, true)}
+                                isDisabled={isLoadingData(att)}
+                              />
                               {(canAct || (taskFileBucket(att) === "editor" && canUploadEditedVideo)) && (
-                                <button
-                                  type="button"
+                                <IconButton
+                                  label="Eliminar"
+                                  icon={<Icon name="X" size={16} />}
+                                  variant="ghost"
+                                  size="sm"
+                                  tooltip="Eliminar"
                                   onClick={() =>
                                     onRemoveAttachment(task, type, att.id)
                                   }
-                                  title="Eliminar"
-                                  className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
-                                >
-                                  <Icon name="X" size={13} />
-                                </button>
+                                />
                               )}
                             </div>
                             </div>
@@ -22069,10 +21667,12 @@ const TaskDetailModal = ({
                         ))}
                       </div>
                         ) : (
-                      <button
-                        type="button"
+                      <AstryxButton
+                        label="Adjuntar archivo"
+                        variant="ghost"
+                        size="sm"
                         onClick={() => group.canUpload && openFilePicker(group.role)}
-                        className={`flex min-h-[76px] w-full items-center justify-center gap-3 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface-subtle)] px-4 py-3 text-sm text-slate-500 transition-colors hover:border-blue-400 hover:text-slate-700 dark:border-white/15 dark:bg-[var(--surface)] dark:hover:border-blue-500/60 dark:hover:text-slate-200 ${!group.canUpload ? "cursor-default opacity-40" : ""}`}
+                        className={`view-button-content flex min-h-[76px] w-full items-center justify-center gap-3 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface-subtle)] px-4 py-3 text-sm text-slate-500 transition-colors hover:border-blue-400 hover:text-slate-700 dark:border-white/15 dark:bg-[var(--surface)] dark:hover:border-blue-500/60 dark:hover:text-slate-200 ${!group.canUpload ? "cursor-default opacity-40" : ""}`}
                       >
                         <Icon name="Paperclip" size={16} />
                         <span className="text-left">
@@ -22083,7 +21683,7 @@ const TaskDetailModal = ({
                             Hasta {limitLabel} por archivo{retentionLabel}
                           </span>
                         </span>
-                      </button>
+                      </AstryxButton>
                         )}
                       </div>
                     ))}
@@ -22108,12 +21708,13 @@ const TaskDetailModal = ({
                     </span>
                   )}
                   {task.clientId && onOpenClientChat && (
-                    <button
+                    <AstryxButton
+                      label="Abrir chat completo"
+                      variant="ghost"
+                      size="sm"
                       onClick={() => onOpenClientChat(task.clientId)}
-                      className="ml-auto shrink-0 text-[11px] font-bold text-blue-600 hover:underline dark:text-blue-400"
-                    >
-                      Abrir chat completo
-                    </button>
+                      className="ml-auto shrink-0"
+                    />
                   )}
                 </div>
 
@@ -22148,12 +21749,12 @@ const TaskDetailModal = ({
                           </div>
                         ))}
                         {taskChatMessages.length > 4 && onOpenClientChat && (
-                          <button
+                          <AstryxButton
+                            label={`Ver los ${taskChatMessages.length} mensajes en el chat`}
+                            variant="ghost"
+                            size="sm"
                             onClick={() => onOpenClientChat(task.clientId)}
-                            className="text-[11px] font-bold text-blue-600 hover:underline dark:text-blue-400"
-                          >
-                            Ver los {taskChatMessages.length} mensajes en el chat
-                          </button>
+                          />
                         )}
                       </div>
                     )}
@@ -22171,18 +21772,15 @@ const TaskDetailModal = ({
                         rows={1}
                         className="min-h-[42px] flex-1 resize-none rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-500/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                       />
-                      <button
+                      <AstryxButton
+                        label="Enviar"
+                        icon={<Icon name={sendingClientChat ? "Loader2" : "Send"} className={sendingClientChat ? "animate-spin" : ""} size={16} />}
+                        variant="primary"
+                        size="sm"
                         onClick={handleSendClientChat}
-                        disabled={sendingClientChat || !clientChatText.trim()}
-                        className="flex h-[42px] shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        <Icon
-                          name={sendingClientChat ? "Loader2" : "Send"}
-                          size={13}
-                          className={sendingClientChat ? "animate-spin" : ""}
-                        />
-                        Enviar
-                      </button>
+                        isDisabled={sendingClientChat || !clientChatText.trim()}
+                        className="shrink-0"
+                      />
                     </div>
                     <p className="mt-1.5 text-[11px] text-slate-400">
                       Se publicará en el chat de {client?.name || "el cliente"} con
@@ -22246,13 +21844,17 @@ const TaskDetailModal = ({
                           Mencionar
                         </p>
                         {mentionSuggestions.map((p) => (
-                          <button
+                          <AstryxButton
+                            label={p.name}
+                            variant="ghost"
+                            size="sm"
                             key={p.id}
-                            onMouseDown={(e) => {
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={(e) => {
                               e.preventDefault();
                               insertMention(p);
                             }}
-                            className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                            className="view-button-content w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                           >
                             <div className="w-6 h-6 rounded-full bg-[var(--text-muted)] flex items-center justify-center text-white font-black text-[9px] shrink-0">
                               {p.name.slice(0, 2).toUpperCase()}
@@ -22260,28 +21862,20 @@ const TaskDetailModal = ({
                             <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex-1 text-left">
                               {p.name}
                             </span>
-                          </button>
+                          </AstryxButton>
                         ))}
                       </div>
                     )}
                     {commentText.trim() && (
                       <div className="flex justify-end mt-2">
-                        <button
+                        <AstryxButton
+                          label={submitting ? "Enviando..." : "Comentar"}
+                          icon={submitting ? <Icon name="Loader2" className="animate-spin" size={16} /> : <Icon name="Send" size={16} />}
+                          variant="primary"
+                          size="sm"
                           onClick={handleSubmitComment}
-                          disabled={submitting}
-                          className="flex min-h-10 items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-bold text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
-                        >
-                          {submitting ? (
-                            <Icon
-                              name="Loader2"
-                              size={12}
-                              className="animate-spin"
-                            />
-                          ) : (
-                            <Icon name="Send" size={12} />
-                          )}
-                          {submitting ? "Enviando..." : "Comentar"}
-                        </button>
+                          isDisabled={submitting}
+                        />
                       </div>
                     )}
                   </div>
@@ -22394,7 +21988,11 @@ const TaskDetailModal = ({
                             {person.name.split(" ")[0]}
                           </span>
                           {canAssign && (
-                            <button
+                            <IconButton
+                              label="Quitar responsable"
+                              variant="ghost"
+                              size="sm"
+                              icon={<Icon name="X" size={9} />}
                               onClick={() =>
                                 onChangeAssignees(
                                   task,
@@ -22403,9 +22001,7 @@ const TaskDetailModal = ({
                                 )
                               }
                               className="ml-0.5 text-slate-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                            >
-                              <Icon name="X" size={9} />
-                            </button>
+                            />
                           )}
                         </div>
                       );
@@ -22416,13 +22012,15 @@ const TaskDetailModal = ({
                     </span>
                   )}
                   {canAssign && (
-                    <button
+                    <IconButton
+                      label="Cambiar responsable"
+                      icon={<Icon name="Plus" size={16} />}
+                      variant="ghost"
+                      size="sm"
+                      tooltip="Cambiar responsable"
                       onClick={() => setAssigneeOpen((o) => !o)}
-                      aria-label="Cambiar responsable"
-                      className="flex h-10 min-h-0 w-10 min-w-0 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-500 transition-colors hover:border-blue-400 hover:text-blue-500 dark:border-slate-600"
-                    >
-                      <Icon name="Plus" size={12} />
-                    </button>
+                      className="shrink-0"
+                    />
                   )}
                 </div>
                 {assigneeOpen && canAssign && (
@@ -22436,7 +22034,10 @@ const TaskDetailModal = ({
                     {activePeoplePool.map((p) => {
                       const isChecked = currentAssigneeIds.includes(p.id);
                       return (
-                        <button
+                        <AstryxButton
+                          label={p.name}
+                          variant="ghost"
+                          size="sm"
                           key={p.id}
                           onClick={() => {
                             const newIds = isChecked
@@ -22458,7 +22059,7 @@ const TaskDetailModal = ({
                                 });
                             }
                           }}
-                          className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                          className="view-button-content w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                         >
                           <div
                             className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${isChecked ? "bg-purple-500 border-purple-500" : "border-slate-300 dark:border-slate-600"}`}
@@ -22479,19 +22080,21 @@ const TaskDetailModal = ({
                           >
                             {p.name}
                           </span>
-                        </button>
+                        </AstryxButton>
                       );
                     })}
                     {currentAssigneeIds.length > 0 && (
-                      <button
+                      <AstryxButton
+                        label="Quitar todos"
+                        icon={<Icon name="UserX" size={16} />}
+                        variant="secondary"
+                        width="100%"
                         onClick={() => {
                           onChangeAssignees(task, type, []);
                           setAssigneeOpen(false);
                         }}
-                        className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-t border-slate-100 dark:border-slate-700 mt-1"
-                      >
-                        <Icon name="UserX" size={13} /> Quitar todos
-                      </button>
+                        className="mt-1"
+                      />
                     )}
                   </div>
                 )}
@@ -22513,28 +22116,30 @@ const TaskDetailModal = ({
                           {accountAssignee.name.split(" ")[0]}
                         </span>
                         {canAssign && onChangeAccount && (
-                          <button
-                            type="button"
+                          <IconButton
+                            label="Quitar account"
+                            icon={<Icon name="X" size={16} />}
+                            variant="ghost"
+                            size="sm"
+                            tooltip="Quitar account"
                             onClick={() => onChangeAccount(task, type, "")}
-                            className="ml-0.5 text-slate-500 opacity-0 transition-colors hover:text-red-400 group-hover:opacity-100"
-                            aria-label="Quitar account"
-                          >
-                            <Icon name="X" size={9} />
-                          </button>
+                            className="ml-0.5 opacity-0 group-hover:opacity-100"
+                          />
                         )}
                       </div>
                     ) : (
                       <span className="text-sm italic text-slate-500">Sin account</span>
                     )}
                     {canAssign && onChangeAccount && (
-                      <button
-                        type="button"
+                      <IconButton
+                        label="Cambiar account"
+                        icon={<Icon name="Plus" size={16} />}
+                        variant="ghost"
+                        size="sm"
+                        tooltip="Cambiar account"
                         onClick={() => setAccountOpen((open) => !open)}
-                        aria-label="Cambiar account"
-                        className="flex h-10 min-h-0 w-10 min-w-0 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-500 transition-colors hover:border-blue-400 hover:text-blue-500 dark:border-slate-600"
-                      >
-                        <Icon name="Plus" size={12} />
-                      </button>
+                        className="shrink-0"
+                      />
                     )}
                   </div>
                   {accountOpen && canAssign && onChangeAccount && (
@@ -22545,25 +22150,27 @@ const TaskDetailModal = ({
                       <p className="sticky top-0 bg-white px-4 pb-1 pt-2 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:bg-slate-800">
                         Account revisor
                       </p>
-                      <button
-                        type="button"
+                      <AstryxButton
+                        label="Sin account"
+                        variant="ghost"
+                        size="sm"
                         onClick={() => {
                           onChangeAccount(task, type, "");
                           setAccountOpen(false);
                         }}
                         className="w-full px-4 py-2 text-left text-sm font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"
-                      >
-                        Sin account
-                      </button>
+                      />
                       {accountPool.map((person) => (
-                        <button
+                        <AstryxButton
+                          label={person.name}
+                          variant="ghost"
+                          size="sm"
                           key={person.id}
-                          type="button"
                           onClick={() => {
                             onChangeAccount(task, type, person.id);
                             setAccountOpen(false);
                           }}
-                          className="flex w-full items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700"
+                          className="view-button-content flex w-full items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700"
                         >
                           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-[9px] font-black text-white">
                             {person.name.slice(0, 2).toUpperCase()}
@@ -22577,7 +22184,7 @@ const TaskDetailModal = ({
                           >
                             {person.name}
                           </span>
-                        </button>
+                        </AstryxButton>
                       ))}
                     </div>
                   )}
@@ -22590,9 +22197,12 @@ const TaskDetailModal = ({
                   <Icon name="Flag" size={14} />
                   Prioridad
                 </p>
-                <button
+                <AstryxButton
+                  label={currentPriority?.label || "Prioridad"}
+                  variant="ghost"
+                  size="sm"
                   onClick={() => canAct && setPriorityOpen((o) => !o)}
-                  className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-2 py-1.5 ${canAct ? "cursor-pointer hover:bg-[var(--surface-subtle)] dark:hover:bg-[var(--surface-muted)]" : "cursor-default"} transition-colors`}
+                  className={`view-button-content flex min-h-11 w-full items-center gap-2 rounded-lg px-2 py-1.5 ${canAct ? "cursor-pointer hover:bg-[var(--surface-subtle)] dark:hover:bg-[var(--surface-muted)]" : "cursor-default"} transition-colors`}
                 >
                   <FlagIcon
                     color={currentPriority?.iconColor || "var(--text-faint)"}
@@ -22603,7 +22213,7 @@ const TaskDetailModal = ({
                   >
                     {currentPriority?.label || "Sin prioridad"}
                   </span>
-                </button>
+                </AstryxButton>
                 {priorityOpen && canAct && (
                   <div
                     className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 py-1 w-44"
@@ -22613,13 +22223,16 @@ const TaskDetailModal = ({
                       Prioridad
                     </p>
                     {PRIORITIES.map((p) => (
-                      <button
+                      <AstryxButton
+                        label={p.label}
+                        variant="ghost"
+                        size="sm"
                         key={p.id}
                         onClick={() => {
                           onChangePriority(task, type, p.id);
                           setPriorityOpen(false);
                         }}
-                        className={`w-full flex items-center gap-3 px-4 py-2 text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left ${p.color}`}
+                        className={`view-button-content w-full flex items-center gap-3 px-4 py-2 text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left ${p.color}`}
                       >
                         <FlagIcon color={p.iconColor} filled size={14} />
                         {p.label}
@@ -22630,18 +22243,20 @@ const TaskDetailModal = ({
                             className="ml-auto text-slate-500"
                           />
                         )}
-                      </button>
+                      </AstryxButton>
                     ))}
                     {task.priority && (
-                      <button
+                      <AstryxButton
+                        label="Quitar prioridad"
+                        icon={<Icon name="X" size={16} />}
+                        variant="secondary"
+                        width="100%"
                         onClick={() => {
                           onChangePriority(task, type, null);
                           setPriorityOpen(false);
                         }}
-                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-t border-slate-100 dark:border-slate-700 mt-1"
-                      >
-                        <Icon name="X" size={12} /> Quitar prioridad
-                      </button>
+                        className="mt-1"
+                      />
                     )}
                   </div>
                 )}
@@ -22725,9 +22340,12 @@ const TaskDetailModal = ({
                       </div>
                       {canReviewEditedVideo && (
                         <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={reviewingVideo}
+                          <AstryxButton
+                            label="Aprobar video"
+                            icon={<Icon name="Check" size={16} />}
+                            variant="primary"
+                            size="sm"
+                            isDisabled={reviewingVideo}
                             onClick={async () => {
                               setReviewingVideo(true);
                               try {
@@ -22736,14 +22354,13 @@ const TaskDetailModal = ({
                                 setReviewingVideo(false);
                               }
                             }}
-                            className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
-                          >
-                            <Icon name="Check" size={13} />
-                            Aprobar video
-                          </button>
-                          <button
-                            type="button"
-                            disabled={reviewingVideo}
+                          />
+                          <AstryxButton
+                            label="Rechazar"
+                            icon={<Icon name="X" size={16} />}
+                            variant="secondary"
+                            size="sm"
+                            isDisabled={reviewingVideo}
                             onClick={async () => {
                               setReviewingVideo(true);
                               try {
@@ -22752,11 +22369,7 @@ const TaskDetailModal = ({
                                 setReviewingVideo(false);
                               }
                             }}
-                            className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
-                          >
-                            <Icon name="X" size={13} />
-                            Rechazar
-                          </button>
+                          />
                         </div>
                       )}
                       {task.status === "aprobado" && (
@@ -22794,15 +22407,14 @@ const TaskDetailModal = ({
                               }
                             }}
                           />
-                          <button
-                            type="button"
-                            disabled={uploadingEditedVideo}
+                          <AstryxButton
+                            label={uploadingEditedVideo ? "Subiendo…" : "Subir video editado"}
+                            icon={<Icon name={uploadingEditedVideo ? "Loader2" : "Video"} className={uploadingEditedVideo ? "animate-spin" : ""} size={16} />}
+                            variant="secondary"
+                            size="sm"
+                            isDisabled={uploadingEditedVideo}
                             onClick={() => editedVideoInputRef.current?.click()}
-                            className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-dashed border-amber-300 bg-amber-50 px-4 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
-                          >
-                            <Icon name={uploadingEditedVideo ? "Loader2" : "Video"} size={13} className={uploadingEditedVideo ? "animate-spin" : ""} />
-                            {uploadingEditedVideo ? "Subiendo…" : "Subir video editado"}
-                          </button>
+                          />
                         </>
                       )}
                     </div>
@@ -22836,22 +22448,14 @@ const TaskDetailModal = ({
                       <span className="text-2xl font-semibold tabular-nums text-red-500 dark:text-red-400">
                         {formatClockDuration(timerElapsed)}
                       </span>
-                      <button
+                      <AstryxButton
+                        label={savingTime ? "..." : "Detener"}
+                        icon={savingTime ? <Icon name="Loader2" className="animate-spin" size={16} /> : <Icon name="Square" size={16} />}
+                        variant="secondary"
+                        size="sm"
                         onClick={handleStopTimer}
-                        disabled={savingTime}
-                        className="flex min-h-10 items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 disabled:opacity-60 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"
-                      >
-                        {savingTime ? (
-                          <Icon
-                            name="Loader2"
-                            size={10}
-                            className="animate-spin"
-                          />
-                        ) : (
-                          <Icon name="Square" size={10} />
-                        )}
-                        {savingTime ? "..." : "Detener"}
-                      </button>
+                        isDisabled={savingTime}
+                      />
                     </>
                   ) : (
                     <>
@@ -22861,15 +22465,16 @@ const TaskDetailModal = ({
                         {formatClockDuration(totalLoggedMs)}
                       </span>
                       {canAct && (
-                        <button
+                        <AstryxButton
+                          label="Iniciar"
+                          icon={<Icon name="Play" size={20} />}
+                          variant="secondary"
+                          size="lg"
                           onClick={() => {
                             setTimerElapsed(0);
                             setTimerRunning(true);
                           }}
-                          className="flex min-h-11 items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-6 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
-                        >
-                          <Icon name="Play" size={10} /> Iniciar
-                        </button>
+                        />
                       )}
                     </>
                   )}
@@ -22931,7 +22536,7 @@ const TaskDetailModal = ({
           </aside>
         </div>
       </div>
-    </div>
+    </Dialog>
     <AttachmentLightbox
       attachments={ticketAttachments}
       index={lightboxIndex != null && !ticketAttachments[lightboxIndex] ? null : lightboxIndex}
@@ -22940,15 +22545,17 @@ const TaskDetailModal = ({
       onChangeIndex={setLightboxIndex}
       onDownload={downloadTicketAttachment}
     />
-    {shareChatOpen &&
-      createPortal(
-        <div
-          className="modal-scrim fixed inset-0 z-[120] flex items-center justify-center p-4"
-          onClick={() => !sharingTask && setShareChatOpen(false)}
-        >
+    {shareChatOpen && (
+      <Dialog
+        isOpen
+        onOpenChange={(open) => { if (!open && !sharingTask) setShareChatOpen(false); }}
+        aria-label="Compartir tarea en chat"
+        width="28rem"
+        maxHeight="90dvh"
+        padding={0}
+      >
           <div
-            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-            onClick={(event) => event.stopPropagation()}
+            className="w-full p-5"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -22959,14 +22566,13 @@ const TaskDetailModal = ({
                   Envía “{task.title || "Tarea"}” a un cliente, grupo o mensaje directo.
                 </p>
               </div>
-              <button
-                type="button"
+              <IconButton
+                label="Cerrar"
+                icon={<Icon name="X" size={16} />}
+                variant="ghost"
+                tooltip="Cerrar"
                 onClick={() => setShareChatOpen(false)}
-                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                aria-label="Cerrar"
-              >
-                <Icon name="X" size={16} />
-              </button>
+              />
             </div>
             <input
               value={shareChatSearch}
@@ -22988,12 +22594,14 @@ const TaskDetailModal = ({
                 </p>
               ) : (
                 filteredShareTargets.map((target) => (
-                  <button
+                  <AstryxButton
+                    label={target.label || target.name}
+                    variant="ghost"
+                    size="sm"
                     key={`${target.kind}-${target.id}`}
-                    type="button"
-                    disabled={sharingTask}
+                    isDisabled={sharingTask}
                     onClick={() => handleShareTaskToChat(target)}
-                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 disabled:opacity-50 dark:hover:bg-slate-800"
+                    className="view-button-content flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 disabled:opacity-50 dark:hover:bg-slate-800"
                   >
                     <span
                       className="flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-black text-white"
@@ -23020,13 +22628,12 @@ const TaskDetailModal = ({
                       </small>
                     </span>
                     <Icon name="Send" size={14} className="text-slate-400" />
-                  </button>
+                  </AstryxButton>
                 ))
               )}
             </div>
           </div>
-        </div>,
-        document.body,
+        </Dialog>
       )}
     </>
   );
@@ -23044,7 +22651,7 @@ const DayDetailsModal = ({
   onEdit,
   onDelete,
 }) => {
-  const dialogRef = useDialogA11y(config.isOpen, onClose);
+
   const dialogTitleId = useId();
   if (!config.isOpen) return null;
   const dayActivities = activities.filter((a) => a.date === config.date);
@@ -23070,18 +22677,16 @@ const DayDetailsModal = ({
   }
 
   return (
-    <div
-      className="modal-scrim fixed inset-0 z-[80] flex items-center justify-center p-4"
-      onClick={onClose}
+    <Dialog
+      isOpen
+      onOpenChange={(open) => { if (!open) onClose?.(); }}
+      aria-labelledby={dialogTitleId}
+      width="32rem"
+      maxHeight="90dvh"
+      padding={0}
     >
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={dialogTitleId}
-        tabIndex={-1}
-        className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800 outline-none"
-        onClick={(e) => e.stopPropagation()}
+        className="w-full overflow-hidden max-h-[90vh] flex flex-col"
       >
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950 shrink-0">
           <div>
@@ -23095,13 +22700,13 @@ const DayDetailsModal = ({
               Detalle de Actividades
             </p>
           </div>
-          <button
+          <IconButton
+            label="Cerrar modal"
+            icon={<Icon name="X" size={16} />}
+            variant="ghost"
+            tooltip="Cerrar modal"
             onClick={onClose}
-            aria-label="Cerrar modal"
-            className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full text-slate-500 dark:text-slate-400"
-          >
-            <Icon name="X" size={20} />
-          </button>
+          />
         </div>
         <div className="p-6 overflow-y-auto custom-scroll space-y-3">
           {dayActivities.length === 0 ? (
@@ -23175,26 +22780,26 @@ const DayDetailsModal = ({
                   </div>
                   {canEditActivity(act.collectionType) && (
                     <div className="flex items-center gap-1 opacity-100 md:opacity-60 md:hover:opacity-100 transition-opacity">
-                      <button
+                      <IconButton
+                        label="Editar"
+                        icon={<Icon name="Edit" size={16} />}
+                        variant="ghost"
+                        tooltip="Editar"
                         onClick={() => {
                           onClose();
                           onEdit(act, act.collectionType);
                         }}
-                        className="p-2 text-slate-500 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                        title="Editar"
-                      >
-                        <Icon name="Edit" size={18} />
-                      </button>
-                      <button
+                      />
+                      <IconButton
+                        label="Eliminar"
+                        icon={<Icon name="Trash2" size={16} />}
+                        variant="ghost"
+                        tooltip="Eliminar"
                         onClick={() => {
                           onClose();
                           onDelete(act, act.collectionType);
                         }}
-                        className="p-2 text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                        title="Eliminar"
-                      >
-                        <Icon name="Trash2" size={18} />
-                      </button>
+                      />
                     </div>
                   )}
                 </div>
@@ -23203,7 +22808,7 @@ const DayDetailsModal = ({
           )}
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 };
 
@@ -23221,7 +22826,7 @@ const CreateTaskModal = ({
   const isTaskDialogOpen =
     config.isOpen &&
     ["accountTask", "editingTask", "managementTask"].includes(type);
-  const dialogRef = useDialogA11y(isTaskDialogOpen, onClose);
+
   const dialogTitleId = useId();
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
@@ -23519,12 +23124,14 @@ const CreateTaskModal = ({
   );
 
   const Chip = ({ icon, label, active, color, onClick, children, disabled }) => (
-    <button
-      type="button"
-      disabled={disabled}
+    <AstryxButton
+      label={label}
+      variant="ghost"
+      size="sm"
+      isDisabled={disabled}
       title={disabled ? "No tienes permiso para cambiar esto" : undefined}
       onClick={disabled ? undefined : onClick}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors
+      className={`view-button-content flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors
                 ${
                   active
                     ? "border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300"
@@ -23533,7 +23140,7 @@ const CreateTaskModal = ({
     >
       {icon && <Icon name={icon} size={11} />}
       {children || label}
-    </button>
+    </AstryxButton>
   );
 
   const formatCreateFileSize = (bytes) => {
@@ -23791,18 +23398,17 @@ const CreateTaskModal = ({
       : "";
 
   return (
-    <div
-      className="modal-scrim fixed inset-0 z-[90] flex items-start justify-center pt-12 pb-8 px-4"
-      onClick={onClose}
+    <Dialog
+      isOpen
+      onOpenChange={(open) => { if (!open) onClose?.(); }}
+      aria-labelledby={dialogTitleId}
+      width="42rem"
+      maxHeight="90dvh"
+      padding={0}
+      purpose="form"
     >
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={dialogTitleId}
-        tabIndex={-1}
         className={`bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl border flex flex-col overflow-visible outline-none ${fileOver ? "border-blue-400 dark:border-blue-500" : "border-slate-200 dark:border-slate-800"}`}
-        onClick={(e) => e.stopPropagation()}
         onDragEnter={(event) => {
           if (!hasFileDrag(event)) return;
           event.preventDefault();
@@ -23845,13 +23451,14 @@ const CreateTaskModal = ({
             </span>
           )}
           <div className="flex-1" />
-          <button
+          <IconButton
+            label="Cerrar modal"
+            icon={<Icon name="X" size={16} />}
+            variant="ghost"
+            size="sm"
+            tooltip="Cerrar modal"
             onClick={onClose}
-            aria-label="Cerrar modal"
-            className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          >
-            <Icon name="X" size={15} />
-          </button>
+          />
         </div>
 
         {/* Title input */}
@@ -23872,18 +23479,21 @@ const CreateTaskModal = ({
         <div className="px-6 pb-4">
           <div className="mb-2 flex items-center gap-2">
             {showDesc ? null : (
-              <button
-                type="button"
+              <AstryxButton
+                label="Agregar descripción"
+                icon={<Icon name="AlignLeft" size={16} />}
+                variant="ghost"
+                size="sm"
                 onClick={() => setShowDesc(true)}
-                className="flex items-center gap-2 py-1 text-sm text-slate-500 transition-colors hover:text-slate-600 dark:hover:text-slate-300"
-              >
-                <Icon name="AlignLeft" size={14} /> Agregar descripción
-              </button>
+              />
             )}
             {!recordingVoice && (
-              <button
-                type="button"
-                disabled={submitting}
+              <AstryxButton
+                label="Nota de voz"
+                icon={<Icon name="Microphone" size={16} />}
+                variant="ghost"
+                size="sm"
+                isDisabled={submitting}
                 onClick={async () => {
                   const session = await startBrowserVoiceRecording({
                     onStop: ({ blob, durationSec }) => {
@@ -23931,11 +23541,8 @@ const CreateTaskModal = ({
                     setRecordSeconds((value) => value + 1);
                   }, 1000);
                 }}
-                className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800"
-              >
-                <Icon name="Microphone" size={12} />
-                Nota de voz
-              </button>
+                className="ml-auto"
+              />
             )}
           </div>
           {showDesc && (
@@ -23950,8 +23557,12 @@ const CreateTaskModal = ({
           )}
           {recordingVoice && (
             <div className="mt-2 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 dark:border-red-500/30 dark:bg-red-500/10">
-              <button
-                type="button"
+              <IconButton
+                label="Cancelar grabación"
+                icon={<Icon name="Trash2" size={16} />}
+                variant="ghost"
+                size="sm"
+                tooltip="Cancelar grabación"
                 onClick={() => {
                   const active = voiceRecorderRef.current;
                   if (voiceTimerRef.current) {
@@ -23966,17 +23577,17 @@ const CreateTaskModal = ({
                   setRecordingPaused(false);
                   setRecordSeconds(0);
                 }}
-                className="rounded-lg p-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-500/20"
-                aria-label="Cancelar grabación"
-              >
-                <Icon name="Trash2" size={14} />
-              </button>
+              />
               <span className="inline-flex items-center gap-2 text-sm font-bold text-red-700 dark:text-red-300">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
                 {formatVoiceDuration(recordSeconds)}
               </span>
-              <button
-                type="button"
+              <IconButton
+                label={recordingPaused ? "Continuar" : "Pausar"}
+                icon={<Icon name={recordingPaused ? "Play" : "PauseCircle"} size={16} />}
+                variant="ghost"
+                size="sm"
+                tooltip={recordingPaused ? "Continuar" : "Pausar"}
                 onClick={() => {
                   const recorder = voiceRecorderRef.current?.recorder;
                   if (!recorder) return;
@@ -23995,13 +23606,11 @@ const CreateTaskModal = ({
                     }, 1000);
                   }
                 }}
-                className="rounded-lg p-1.5 text-slate-600 hover:bg-white/70 dark:text-slate-200 dark:hover:bg-white/10"
-                aria-label={recordingPaused ? "Continuar" : "Pausar"}
-              >
-                <Icon name={recordingPaused ? "Play" : "PauseCircle"} size={16} />
-              </button>
-              <button
-                type="button"
+              />
+              <AstryxButton
+                label="Adjuntar"
+                variant="primary"
+                size="sm"
                 onClick={() => {
                   const recorder = voiceRecorderRef.current?.recorder;
                   if (!recorder || recorder.state === "inactive") return;
@@ -24011,10 +23620,8 @@ const CreateTaskModal = ({
                   }
                   recorder.stop();
                 }}
-                className="ml-auto rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white dark:bg-white dark:text-slate-900"
-              >
-                Adjuntar
-              </button>
+                className="ml-auto"
+              />
             </div>
           )}
         </div>
@@ -24038,31 +23645,35 @@ const CreateTaskModal = ({
                   ["material", "Subir material", "Archivos de origen para editar."],
                   ["editor", "Entrega del editor", "Lo que sube el editor."],
                 ].map(([role, title, hint]) => (
-                  <button
+                  <AstryxButton
+                    label={title}
+                    variant="ghost"
+                    size="sm"
                     key={role}
-                    type="button"
                     onClick={() => {
                       createUploadRoleRef.current = role;
                       createFileInputRef.current?.click();
                     }}
-                    className="flex min-h-[72px] items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm text-slate-500 transition-colors hover:border-blue-400 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:hover:border-blue-500/60 dark:hover:text-slate-200"
+                    className="view-button-content flex min-h-[72px] items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm text-slate-500 transition-colors hover:border-blue-400 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:hover:border-blue-500/60 dark:hover:text-slate-200"
                   >
                     <Icon name={role === "editor" ? "Video" : "Paperclip"} size={16} />
                     <span>
                       <strong className="block font-semibold text-slate-700 dark:text-slate-200">{title}</strong>
                       <span className="mt-0.5 block text-xs text-slate-500">{hint}</span>
                     </span>
-                  </button>
+                  </AstryxButton>
                 ))}
               </div>
             ) : (
-            <button
-              type="button"
+            <AstryxButton
+              label="Adjuntar archivo"
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 createUploadRoleRef.current = "material";
                 createFileInputRef.current?.click();
               }}
-              className={`flex min-h-[64px] w-full items-center justify-center gap-3 rounded-xl border border-dashed px-4 py-3 text-sm transition-colors ${
+              className={`view-button-content flex min-h-[64px] w-full items-center justify-center gap-3 rounded-xl border border-dashed px-4 py-3 text-sm transition-colors ${
                 fileOver
                   ? "border-blue-400 bg-blue-50 text-slate-700 dark:border-blue-500/60 dark:bg-blue-500/10 dark:text-slate-200"
                   : "border-slate-200 bg-slate-50 text-slate-500 hover:border-blue-400 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:hover:border-blue-500/60 dark:hover:text-slate-200"
@@ -24079,7 +23690,7 @@ const CreateTaskModal = ({
                     : `Máx. ${limitLabel}`}
                 </span>
               </span>
-            </button>
+            </AstryxButton>
             )
           ) : (
             <div className="space-y-2">
@@ -24100,15 +23711,15 @@ const CreateTaskModal = ({
                         compact
                       />
                       <div className="flex justify-end">
-                        <button
-                          type="button"
+                        <IconButton
+                          label="Quitar"
+                          icon={<Icon name="X" size={16} />}
+                          variant="ghost"
+                          size="sm"
+                          tooltip="Quitar"
                           onClick={() => removeCreateFile(item.id)}
-                          disabled={submitting}
-                          title="Quitar"
-                          className="rounded-lg p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-500/10"
-                        >
-                          <Icon name="X" size={13} />
-                        </button>
+                          isDisabled={submitting}
+                        />
                       </div>
                     </div>
                   ) : (
@@ -24137,15 +23748,15 @@ const CreateTaskModal = ({
                           {formatCreateFileSize(item.size)}
                         </p>
                       </div>
-                      <button
-                        type="button"
+                      <IconButton
+                        label="Quitar"
+                        icon={<Icon name="X" size={16} />}
+                        variant="ghost"
+                        size="sm"
+                        tooltip="Quitar"
                         onClick={() => removeCreateFile(item.id)}
-                        disabled={submitting}
-                        title="Quitar"
-                        className="rounded-lg p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-500/10"
-                      >
-                        <Icon name="X" size={13} />
-                      </button>
+                        isDisabled={submitting}
+                      />
                     </div>
                   )}
                 </div>
@@ -24153,41 +23764,42 @@ const CreateTaskModal = ({
               {pendingFiles.length < MAX_TASK_ATTACHMENTS && (
                 type === "editingTask" ? (
                   <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
+                    <AstryxButton
+                      label="Más material"
+                      icon={<Icon name="Plus" size={16} />}
+                      variant="secondary"
+                      size="sm"
                       onClick={() => {
                         createUploadRoleRef.current = "material";
                         createFileInputRef.current?.click();
                       }}
-                      disabled={submitting}
-                      className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:border-blue-400 hover:text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:hover:border-blue-500/60"
-                    >
-                      <Icon name="Plus" size={12} /> Más material
-                    </button>
-                    <button
-                      type="button"
+                      isDisabled={submitting}
+                    />
+                    <AstryxButton
+                      label="Entrega del editor"
+                      icon={<Icon name="Plus" size={16} />}
+                      variant="secondary"
+                      size="sm"
                       onClick={() => {
                         createUploadRoleRef.current = "editor";
                         createFileInputRef.current?.click();
                       }}
-                      disabled={submitting}
-                      className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:border-blue-400 hover:text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:hover:border-blue-500/60"
-                    >
-                      <Icon name="Plus" size={12} /> Entrega del editor
-                    </button>
+                      isDisabled={submitting}
+                    />
                   </div>
                 ) : (
-                <button
-                  type="button"
+                <AstryxButton
+                  label="Agregar otro archivo"
+                  icon={<Icon name="Plus" size={16} />}
+                  variant="secondary"
+                  size="sm"
+                  width="100%"
                   onClick={() => {
                     createUploadRoleRef.current = "material";
                     createFileInputRef.current?.click();
                   }}
-                  disabled={submitting}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:border-blue-400 hover:text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:hover:border-blue-500/60"
-                >
-                  <Icon name="Plus" size={12} /> Agregar otro archivo
-                </button>
+                  isDisabled={submitting}
+                />
                 )
               )}
             </div>
@@ -24247,7 +23859,10 @@ const CreateTaskModal = ({
                 {peoplePool.map((p) => {
                   const checked = assigneeIds.includes(p.id);
                   return (
-                  <button
+                  <AstryxButton
+                    label={p.name}
+                    variant="ghost"
+                    size="sm"
                     key={p.id}
                     onClick={() => {
                       setAssigneeManuallySelected(true);
@@ -24259,7 +23874,7 @@ const CreateTaskModal = ({
                         return next;
                       });
                     }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                    className="view-button-content w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                   >
                     <div
                       className={`flex h-4 w-4 items-center justify-center rounded border-2 ${checked ? "border-purple-500 bg-purple-500" : "border-slate-300 dark:border-slate-600"}`}
@@ -24274,7 +23889,7 @@ const CreateTaskModal = ({
                     >
                       {p.name}
                     </span>
-                  </button>
+                  </AstryxButton>
                   );
                 })}
               </div>
@@ -24308,25 +23923,27 @@ const CreateTaskModal = ({
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-4 pt-2 pb-1 sticky top-0 bg-white dark:bg-slate-800">
                     Account revisor
                   </p>
-                  <button
-                    type="button"
+                  <AstryxButton
+                    label="Sin account"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => {
                       setAccountId("");
                       setAccountOpen(false);
                     }}
                     className="w-full px-4 py-2 text-left text-sm font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"
-                  >
-                    Sin account
-                  </button>
+                  />
                   {accountPool.map((person) => (
-                    <button
+                    <AstryxButton
+                      label={person.name}
+                      variant="ghost"
+                      size="sm"
                       key={person.id}
-                      type="button"
                       onClick={() => {
                         setAccountId(person.id);
                         setAccountOpen(false);
                       }}
-                      className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                      className="view-button-content w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                     >
                       <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white font-black text-[9px] shrink-0">
                         {person.name.slice(0, 2).toUpperCase()}
@@ -24343,7 +23960,7 @@ const CreateTaskModal = ({
                       {accountId === person.id && (
                         <Icon name="Check" size={12} className="text-purple-500" />
                       )}
-                    </button>
+                    </AstryxButton>
                   ))}
                 </div>
               )}
@@ -24400,15 +24017,17 @@ const CreateTaskModal = ({
                   Recurrencia
                 </p>
                 {RECURRENCE_FREQUENCIES.map((option) => (
-                  <button
+                  <AstryxButton
+                    label={option.label}
+                    variant="ghost"
+                    size="sm"
                     key={option.id}
-                    type="button"
                     onClick={() => {
                       setRecurrenceFrequency(option.id);
                       setRecurrenceError("");
                       if (option.id === "none") setRecurrenceUntil("");
                     }}
-                    className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 ${
+                    className={`view-button-content flex w-full items-center justify-between px-4 py-2 text-left text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 ${
                       recurrenceFrequency === option.id
                         ? "text-purple-600 dark:text-purple-400"
                         : "text-slate-700 dark:text-slate-200"
@@ -24418,7 +24037,7 @@ const CreateTaskModal = ({
                     {recurrenceFrequency === option.id && (
                       <Icon name="Check" size={12} className="text-slate-500" />
                     )}
-                  </button>
+                  </AstryxButton>
                 ))}
                 {recurrenceFrequency !== "none" && (
                   <div className="mt-1 border-t border-slate-100 px-4 pt-3 dark:border-slate-700">
@@ -24450,9 +24069,12 @@ const CreateTaskModal = ({
 
           {/* Prioridad */}
           <div className="relative" data-ctdrop>
-            <button
+            <AstryxButton
+              label={curPriority?.label || "Prioridad"}
+              variant="ghost"
+              size="sm"
               onClick={() => setPriorityOpen((o) => !o)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors
+              className={`view-button-content flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors
                             ${curPriority ? "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"}`}
             >
               <FlagIcon
@@ -24466,20 +24088,23 @@ const CreateTaskModal = ({
               >
                 {curPriority?.label || "Prioridad"}
               </span>
-            </button>
+            </AstryxButton>
             {priorityOpen && (
               <div
                 className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 py-1 w-44"
                 data-ctdrop
               >
                 {TASK_PRIORITIES.map((p) => (
-                  <button
+                  <AstryxButton
+                    label={p.label}
+                    variant="ghost"
+                    size="sm"
                     key={p.id}
                     onClick={() => {
                       setPriority(priority === p.id ? "" : p.id);
                       setPriorityOpen(false);
                     }}
-                    className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left ${p.color}`}
+                    className={`view-button-content w-full flex items-center gap-2.5 px-4 py-2 text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left ${p.color}`}
                   >
                     <FlagIcon color={p.iconColor} filled size={13} />
                     {p.label}
@@ -24490,7 +24115,7 @@ const CreateTaskModal = ({
                         className="ml-auto text-slate-500"
                       />
                     )}
-                  </button>
+                  </AstryxButton>
                 ))}
               </div>
             )}
@@ -24529,28 +24154,32 @@ const CreateTaskModal = ({
                       className="flex-1 text-sm bg-transparent outline-none text-slate-700 dark:text-slate-200 placeholder-slate-400 min-w-0"
                     />
                     {clientSearch && (
-                      <button
+                      <IconButton
+                        label="Quitar cliente"
+                        variant="ghost"
+                        size="sm"
+                        icon={<Icon name="X" size={11} />}
                         onClick={() => setClientSearch("")}
                         className="text-slate-500 hover:text-slate-600"
-                      >
-                        <Icon name="X" size={11} />
-                      </button>
+                      />
                     )}
                   </div>
                 </div>
                 {/* List */}
                 <div className="overflow-y-auto" style={{ maxHeight: "280px" }}>
                   {!clientSearch && (
-                    <button
+                    <AstryxButton
+                      label="Sin cliente (interno)"
+                      variant="ghost"
+                      size="sm"
+                      icon={<Icon name="X" size={13} />}
                       onClick={() => {
                         setClientId("");
                         setClientOpen(false);
                         setClientSearch("");
                       }}
                       className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left border-b border-slate-100 dark:border-slate-700"
-                    >
-                      <Icon name="X" size={13} /> Sin cliente (interno)
-                    </button>
+                    />
                   )}
                   {clients
                     .filter(
@@ -24568,7 +24197,10 @@ const CreateTaskModal = ({
                           person.isActive !== false,
                       );
                       return (
-                      <button
+                      <AstryxButton
+                        label={c.name}
+                        variant="ghost"
+                        size="sm"
                         key={c.id}
                         onClick={() => {
                           setClientId(c.id);
@@ -24595,7 +24227,7 @@ const CreateTaskModal = ({
                             setAssigneeIds([responsible.id]);
                           }
                         }}
-                        className={`w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${clientId === c.id ? "bg-purple-50 dark:bg-purple-500/10" : ""}`}
+                        className={`view-button-content w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${clientId === c.id ? "bg-purple-50 dark:bg-purple-500/10" : ""}`}
                       >
                         <div className="w-6 h-6 rounded-lg bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center font-black text-[10px] shrink-0">
                           {c.name.charAt(0).toUpperCase()}
@@ -24617,7 +24249,7 @@ const CreateTaskModal = ({
                             className="text-purple-500 shrink-0"
                           />
                         )}
-                      </button>
+                      </AstryxButton>
                       );
                     })}
                   {clientSearch &&
@@ -24704,16 +24336,18 @@ const CreateTaskModal = ({
 
         {/* Footer */}
         <div className="border-t border-slate-100 dark:border-slate-800 px-6 py-4 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50 rounded-b-2xl">
-          <button
+          <AstryxButton
+            label="Cancelar"
+            variant="ghost"
             onClick={onClose}
-            className="text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors px-4 py-2"
-          >
-            Cancelar
-          </button>
-          <button
+          />
+          <AstryxButton
+            label={config.isEdit ? "Guardar cambios" : `Crear ${typeLabel}`}
+            variant="primary"
+            size="sm"
             onClick={handleSubmit}
-            disabled={!title.trim() || submitting}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-${tagColor}-600 hover:bg-${tagColor}-700 shadow-sm`}
+            isDisabled={!title.trim() || submitting}
+            className={`view-button-content flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-${tagColor}-600 hover:bg-${tagColor}-700 shadow-sm`}
           >
             <Icon name={submitting ? "Loader2" : config.isEdit ? "Save" : "Plus"} size={14} className={submitting ? "animate-spin" : ""} />
             {submitting
@@ -24725,22 +24359,22 @@ const CreateTaskModal = ({
               : config.isEdit
                 ? "Guardar cambios"
                 : `Crear ${typeLabel}`}
-          </button>
+          </AstryxButton>
         </div>
       </div>
 
       {/* Popup confirmación sin fecha */}
       {confirmNoDate && (
-        <div
-          className="modal-scrim fixed inset-0 z-[100] flex items-center justify-center p-4"
-          onClick={() => setConfirmNoDate(false)}
+        <Dialog
+          isOpen
+          onOpenChange={(open) => { if (!open) setConfirmNoDate(false); }}
+          aria-label="¿Sin fecha límite?"
+          width="24rem"
+          maxHeight="90dvh"
+          padding={0}
         >
           <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="confirm-no-date-title"
-            className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-sm p-6 flex flex-col gap-4"
-            onClick={(e) => e.stopPropagation()}
+            className="w-full p-6 flex flex-col gap-4"
           >
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center shrink-0">
@@ -24760,26 +24394,24 @@ const CreateTaskModal = ({
               </div>
             </div>
             <div className="flex gap-2 justify-end">
-              <button
+              <AstryxButton
+                label="Cancelar"
+                variant="ghost"
                 onClick={() => setConfirmNoDate(false)}
-                className="px-4 py-2 text-sm font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
+              />
+              <AstryxButton
+                label="Sí, crear sin fecha"
+                variant="primary"
                 onClick={async () => {
                   setConfirmNoDate(false);
                   await doSubmit();
                 }}
-                className="px-5 py-2 text-sm font-black text-white bg-amber-500 hover:bg-amber-600 rounded-xl transition-colors"
-              >
-                Sí, crear sin fecha
-              </button>
+              />
             </div>
           </div>
-        </div>
+        </Dialog>
       )}
-    </div>
+    </Dialog>
   );
 };
 
@@ -24794,7 +24426,7 @@ const Modal = ({
   actions,
 }) => {
   const { type, data, isEdit } = config;
-  const dialogRef = useDialogA11y(config.isOpen, onClose);
+
   const dialogTitleId = useId();
   if (!config.isOpen) return null;
 
@@ -25011,18 +24643,17 @@ const Modal = ({
   }
 
   return (
-    <div
-      className="modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
-      onClick={onClose}
+    <Dialog
+      isOpen
+      onOpenChange={(open) => { if (!open) onClose?.(); }}
+      aria-labelledby={dialogTitleId}
+      width="28rem"
+      maxHeight="90dvh"
+      padding={0}
+      purpose="form"
     >
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={dialogTitleId}
-        tabIndex={-1}
-        className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800 outline-none"
-        onClick={(event) => event.stopPropagation()}
+        className="w-full overflow-hidden max-h-[90vh] flex flex-col"
       >
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950 shrink-0">
           <h3
@@ -25032,13 +24663,13 @@ const Modal = ({
             {isEdit ? "Editar " : "Nuevo "}
             {titles[type]}
           </h3>
-          <button
+          <IconButton
+            label="Cerrar modal"
+            icon={<Icon name="X" size={16} />}
+            variant="ghost"
+            tooltip="Cerrar modal"
             onClick={onClose}
-            aria-label="Cerrar modal"
-            className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full text-slate-500 dark:text-slate-400"
-          >
-            <Icon name="X" size={20} />
-          </button>
+          />
         </div>
         <div className="p-6 overflow-y-auto custom-scroll">
           <form
@@ -25537,7 +25168,7 @@ const Modal = ({
           </form>
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 };
 
@@ -25794,15 +25425,19 @@ const ProductionRoomHeader = ({
             placeholder={searchPlaceholder}
           />
           {canAdd && (
-            <button type="button" onClick={onAdd} className="production-room-add">
-              <Icon name="Plus" size={16} />
-              Nueva tarea
-            </button>
+            <AstryxButton
+              label="Nueva tarea"
+              icon={<Icon name="Plus" size={16} />}
+              variant="ghost"
+              onClick={onAdd}
+            />
           )}
-          <button
-            type="button"
+          <AstryxButton
+            label="Ver equipo de producción"
+            variant="ghost"
+            size="sm"
             onClick={() => setShowTeam((value) => !value)}
-            className={`production-room-team-toggle ${showTeam ? "is-active" : ""}`}
+            className={`view-button-content production-room-team-toggle ${showTeam ? "is-active" : ""}`}
             aria-expanded={showTeam}
           >
             <span className="production-room-avatars" aria-hidden="true">
@@ -25810,7 +25445,7 @@ const ProductionRoomHeader = ({
                 <PersonAvatar key={member.id} person={member} size={26} />
               ))}
             </span>
-            <span>
+            <span className="production-room-team-caption">
               <strong>Equipo</strong>
               <small>
                 {teamWithoutEmailCount
@@ -25819,43 +25454,19 @@ const ProductionRoomHeader = ({
               </small>
             </span>
             <Icon name={showTeam ? "ChevronUp" : "ChevronDown"} size={14} />
-          </button>
+          </AstryxButton>
         </div>
 
         <div className="production-room-filters">
-          <div className="production-room-filter-group" aria-label="Periodo">
+          <SegmentedControl value={filterMode} onChange={setFilterMode} label="Periodo" size="sm">
             {filters.map((filter) => (
-              <button
-                type="button"
-                key={filter.id}
-                onClick={() => setFilterMode(filter.id)}
-                className={filterMode === filter.id ? "is-active" : ""}
-                aria-pressed={filterMode === filter.id}
-              >
-                <Icon name={filter.icon} size={14} />
-                {filter.label}
-              </button>
+              <SegmentedControlItem key={filter.id} value={filter.id} label={filter.label} icon={<Icon name={filter.icon} size={14} />} />
             ))}
-          </div>
-          <div className="production-room-filter-group" aria-label="Responsable">
-            <button
-              type="button"
-              onClick={() => setOwnershipFilter("all")}
-              className={ownershipFilter === "all" ? "is-active" : ""}
-              aria-pressed={ownershipFilter === "all"}
-            >
-              Todo el equipo
-            </button>
-            <button
-              type="button"
-              onClick={() => setOwnershipFilter("mine")}
-              className={ownershipFilter === "mine" ? "is-active" : ""}
-              aria-pressed={ownershipFilter === "mine"}
-            >
-              <Icon name="User" size={14} />
-              Mis tareas
-            </button>
-          </div>
+          </SegmentedControl>
+          <SegmentedControl value={ownershipFilter} onChange={setOwnershipFilter} label="Responsable" size="sm">
+            <SegmentedControlItem value="all" label="Todo el equipo" />
+            <SegmentedControlItem value="mine" label="Mis tareas" icon={<Icon name="User" size={14} />} />
+          </SegmentedControl>
           {filterMode === "date" && (
             <label className="production-room-date">
               <span className="sr-only">Fecha de producción</span>
@@ -26230,19 +25841,20 @@ const UnifiedModuleKanbanView = ({
               placeholder={searchPlaceholder}
             />
             {canShowAddButton && (
-              <button
-                type="button"
+              <AstryxButton
+                label={`${addButtonLabel}`}
+                icon={<Icon name="Plus" size={16} />}
+                variant="primary"
                 onClick={handleAddTask}
-                className="bg-[var(--primary)] text-[var(--primary-contrast)] font-bold rounded-xl px-4 py-2.5 flex items-center gap-2 hover:opacity-90 transition-opacity shrink-0"
-              >
-                <Icon name="Plus" size={16} />
-                {addButtonLabel}
-              </button>
+                className="shrink-0"
+              />
             )}
-            <button
-              type="button"
+            <AstryxButton
+              label="Ver equipo"
+              variant="ghost"
+              size="sm"
               onClick={() => setShowTeam((value) => !value)}
-              className="surface flex shrink-0 items-center gap-3 px-4 py-2.5 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50"
+              className="view-button-content surface flex shrink-0 items-center gap-3 px-4 py-2.5 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50"
             >
               <div className="flex -space-x-2 shrink-0">
                 {teamMembers.slice(0, 4).map((member) => (
@@ -26276,54 +25888,23 @@ const UnifiedModuleKanbanView = ({
                 size={14}
                 className="text-slate-500 ml-1"
               />
-            </button>
+            </AstryxButton>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex max-w-full overflow-x-auto rounded-lg bg-[var(--surface-muted)] p-1 kanban-mobile-scroll dark:bg-[var(--surface-raised)]">
-            <button
-              onClick={() => setFilterMode("date")}
-              className={`shrink-0 min-h-9 px-3 py-2 text-[12px] font-medium rounded-lg transition-colors flex items-center gap-1.5 ${filterMode === "date" ? "bg-white text-[var(--text)] shadow-sm dark:bg-[var(--surface-muted)] dark:text-[var(--text)]" : "text-slate-500 dark:text-slate-400 hover:bg-black/5 hover:text-slate-700 dark:hover:bg-white/5 dark:hover:text-slate-200"}`}
-            >
-              <Icon name="CalendarDays" size={14} />
-              Día específico
-            </button>
-            <button
-              onClick={() => setFilterMode("overdue")}
-              className={`shrink-0 min-h-9 px-3 py-2 text-[12px] font-medium rounded-lg transition-colors flex items-center gap-1.5 ${filterMode === "overdue" ? "bg-[var(--status-red-bg)] text-[var(--status-red-text)] dark:bg-red-500/15 dark:text-red-300" : "text-slate-500 dark:text-slate-400 hover:bg-black/5 hover:text-slate-700 dark:hover:bg-white/5 dark:hover:text-slate-200"}`}
-            >
-              Atrasadas <Icon name="Flame" size={14} />
-            </button>
-            <button
-              onClick={() => setFilterMode("all")}
-              className={`shrink-0 min-h-9 px-3 py-2 text-[12px] font-medium rounded-lg transition-colors flex items-center gap-1.5 ${filterMode === "all" ? "bg-white text-[var(--text)] shadow-sm dark:bg-[var(--surface-muted)] dark:text-[var(--text)]" : "text-slate-500 dark:text-slate-400 hover:bg-black/5 hover:text-slate-700 dark:hover:bg-white/5 dark:hover:text-slate-200"}`}
-            >
-              Este mes
-            </button>
-            <button
-              onClick={() => setFilterMode("history")}
-              className={`shrink-0 min-h-9 px-3 py-2 text-[12px] font-medium rounded-lg transition-colors flex items-center gap-1.5 ${filterMode === "history" ? "bg-white text-[var(--text)] shadow-sm dark:bg-[var(--surface-muted)] dark:text-[var(--text)]" : "text-slate-500 dark:text-slate-400 hover:bg-black/5 hover:text-slate-700 dark:hover:bg-white/5 dark:hover:text-slate-200"}`}
-            >
-              <Icon name="Clock" size={14} />
-              Histórico
-            </button>
-          </div>
-          <div className="flex max-w-full overflow-x-auto rounded-lg bg-[var(--surface-muted)] p-1 kanban-mobile-scroll dark:bg-[var(--surface-raised)]">
-            <button
-              onClick={() => setOwnershipFilter("all")}
-              className={`shrink-0 min-h-9 px-3 py-2 text-[12px] font-medium rounded-lg transition-colors flex items-center gap-1.5 ${ownershipFilter === "all" ? "bg-white text-[var(--text)] shadow-sm dark:bg-[var(--surface-muted)] dark:text-[var(--text)]" : "text-slate-500 dark:text-slate-400 hover:bg-black/5 hover:text-slate-700 dark:hover:bg-white/5 dark:hover:text-slate-200"}`}
-            >
-              Todo el equipo
-            </button>
-            <button
-              onClick={() => setOwnershipFilter("mine")}
-              className={`shrink-0 min-h-9 px-3 py-2 text-[12px] font-medium rounded-lg transition-colors flex items-center gap-1.5 ${ownershipFilter === "mine" ? "bg-white text-[var(--text)] shadow-sm dark:bg-[var(--surface-muted)] dark:text-[var(--text)]" : "text-slate-500 dark:text-slate-400 hover:bg-black/5 hover:text-slate-700 dark:hover:bg-white/5 dark:hover:text-slate-200"}`}
-            >
-              <Icon name="User" size={14} />
-              Asignadas a mí
-            </button>
-          </div>
+          <HStack className="max-w-full overflow-x-auto kanban-mobile-scroll">
+            <SegmentedControl value={filterMode} onChange={setFilterMode} label="Periodo de las tareas" size="sm">
+              <SegmentedControlItem value="date" label="Día específico" icon={<Icon name="CalendarDays" size={14} />} />
+              <SegmentedControlItem value="overdue" label="Atrasadas" icon={<Icon name="Flame" size={14} />} />
+              <SegmentedControlItem value="all" label="Este mes" />
+              <SegmentedControlItem value="history" label="Histórico" icon={<Icon name="Clock" size={14} />} />
+            </SegmentedControl>
+          </HStack>
+          <SegmentedControl value={ownershipFilter} onChange={setOwnershipFilter} label="Responsable" size="sm">
+            <SegmentedControlItem value="all" label="Todo el equipo" />
+            <SegmentedControlItem value="mine" label="Asignadas a mí" icon={<Icon name="User" size={14} />} />
+          </SegmentedControl>
           {filterMode === "date" && (
             <div className="flex items-center gap-2">
               <input
@@ -26345,10 +25926,12 @@ const UnifiedModuleKanbanView = ({
 
       {showTeam && (
         <div className="module-team-panel bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 fade-in">
-          <button
-            type="button"
+          <AstryxButton
+            label="Todo el equipo"
+            variant="ghost"
+            size="sm"
             onClick={() => setSelectedTeamId("all")}
-            className={`module-team-member flex items-center gap-3 p-3 rounded-xl border text-left ${selectedTeamId === "all" ? "is-active border-violet-300 dark:border-violet-500/40 bg-violet-50/70 dark:bg-violet-500/10" : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"}`}
+            className={`view-button-content module-team-member flex items-center gap-3 p-3 rounded-xl border text-left ${selectedTeamId === "all" ? "is-active border-violet-300 dark:border-violet-500/40 bg-violet-50/70 dark:bg-violet-500/10" : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"}`}
           >
             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black text-white bg-violet-500 shrink-0">
               EQ
@@ -26361,15 +25944,17 @@ const UnifiedModuleKanbanView = ({
                 Sin filtro por persona
               </p>
             </div>
-          </button>
+          </AstryxButton>
           {teamMembers.map((member) => {
             const isActive = String(selectedTeamId) === String(member.id);
             return (
-              <button
+              <AstryxButton
+                label={member.name}
+                variant="ghost"
+                size="sm"
                 key={member.id}
-                type="button"
                 onClick={() => setSelectedTeamId(member.id)}
-                className={`module-team-member flex items-center gap-3 p-3 rounded-xl border text-left ${isActive ? "is-active border-violet-300 dark:border-violet-500/40 bg-violet-50/70 dark:bg-violet-500/10" : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"}`}
+                className={`view-button-content module-team-member flex items-center gap-3 p-3 rounded-xl border text-left ${isActive ? "is-active border-violet-300 dark:border-violet-500/40 bg-violet-50/70 dark:bg-violet-500/10" : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"}`}
               >
                 <PersonAvatar person={member} size={36} />
                 <div className="min-w-0">
@@ -26380,7 +25965,7 @@ const UnifiedModuleKanbanView = ({
                     {member.email || "Sin correo asignado"}
                   </p>
                 </div>
-              </button>
+              </AstryxButton>
             );
           })}
         </div>
@@ -27173,59 +26758,46 @@ const ReportsView = ({
               className="text-sm font-bold text-slate-700 dark:text-slate-200 bg-transparent outline-none"
             />
           </div>
-          <button
-            type="button"
+          <AstryxButton
+            label="PDF general"
+            icon={<Icon name={downloadingPdf === "general" ? "Loader2" : "FileText"} className={downloadingPdf === "general" ? "animate-spin" : ""} size={20} />}
+            variant="primary"
+            size="lg"
             onClick={() => downloadDailyPdf("general")}
-            disabled={Boolean(downloadingPdf)}
-            className="flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"
-          >
-            <Icon
-              name={downloadingPdf === "general" ? "Loader2" : "FileText"}
-              size={14}
-              className={downloadingPdf === "general" ? "animate-spin" : ""}
-            />
-            PDF general
-          </button>
-          <button
-            type="button"
+            isDisabled={Boolean(downloadingPdf)}
+          />
+          <AstryxButton
+            label="PDF editores"
+            variant="secondary"
+            size="lg"
             onClick={() => downloadDailyPdf("editors")}
-            disabled={Boolean(downloadingPdf)}
-            className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
-          >
-            PDF editores
-          </button>
-          <button
-            type="button"
+            isDisabled={Boolean(downloadingPdf)}
+          />
+          <AstryxButton
+            label="PDF community"
+            variant="secondary"
+            size="lg"
             onClick={() => downloadDailyPdf("managers")}
-            disabled={Boolean(downloadingPdf)}
-            className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
-          >
-            PDF community
-          </button>
+            isDisabled={Boolean(downloadingPdf)}
+          />
           {onRefresh && (
-            <button
-              type="button"
+            <AstryxButton
+              label={refreshing ? "Actualizando..." : "Actualizar"}
+              icon={<Icon name="RefreshCw" className={refreshing ? "animate-spin" : ""} size={20} />}
+              variant="secondary"
+              size="lg"
               onClick={onRefresh}
-              disabled={refreshing || Boolean(downloadingPdf)}
-              className="flex min-h-11 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700 disabled:opacity-40 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
-            >
-              <Icon
-                name="RefreshCw"
-                size={14}
-                className={refreshing ? "animate-spin" : ""}
-              />
-              {refreshing ? "Actualizando..." : "Actualizar"}
-            </button>
+              isDisabled={refreshing || Boolean(downloadingPdf)}
+            />
           )}
           {onOpenDailyReport && (
-            <button
-              type="button"
+            <AstryxButton
+              label="Descargar PDF de Rendimiento"
+              icon={<Icon name="FileText" size={20} />}
+              variant="secondary"
+              size="lg"
               onClick={() => onOpenDailyReport({ capture: true })}
-              className="flex min-h-11 items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-xs font-black text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300"
-            >
-              <Icon name="FileText" size={14} />
-              Descargar PDF de Rendimiento
-            </button>
+            />
           )}
         </div>
         )}
@@ -27269,17 +26841,9 @@ const ReportsView = ({
       </div>
 
       {!expandAllSections && (
-      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2.5 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === tab.id ? "border-purple-500 text-purple-600 dark:text-purple-400" : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <TabList value={activeTab} onChange={setActiveTab} aria-label="Secciones del reporte" hasDivider>
+        {tabs.map((tab) => <Tab key={tab.id} value={tab.id} label={tab.label} />)}
+      </TabList>
       )}
 
       {showSection("content") && (
@@ -27835,7 +27399,7 @@ const PerformanceView = ({
   const [taskActivityEvents, setTaskActivityEvents] = useState([]);
   const [taskActivityLoading, setTaskActivityLoading] = useState(false);
   const [taskActivityError, setTaskActivityError] = useState("");
-  const taskActivityDialogRef = useDialogA11y(Boolean(activityPerson), () => setActivityPerson(null));
+
   const taskActivityTitleId = useId();
   const [last24hRange, setLast24hRange] = useState(
     () => initialLast24h || getLast24HoursRange(),
@@ -28202,13 +27766,13 @@ const PerformanceView = ({
 
         <div className="performance-header-tools">
         <div className="performance-period" aria-label="Rango del reporte">
-            <button
-              type="button"
+            <AstryxButton
+              label="Últimas 24h"
+              variant="ghost"
+              size="sm"
               className={periodMode === "last24h" ? "is-active" : ""}
               onClick={applyLast24h}
-            >
-              Últimas 24h
-            </button>
+            />
           <label>
             <span>Desde</span>
             <input
@@ -28244,28 +27808,25 @@ const PerformanceView = ({
               Descargar informes
             </p>
             <div>
-              <button
-                type="button"
+              <AstryxButton
+                label="Descargar PDF de Rendimiento"
+                icon={capturing ? <Icon name="Loader2" className="animate-spin" size={16} /> : <Icon name="FileText" size={16} />}
+                variant="ghost"
                 onClick={() => onRequestDailyCapture?.()}
-                disabled={capturing || !onRequestDailyCapture}
-              >
-                {capturing ? (
-                  <Icon name="Loader2" size={13} className="animate-spin" />
-                ) : (
-                  <Icon name="FileText" size={13} />
-                )}
-                Descargar PDF de Rendimiento
-              </button>
+                isDisabled={capturing || !onRequestDailyCapture}
+              />
               {["Diario", "Semanal"].map((group) => (
                 <span key={group} className="performance-download-group">
                   <span>{group}</span>
                   {PERFORMANCE_REPORT_PDFS.filter((item) => item.group === group).map(
                     (report) => (
-                      <button
+                      <AstryxButton
+                        label={report.label}
+                        variant="ghost"
+                        size="sm"
                         key={report.id}
-                        type="button"
                         onClick={() => downloadReportPdf(report)}
-                        disabled={Boolean(downloadingPdf)}
+                        isDisabled={Boolean(downloadingPdf)}
                       >
                         {downloadingPdf === report.id ? (
                           <Icon
@@ -28275,7 +27836,7 @@ const PerformanceView = ({
                           />
                         ) : null}
                         {report.label}
-                      </button>
+                      </AstryxButton>
                     ),
                   )}
                 </span>
@@ -28325,64 +27886,12 @@ const PerformanceView = ({
         </dl>
       </section>
 
-      <div className="performance-toolbar">
-        <div
-          className="performance-group-filter"
-          role="tablist"
-          aria-label="Filtrar por función"
-        >
-          {[
-            { id: "all", label: "Todos" },
-            { id: "editors", label: "Editores" },
-            { id: "managers", label: "Community Managers" },
-            { id: "developers", label: "Desarrolladores" },
-          ].map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              role="tab"
-              aria-selected={personGroupFilter === option.id}
-              className={personGroupFilter === option.id ? "is-active" : ""}
-              onClick={() => setPersonGroupFilter(option.id)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="performance-search-wrap">
-          <label className="performance-search">
-            <Icon name="Search" size={16} />
-            <input
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Buscar persona"
-              aria-label="Buscar persona"
-            />
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => setSearchTerm("")}
-                aria-label="Limpiar búsqueda"
-              >
-                <Icon name="X" size={14} />
-              </button>
-            )}
-          </label>
-          {(searchTerm || personGroupFilter !== "all") && (
-            <button
-              type="button"
-              className="performance-reset"
-              onClick={() => {
-                setSearchTerm("");
-                setPersonGroupFilter("all");
-              }}
-            >
-              Limpiar filtros
-            </button>
-          )}
-        </div>
-      </div>
+      <SegmentedControl value={personGroupFilter} onChange={setPersonGroupFilter} label="Filtrar por función" size="sm">
+          <SegmentedControlItem value="all" label="Todos" />
+          <SegmentedControlItem value="editors" label="Editores" />
+          <SegmentedControlItem value="managers" label="Community Managers" />
+          <SegmentedControlItem value="developers" label="Desarrolladores" />
+        </SegmentedControl>
 
       <section
         className="performance-ranking"
@@ -28540,16 +28049,16 @@ const PerformanceView = ({
                   <div className="performance-person-activity">
                     <strong>Última desconexión</strong>
                     <small>{activityLabel}</small>
-                    <button
-                      type="button"
+                    <AstryxButton
+                      label="Ver registro"
+                      variant="ghost"
+                      size="sm"
                       onClick={() => {
                         setTaskActivityEvents([]);
                         setActivityPerson({ actorId: activityActorId, name: person.name });
                       }}
-                      className="mt-1 text-xs font-black text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-300"
-                    >
-                      Ver registro
-                    </button>
+                      className="mt-1"
+                    />
                   </div>
                 </article>
               );
@@ -28558,19 +28067,16 @@ const PerformanceView = ({
         )}
       </section>
       {activityPerson && (
-        <div
-          className="modal-scrim fixed inset-0 z-[135] flex items-center justify-center p-4"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setActivityPerson(null);
-          }}
+        <Dialog
+          isOpen
+          onOpenChange={(open) => { if (!open) setActivityPerson(null); }}
+          aria-labelledby={taskActivityTitleId}
+          width="42rem"
+          maxHeight="90dvh"
+          padding={0}
         >
           <section
-            ref={taskActivityDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={taskActivityTitleId}
-            tabIndex={-1}
-            className="w-full max-w-2xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+            className="w-full overflow-hidden"
           >
             <header className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
               <div>
@@ -28578,9 +28084,13 @@ const PerformanceView = ({
                 <h2 id={taskActivityTitleId} className="mt-1 text-xl font-black text-slate-900 dark:text-white">{activityPerson.name}</h2>
                 <p className="mt-1 text-sm text-slate-500">Tareas que abrió o modificó, con fecha y hora.</p>
               </div>
-              <button type="button" onClick={() => setActivityPerson(null)} aria-label="Cerrar actividad" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
-                <Icon name="X" />
-              </button>
+              <IconButton
+                label="Cerrar actividad"
+                icon={<Icon name="X" size={16} />}
+                variant="ghost"
+                tooltip="Cerrar actividad"
+                onClick={() => setActivityPerson(null)}
+              />
             </header>
             <div className="max-h-[min(70vh,620px)] overflow-y-auto p-5">
               {taskActivityLoading ? (
@@ -28614,7 +28124,7 @@ const PerformanceView = ({
               )}
             </div>
           </section>
-        </div>
+        </Dialog>
       )}
     </section>
   );
@@ -28629,7 +28139,7 @@ const NotificationCenter = ({
   onMarkAllRead,
   onRefresh,
 }) => {
-  const dialogRef = useDialogA11y(isOpen, onClose);
+
   const titleId = useId();
   useEffect(() => {
     if (isOpen) void onRefresh?.();
@@ -28647,19 +28157,16 @@ const NotificationCenter = ({
   };
 
   return (
-    <div
-      className="modal-scrim fixed inset-0 z-[130] flex items-center justify-center p-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose?.();
-      }}
+    <Dialog
+      isOpen
+      onOpenChange={(open) => { if (!open) onClose?.(); }}
+      aria-labelledby={titleId}
+      width="36rem"
+      maxHeight="90dvh"
+      padding={0}
     >
       <section
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        className="w-full max-w-xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        className="w-full overflow-hidden"
       >
         <header className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
           <div>
@@ -28669,13 +28176,20 @@ const NotificationCenter = ({
           </div>
           <div className="flex items-center gap-2">
             {unreadCount > 0 && (
-              <button type="button" onClick={onMarkAllRead} className="rounded-xl px-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10">
-                Marcar todas leídas
-              </button>
+              <AstryxButton
+                label="Marcar todas leídas"
+                variant="ghost"
+                size="sm"
+                onClick={onMarkAllRead}
+              />
             )}
-            <button type="button" onClick={onClose} aria-label="Cerrar notificaciones" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
-              <Icon name="X" />
-            </button>
+            <IconButton
+              label="Cerrar notificaciones"
+              icon={<Icon name="X" size={16} />}
+              variant="ghost"
+              tooltip="Cerrar notificaciones"
+              onClick={onClose}
+            />
           </div>
         </header>
         <div className="max-h-[min(70vh,620px)] overflow-y-auto p-3">
@@ -28686,11 +28200,13 @@ const NotificationCenter = ({
               <p className="mt-1 text-sm text-slate-500">Aquí verás las tareas que te asignen, las menciones y otros avisos.</p>
             </div>
           ) : notifications.map((item) => (
-            <button
+            <AstryxButton
+              label={item.title || "Abrir notificación"}
+              variant="ghost"
+              size="sm"
               key={item.id}
-              type="button"
               onClick={() => onSelect?.(item)}
-              className={`flex w-full gap-3 rounded-2xl p-4 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/70 ${item.readAt ? "opacity-75" : "bg-amber-50/70 dark:bg-amber-500/5"}`}
+              className={`view-button-content flex w-full gap-3 rounded-2xl p-4 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/70 ${item.readAt ? "opacity-75" : "bg-amber-50/70 dark:bg-amber-500/5"}`}
             >
               <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${item.readAt ? "bg-slate-300 dark:bg-slate-600" : "bg-amber-500"}`} />
               <span className="min-w-0 flex-1">
@@ -28701,11 +28217,11 @@ const NotificationCenter = ({
                 <span className="mt-1 block text-sm leading-5 text-slate-600 dark:text-slate-300">{item.body}</span>
                 <small className="mt-2 block text-xs font-semibold text-slate-400">{item.actorName}</small>
               </span>
-            </button>
+            </AstryxButton>
           ))}
         </div>
       </section>
-    </div>
+    </Dialog>
   );
 };
 

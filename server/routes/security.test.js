@@ -359,6 +359,15 @@ test('chat authorship and private metadata ownership are server-enforced', async
     assert.equal(unsafeAttachment.status, 400);
     assert.equal(unsafeAttachment.payload?.error?.code, 'attachment/type-denied');
 
+    const lastReadAt = nowIso();
+    const firstRead = await request('/api/collections/chat_reads/manager__client-authorship', {
+        token: managerToken,
+        method: 'PUT',
+        body: { data: { clientId: 'client-authorship', userId: 'manager', lastReadAt } }
+    });
+    assert.equal(firstRead.status, 200);
+    assert.equal(firstRead.payload?.record?.lastReadAt, lastReadAt);
+
     await createRecord({
         collectionName: 'chat_reads',
         recordId: 'private-read',
