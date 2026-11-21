@@ -35,6 +35,8 @@ copyIntoPublic('favicon.svg');
 copyIntoPublic('manifest.webmanifest');
 copyIntoPublic('firebase-messaging-sw.js');
 copyIntoPublic('src/app/main.compiled.js');
+copyIntoPublic('src/app/main.compiled.css');
+copyIntoPublic('src/app/fonts');
 copyIntoPublic('src/app/boot.js');
 copyIntoPublic('src/app/pwa.js');
 copyIntoPublic('src/app/assets');

@@ -4,33 +4,55 @@ import process from "node:process";
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+const exists = (file) => fs.existsSync(path.join(root, file));
 const app = read("src/app/main.jsx");
 const boot = read("src/app/boot.js");
 const css = read("src/styles/main.css");
 const html = read("index.html");
 const tailwind = read("tailwind.config.cjs");
+const astryxThemes = read("src/astryx-themes.js");
+const bridge = read("themes/shared/legacyBridge.ts");
 const collectionRoutes = read("server/routes/collections.js");
 const packageJson = JSON.parse(read("package.json"));
 
+// The five palette themes (themes/<slug>/), each valid in light and dark.
+const palettes = ["cluster", "marea", "musgo", "buganvilla", "grafito"];
+
 const checks = [
-  ["Phosphor icons", app.includes("@phosphor-icons/react") && Boolean(packageJson.dependencies?.["@phosphor-icons/react"])],
-  ["Newsreader editorial type", css.includes('font-family: "Newsreader"') && html.includes("Newsreader")],
-  ["botanical light palette", css.includes("--canvas: #f4f6f1") && css.includes("--primary: #5e7415")],
-  ["forest dark palette", css.includes("--canvas: #0e120f") && css.includes("--primary: #c3e15b")],
-  ["five user palettes", ["botanical", "ocean", "plum", "cobalt", "sand"].every((palette) => app.includes(`id: "${palette}"`))],
-  ["palette CSS themes", ["ocean", "plum", "cobalt", "sand"].every((palette) => css.includes(`data-palette="${palette}"`))],
-  ["palette preference starts before render", html.includes("/src/app/boot.js") && boot.includes("cluster_palette") && boot.includes("dataset.palette")],
-  ["legacy clay preference migrates", boot.includes("storedPalette === 'clay' ? 'cobalt'") && app.includes('clay: "cobalt"')],
+  // Design system: Astryx themes, components and tokens.
+  ["Astryx core installed", Boolean(packageJson.dependencies?.["@astryxdesign/core"])],
+  ["Astryx styles imported", app.includes('import "@astryxdesign/core/reset.css"') && app.includes('import "@astryxdesign/core/astryx.css"')],
+  ["cascade layers declared", html.includes("@layer reset, tw-preflight, legacy-base, astryx-base, astryx-theme;")],
+  ["root Theme wraps the app", app.includes("<Theme") && app.includes("themes[themePalette]")],
+  ["five palette themes registered", palettes.every((slug) => astryxThemes.includes(`./themes/${slug}/${slug}.js`) && exists(`themes/${slug}/${slug}.theme.ts`))],
+  ["Trama is the default palette", astryxThemes.includes('defaultThemeSlug = "cluster"')],
+  ["every palette carries the legacy bridge", palettes.every((slug) => read(`themes/${slug}/${slug}.theme.ts`).includes("legacyBridge(palette)"))],
+  ["five user palettes in the profile", palettes.every((slug) => app.includes(`id: "${slug}"`))],
+  ["palette preference starts before render", html.includes("/src/app/boot.js") && boot.includes("cluster_palette") && boot.includes("dataset.astryxTheme")],
+  ["old palette preferences migrate", boot.includes("clay: 'marea'") && app.includes('clay: "marea"')],
   ["profile preference is persisted", collectionRoutes.includes("'themePalette'") && collectionRoutes.includes("'themeMode'")],
-  ["semantic surfaces", css.includes("--surface-raised") && css.includes("--border-strong") && css.includes("--primary-soft")],
-  ["semantic status colors", css.includes("--status-red-bg") && css.includes("--status-blue-bg") && css.includes("--status-green-bg") && css.includes("--status-yellow-bg")],
-  ["dashboard shares site palette", css.includes("--pd-accent: var(--primary)") && css.includes("--pd-raised: var(--surface-raised)")],
+  ["semantic surfaces alias Astryx tokens", bridge.includes("'--surface-raised'") && bridge.includes("'--border-strong'") && bridge.includes("'--primary-soft'")],
+  ["semantic status colors alias Astryx tokens", ["red", "blue", "green", "yellow"].every((hue) => bridge.includes(`--status-${hue}-bg`))],
+  ["Tailwind uses semantic color families", tailwind.includes("slate: neutral") && tailwind.includes("purple: accent") && tailwind.includes("blue: info") && tailwind.includes("red: danger") && tailwind.includes("--cl-")],
+  ["type comes from the theme", tailwind.includes("var(--font-family-body)") && css.includes("var(--font-family-body)") && !/Newsreader|SF Mono|Geist Mono|Consolas/.test(css) && !html.includes("fonts.googleapis")],
+  ["AppShell and SideNav frame", app.includes("<AppShell") && app.includes("<SideNav") && app.includes("<SideNavItem")],
+  ["shared primitives use Astryx", ["<AstryxButton", "<SegmentedControl", "<AstryxEmptyState", "<TextInput", "<AlertDialog", "<Skeleton", "<Breadcrumbs", "useToast()"].every((token) => app.includes(token))],
+  ["dashboard shares site palette", css.includes("--pd-accent: var(--primary)") && css.includes("--pd-raised: var(--surface-raised)") && css.includes("--pd-result: var(--accent)")],
   ["chat shares site palette", css.includes("--chat-accent: var(--primary)") && css.includes("--chat-canvas: var(--canvas)")],
-  ["Tailwind uses semantic color families", tailwind.includes("slate: neutral") && tailwind.includes("purple: accent") && tailwind.includes("blue: info") && tailwind.includes("red: danger")],
   ["no legacy arbitrary UI colors", !/(?:bg|text|border|ring|fill|stroke)-\[#(?:[0-9a-f]{3}){1,2}\]/i.test(app)],
   ["flat surfaces", css.includes(".surface") && css.includes("box-shadow: none")],
-  ["consolidated team navigation", app.includes('label="Equipo"')],
-  ["consolidated calendar navigation", app.includes('label="Calendario"')],
+  ["motion tokens", css.includes("--duration-fast: 250ms") && css.includes("--ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1)")],
+  ["dialog overlays share the scrim", app.includes("modal-scrim") && css.includes(".modal-scrim") && css.includes("@keyframes modalPanelIn")],
+  ["theme switch repaints in one step", app.includes('classList.add("theme-switching")') && css.includes(".theme-switching *")],
+  ["company mark asset", exists("src/app/assets/cluster-mark.png") && css.includes("cluster-mark.png") && app.includes("agency-mark")],
+  ["Phosphor icons", app.includes("@phosphor-icons/react") && Boolean(packageJson.dependencies?.["@phosphor-icons/react"])],
+  ["no gradient source styles", !/\b(?:linear|radial)-gradient\b|\bbg-gradient-/i.test(`${app}\n${css}`)],
+  ["no Lucide dependency", !`${app}\n${html}`.includes("lucide-react")],
+
+  // Navigation and views.
+  ["consolidated team navigation", /label[=:]\s*"Equipo"/.test(app)],
+  ["consolidated calendar navigation", /label[=:]\s*"Calendario"/.test(app)],
+  ["phone tab bar keeps five shortcuts", app.includes('aria-label="Accesos rápidos"') && app.includes(".slice(0, 5)")],
   ["personal KPI rail", app.includes("KPI personales") && app.includes("Cumplimiento") && app.includes("Vencidas")],
   ["personal dashboard task scope", app.includes("personalTasks") && app.includes("isTaskAssignedToProfile") && app.includes("monthlyPersonalTasks")],
   ["dashboard period is visible", app.includes("dashboardPeriod.label") && app.includes("Progreso personal")],
@@ -49,16 +71,16 @@ const checks = [
   ["task cards are keyboard accessible", app.includes('aria-label={`Abrir tarea ${title}`}') && app.includes('event.key === "Enter"')],
   ["task detail scrolls continuously on mobile", app.includes("task-detail-body custom-scroll") && css.includes("touch-action: pan-y") && app.includes("lg:overflow-hidden")],
   ["task cards expose status selector", app.includes("statusControl = null") && app.includes('aria-label={`Cambiar estado de ${title}`}') && app.includes('className="mb-2.5 block"')],
-  ["task rooms default to current month", app.includes("Este mes") && app.includes("isDateWithinPeriod(t.date, currentMonthPeriod)") && app.includes("isDateWithinPeriod(task.date, currentMonthPeriod)")],
+  ["task rooms default to current month", app.includes("Este mes") && app.includes("isDateWithinPeriod(task.date, currentMonthPeriod)")],
   ["history is explicit", app.includes('setFilterMode("history")') && app.includes("Histórico completo")],
+
+  // Login.
   ["animated vector login", app.includes("LoginVectorArtwork") && app.includes("login-vector-orbit") && css.includes("@keyframes loginNodeFloat")],
   ["login respects reduced motion", css.includes("prefers-reduced-motion") && css.includes("animation-duration: 0.01ms")],
-  ["login prioritizes form on mobile", app.includes("login-form-panel order-1") && app.includes("login-art-panel order-2")],
+  ["login prioritizes form on mobile", /login-form-panel[^"]*\border-1\b/.test(app) && /login-art-panel[^"]*\border-2\b/.test(app)],
   ["theme choice survives reloads", app.includes('localStorage.setItem("cluster_theme", isDark ? "dark" : "light")') && boot.includes("2026-07-performance-focus")],
-  ["company logo asset", fs.existsSync(path.join(root, "src/app/assets/cluster-symbol.webp")) && app.includes("cluster-symbol.webp")],
-  ["two-font system", css.includes('font-family: Arial, sans-serif') && css.includes('font-family: "Newsreader"') && !/SF Mono|Geist Mono|Consolas/.test(css)],
-  ["no gradient source styles", !/\b(?:linear|radial)-gradient\b|\bbg-gradient-/i.test(`${app}\n${css}`)],
-  ["no Lucide dependency", !`${app}\n${html}`.includes("lucide-react")],
+
+  // Team directory.
   ["team directory includes role users", app.includes("const managerTeam = buildTeamDirectory(") && app.includes("const editorTeam = buildTeamDirectory(") && app.includes("team={managerTeam}") && app.includes("team={editorTeam}") && !/team=\{(?:managers|editors)\}/.test(app)],
   ["user-only members are read-only in the directory", app.includes("{!person.isOrganizationMember && (")],
   ["adding a team member creates the login", app.includes("const ensureTeamMemberAccount = async") && app.includes('ensureTeamMemberAccount(fd, "manager")') && app.includes('ensureTeamMemberAccount(fd, "editor")')],

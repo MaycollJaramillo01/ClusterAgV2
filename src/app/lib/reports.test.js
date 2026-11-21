@@ -22,6 +22,8 @@ const { outputFiles } = await build({
     bundle: true,
     platform: 'node',
     format: 'cjs',
+    // Server render only: Astryx stylesheets and theme fonts are not needed here.
+    loader: { '.css': 'empty', '.woff2': 'empty', '.woff': 'empty' },
     external: ['react', 'react-dom', 'react-dom/*'],
     write: false,
     plugins: [{

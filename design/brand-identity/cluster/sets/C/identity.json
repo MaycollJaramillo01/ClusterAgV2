@@ -1,0 +1,326 @@
+{
+  "schema": "brand-identity/identity@1",
+  "brand": {
+    "name": "Cluster",
+    "tagline": "Agency OS",
+    "languages": [
+      "es"
+    ],
+    "doc_lang": "es",
+    "sector": "Plataforma operativa interna de una agencia de marketing y producción de video",
+    "numbers": true,
+    "copy": {
+      "sentence": {
+        "es": "De la idea a la entrega: cada cliente, cada video y cada KPI del equipo en un solo lugar."
+      },
+      "nav": [
+        "Panel",
+        "Clientes",
+        "Producción",
+        "Rendimiento"
+      ],
+      "cta": "Nueva tarea"
+    }
+  },
+  "set": {
+    "id": "C",
+    "name": "Hoja de llamado",
+    "recommended": false,
+    "mechanism": "La hoja de llamado de un rodaje: horas, nombres y lugares que se leen bien a la primera; una sans hiperlegible con su versión mono para horas y cifras, la tinta del propio logo y el amarillo del resaltador que marca lo que ya se hizo.",
+    "expression_move": "El amarillo resaltador como campo de color detrás de lo marcado; la tipografía se mantiene sobria.",
+    "differs_by": "Cálida y de oficio donde los competidores son tecnológicos y fríos; amarillo y tinta frente a sus violetas y azules."
+  },
+  "axes": {
+    "quiet_loud": 1,
+    "warm_cool": -2,
+    "playful_serious": 2
+  },
+  "components": {
+    "logo": {
+      "mode": "keep",
+      "status": "fixed",
+      "source": "C:\\Users\\Mayco\\Videos\\ClusterAgV2\\src\\app\\assets\\cluster-mark.png",
+      "sha256": "d46237c47330fc54c9748c0e527919187cf0381f90ba55475c40b608559199fe"
+    },
+    "type": {
+      "mode": "new",
+      "status": "proposed",
+      "source": null,
+      "sha256": null
+    },
+    "palette": {
+      "mode": "new",
+      "status": "proposed",
+      "source": null,
+      "sha256": null
+    }
+  },
+  "type": {
+    "pairing_mode": "data-face",
+    "display": {
+      "family": "Atkinson Hyperlegible Next",
+      "source": "google",
+      "license": "OFL-1.1",
+      "weights": [
+        700
+      ],
+      "location": {
+        "wght": 700
+      },
+      "features": [],
+      "case": "as-is",
+      "tracking": -15,
+      "fallback": "system-ui, sans-serif",
+      "file": null
+    },
+    "text": {
+      "family": "Atkinson Hyperlegible Next",
+      "source": "google",
+      "license": "OFL-1.1",
+      "weights": [
+        400,
+        600
+      ],
+      "location": {
+        "wght": 400
+      },
+      "features": [
+        "tnum"
+      ],
+      "case": "as-is",
+      "tracking": 0,
+      "fallback": "system-ui, sans-serif",
+      "file": null
+    },
+    "mono": {
+      "family": "Atkinson Hyperlegible Mono",
+      "source": "google",
+      "license": "OFL-1.1",
+      "weights": [
+        400,
+        500
+      ],
+      "location": {
+        "wght": 400
+      },
+      "features": [],
+      "case": "as-is",
+      "tracking": 0,
+      "fallback": "ui-monospace, monospace",
+      "file": null
+    }
+  },
+  "logo": null,
+  "palette": "palette.json",
+  "defaults_used": [],
+  "rationale": [
+    {
+      "claim": "La tinta de la marca es la del símbolo (#1d1d1b), así el logo y el texto son el mismo negro.",
+      "evidence": "measured",
+      "source": "src/app/assets/cluster-mark.png"
+    },
+    {
+      "claim": "Atkinson Hyperlegible se diseñó para distinguir formas que se confunden (I, l, 1; 0, O); en una app de horas, IDs y metas eso evita lecturas erróneas.",
+      "evidence": "practice"
+    },
+    {
+      "claim": "El amarillo se usa como relleno detrás de texto en tinta (13:1), nunca como texto sobre claro.",
+      "evidence": "measured"
+    }
+  ],
+  "derived": [
+    {
+      "file": "card.png",
+      "requires": [
+        "logo",
+        "type",
+        "palette"
+      ],
+      "inputs_sha256": "9dde100114e2f3f5580c5ec605087423db19cb82af30dfc4a13b7a781a56f56c"
+    }
+  ],
+  "audit": {
+    "schema": "brand-identity/audit@1",
+    "passed": true,
+    "counts": {
+      "gate": 0,
+      "warn": 3,
+      "info": 9
+    },
+    "findings": [
+      {
+        "id": "palette.contrast.light.accent-on-background",
+        "component": "palette",
+        "severity": "warn",
+        "measured": 1.28,
+        "threshold": 3.0,
+        "message": "light: accent #f5d336 on background #f1efeb is 1.28:1, below 3.0:1 (accent fill against the page (needs a label or border if lower); WCAG 2, no rounding)",
+        "suggested_fix": {
+          "change": "modes.light.accent",
+          "from": "#f5d336",
+          "to": "#a06e09",
+          "how": "use accent-600 (same scale)",
+          "ratio_after": 3.87
+        },
+        "roles": [
+          "light.accent",
+          "light.background"
+        ]
+      },
+      {
+        "id": "palette.contrast.light.link-on-text",
+        "component": "palette",
+        "severity": "warn",
+        "measured": 2.8,
+        "threshold": 3.0,
+        "message": "light: link #885806 on text #1e1c15 is 2.80:1, below 3.0:1 (links distinguishable from body text without underline (WCAG G183); WCAG 2, no rounding)",
+        "suggested_fix": {
+          "change": "modes.light.link",
+          "from": "#885806",
+          "to": "#a06e09",
+          "how": "use accent-600 (same scale)",
+          "ratio_after": 3.84
+        },
+        "roles": [
+          "light.link",
+          "light.text"
+        ]
+      },
+      {
+        "id": "palette.contrast.light.border-on-background",
+        "component": "palette",
+        "severity": "info",
+        "measured": 1.37,
+        "threshold": 3.0,
+        "message": "light: border #d2cec7 on background #f1efeb is 1.37:1, below 3.0:1 (borders: dividers are exempt, input outlines need 3:1; WCAG 2, no rounding)",
+        "suggested_fix": {
+          "change": "modes.light.border",
+          "from": "#d2cec7",
+          "to": "#8d8983",
+          "how": "darken by OKLCH L -0.22, same hue",
+          "ratio_after": 3.03
+        },
+        "roles": [
+          "light.border",
+          "light.background"
+        ]
+      },
+      {
+        "id": "palette.contrast.dark.link-on-text",
+        "component": "palette",
+        "severity": "info",
+        "measured": 1.33,
+        "threshold": 3.0,
+        "message": "dark: link #f5d336 on text #f4f3f1 is 1.33:1, below 3.0:1 (underline links in dark mode (WCAG G183: without underline a link needs 3:1 against body text); WCAG 2, no rounding)",
+        "suggested_fix": {
+          "change": "modes.dark.link",
+          "from": "#f5d336",
+          "to": "#a06e09",
+          "how": "use accent-600 (same scale)",
+          "ratio_after": 4.0
+        },
+        "roles": [
+          "dark.link",
+          "dark.text"
+        ]
+      },
+      {
+        "id": "palette.contrast.dark.border-on-background",
+        "component": "palette",
+        "severity": "info",
+        "measured": 1.87,
+        "threshold": 3.0,
+        "message": "dark: border #434139 on background #110f0a is 1.87:1, below 3.0:1 (borders: dividers are exempt, input outlines need 3:1; WCAG 2, no rounding)",
+        "suggested_fix": {
+          "change": "modes.dark.border",
+          "from": "#434139",
+          "to": "#75736c",
+          "how": "use neutral-500 (same scale)",
+          "ratio_after": 4.04
+        },
+        "roles": [
+          "dark.border",
+          "dark.background"
+        ]
+      },
+      {
+        "id": "palette.gamut.brand-2",
+        "component": "palette",
+        "severity": "info",
+        "measured": 0.92,
+        "threshold": 0.9,
+        "message": "#f5d336 sits at the sRGB gamut edge (92% of max chroma); vivid colours like this often fall outside CMYK process gamut: specify Lab D50 + tolerance, check with the printer, consider a spot colour",
+        "suggested_fix": null,
+        "roles": [
+          "brand-2"
+        ]
+      },
+      {
+        "id": "type.display+text.coverage.es_Latn.extended",
+        "component": "type",
+        "severity": "info",
+        "measured": "86/96",
+        "threshold": "100% auxiliary + punctuation",
+        "message": "Atkinson Hyperlegible Next lacks Spanish auxiliary/punctuation characters: Ĕ Ĭ Ŏ Ō Ŭ ĕ ĭ ŏ ō ŭ",
+        "suggested_fix": "fine if the brand never writes them (loanwords, names); else another family"
+      },
+      {
+        "id": "type.display+text.web-weight",
+        "component": "type",
+        "severity": "info",
+        "measured": 27,
+        "threshold": null,
+        "message": "Atkinson Hyperlegible Next: ~27 KB WOFF2 for the brief's characters (one variable file, all weights; estimate)",
+        "suggested_fix": null
+      },
+      {
+        "id": "type.mono.coverage.es_Latn.extended",
+        "component": "type",
+        "severity": "info",
+        "measured": "86/96",
+        "threshold": "100% auxiliary + punctuation",
+        "message": "Atkinson Hyperlegible Mono lacks Spanish auxiliary/punctuation characters: Ĕ Ĭ Ŏ Ō Ŭ ĕ ĭ ŏ ō ŭ",
+        "suggested_fix": "fine if the brand never writes them (loanwords, names); else another family"
+      },
+      {
+        "id": "type.mono.web-weight",
+        "component": "type",
+        "severity": "info",
+        "measured": 14,
+        "threshold": null,
+        "message": "Atkinson Hyperlegible Mono: ~14 KB WOFF2 for the brief's characters (one variable file, all weights; estimate)",
+        "suggested_fix": null
+      },
+      {
+        "id": "logo.kept-variants",
+        "component": "logo",
+        "severity": "warn",
+        "measured": null,
+        "threshold": null,
+        "message": "kept logo shown as is; no versions built: kept logo cluster-mark.png is raster: variants need an SVG source",
+        "suggested_fix": null
+      },
+      {
+        "id": "logo.kept",
+        "component": "logo",
+        "severity": "info",
+        "measured": null,
+        "threshold": null,
+        "message": "kept logo shown as is (cluster-mark.png); dark: source as is",
+        "suggested_fix": null
+      }
+    ],
+    "defaults": {
+      "matched": []
+    }
+  },
+  "palette_build": {
+    "strategy": null,
+    "accent": "#f5d336",
+    "light_bg": "#f1efeb",
+    "dark_bg": null,
+    "neutral_tint": "#7a7461",
+    "neutral_chroma": null,
+    "extra": []
+  }
+}

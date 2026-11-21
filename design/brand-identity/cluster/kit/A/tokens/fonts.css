@@ -1,0 +1,8 @@
+:root {
+  --font-display: "Figtree", system-ui, sans-serif;
+  --font-display-weight: 700;
+  --font-display-tracking: -0.020em;
+  --font-text: "Figtree", system-ui, sans-serif;
+  --font-text-weight: 400;
+  --font-text-tracking: 0.000em;
+}

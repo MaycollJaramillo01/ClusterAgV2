@@ -1,0 +1,249 @@
+{
+  "schema": "brand-identity/identity@1",
+  "brand": {
+    "name": "Cluster",
+    "tagline": "Agency OS",
+    "languages": [
+      "es"
+    ],
+    "doc_lang": "es",
+    "sector": "Plataforma operativa interna de una agencia de marketing y producción de video",
+    "numbers": true,
+    "copy": {
+      "sentence": {
+        "es": "De la idea a la entrega: cada cliente, cada video y cada KPI del equipo en un solo lugar."
+      },
+      "nav": [
+        "Panel",
+        "Clientes",
+        "Producción",
+        "Rendimiento"
+      ],
+      "cta": "Nueva tarea"
+    }
+  },
+  "set": {
+    "id": "A",
+    "name": "Trama",
+    "recommended": true,
+    "mechanism": "El trazo continuo del símbolo, tres figuras tejidas con una sola línea, ordena todo: una grotesca de trazo parejo y puntos redondos como las cabezas, sobre tinta y papel frío, con un único turquesa que aparece solo donde hay un resultado.",
+    "expression_move": "El turquesa Caribe es el único color fuerte: marca lo entregado, el avance del día y el KPI propio; todo lo demás es tinta.",
+    "differs_by": "Monday, ClickUp y Notion viven entre el azul y el violeta, y Asana en el rosa; Cluster queda en un turquesa que ninguno usa y en una interfaz de tinta, no de colores por estado."
+  },
+  "axes": {
+    "quiet_loud": -1,
+    "warm_cool": 1,
+    "playful_serious": 1
+  },
+  "components": {
+    "logo": {
+      "mode": "keep",
+      "status": "fixed",
+      "source": "C:\\Users\\Mayco\\Videos\\ClusterAgV2\\src\\app\\assets\\cluster-mark.png",
+      "sha256": "d46237c47330fc54c9748c0e527919187cf0381f90ba55475c40b608559199fe"
+    },
+    "type": {
+      "mode": "new",
+      "status": "proposed",
+      "source": null,
+      "sha256": null
+    },
+    "palette": {
+      "mode": "new",
+      "status": "proposed",
+      "source": null,
+      "sha256": null
+    }
+  },
+  "type": {
+    "pairing_mode": "single-family",
+    "display": {
+      "family": "Figtree",
+      "source": "google",
+      "license": "OFL-1.1",
+      "weights": [
+        700
+      ],
+      "location": {
+        "wght": 700
+      },
+      "features": [],
+      "case": "as-is",
+      "tracking": -20,
+      "fallback": "system-ui, sans-serif",
+      "file": null
+    },
+    "text": {
+      "family": "Figtree",
+      "source": "google",
+      "license": "OFL-1.1",
+      "weights": [
+        400,
+        500,
+        600
+      ],
+      "location": {
+        "wght": 400
+      },
+      "features": [
+        "tnum"
+      ],
+      "case": "as-is",
+      "tracking": 0,
+      "fallback": "system-ui, sans-serif",
+      "file": null
+    },
+    "mono": null
+  },
+  "logo": null,
+  "palette": "palette.json",
+  "defaults_used": [],
+  "rationale": [
+    {
+      "claim": "Los cuatro competidores nombrados usan primarios entre azul y violeta (monday #6161ff, ClickUp #6647f0, Notion #0075de) o rosa (Asana #ffc9ff); el turquesa (h 196) queda fuera de esa franja.",
+      "evidence": "measured",
+      "source": "site/competitors.json"
+    },
+    {
+      "claim": "Una sola familia con cifras tabulares sirve a títulos, tablas y KPIs sin un segundo archivo de fuente.",
+      "evidence": "practice"
+    },
+    {
+      "claim": "El trazo parejo y los puntos redondos de Figtree repiten el trazo monolineal y las cabezas del símbolo.",
+      "evidence": "judgement"
+    },
+    {
+      "claim": "El color reservado para resultados deja el rojo, el ámbar y el verde libres para vencido, en riesgo y completado.",
+      "evidence": "judgement"
+    }
+  ],
+  "derived": [
+    {
+      "file": "card.png",
+      "requires": [
+        "logo",
+        "type",
+        "palette"
+      ],
+      "inputs_sha256": "c0d1165914ac316ef29f68146df9213b44660128b79bebc27d30ab52234649f7"
+    }
+  ],
+  "audit": {
+    "schema": "brand-identity/audit@1",
+    "passed": true,
+    "counts": {
+      "gate": 0,
+      "warn": 2,
+      "info": 6
+    },
+    "findings": [
+      {
+        "id": "palette.contrast.light.border-on-background",
+        "component": "palette",
+        "severity": "info",
+        "measured": 1.35,
+        "threshold": 3.0,
+        "message": "light: border #d0d8d8 on background #f4f8f8 is 1.35:1, below 3.0:1 (borders: dividers are exempt, input outlines need 3:1; WCAG 2, no rounding)",
+        "suggested_fix": {
+          "change": "modes.light.border",
+          "from": "#d0d8d8",
+          "to": "#8a9191",
+          "how": "darken by OKLCH L -0.22, same hue",
+          "ratio_after": 3.0
+        },
+        "roles": [
+          "light.border",
+          "light.background"
+        ]
+      },
+      {
+        "id": "palette.contrast.dark.border-on-background",
+        "component": "palette",
+        "severity": "info",
+        "measured": 1.88,
+        "threshold": 3.0,
+        "message": "dark: border #414141 on background #0f0f0f is 1.88:1, below 3.0:1 (borders: dividers are exempt, input outlines need 3:1; WCAG 2, no rounding)",
+        "suggested_fix": {
+          "change": "modes.dark.border",
+          "from": "#414141",
+          "to": "#737373",
+          "how": "use neutral-500 (same scale)",
+          "ratio_after": 4.04
+        },
+        "roles": [
+          "dark.border",
+          "dark.background"
+        ]
+      },
+      {
+        "id": "palette.gamut.brand-2",
+        "component": "palette",
+        "severity": "info",
+        "measured": 1.0,
+        "threshold": 0.9,
+        "message": "#009597 sits at the sRGB gamut edge (100% of max chroma); vivid colours like this often fall outside CMYK process gamut: specify Lab D50 + tolerance, check with the printer, consider a spot colour",
+        "suggested_fix": null,
+        "roles": [
+          "brand-2"
+        ]
+      },
+      {
+        "id": "type.display+text.coverage.es_Latn.extended",
+        "component": "type",
+        "severity": "info",
+        "measured": "90/96",
+        "threshold": "100% auxiliary + punctuation",
+        "message": "Figtree lacks Spanish auxiliary/punctuation characters: Ĕ Ĭ Ŏ ĕ ĭ ŏ",
+        "suggested_fix": "fine if the brand never writes them (loanwords, names); else another family"
+      },
+      {
+        "id": "type.display+text.confusables",
+        "component": "type",
+        "severity": "warn",
+        "measured": 0.95,
+        "threshold": "0.9 (heuristic, uncalibrated)",
+        "message": "Figtree: I/l look alike at small sizes (IoU 0.95 at 48 px)",
+        "suggested_fix": "try ss01 'Single-storey a', ss02 'Disambiguation'"
+      },
+      {
+        "id": "type.display+text.web-weight",
+        "component": "type",
+        "severity": "info",
+        "measured": 17,
+        "threshold": null,
+        "message": "Figtree: ~17 KB WOFF2 for the brief's characters (one variable file, all weights; estimate)",
+        "suggested_fix": null
+      },
+      {
+        "id": "logo.kept-variants",
+        "component": "logo",
+        "severity": "warn",
+        "measured": null,
+        "threshold": null,
+        "message": "kept logo shown as is; no versions built: kept logo cluster-mark.png is raster: variants need an SVG source",
+        "suggested_fix": null
+      },
+      {
+        "id": "logo.kept",
+        "component": "logo",
+        "severity": "info",
+        "measured": null,
+        "threshold": null,
+        "message": "kept logo shown as is (cluster-mark.png); dark: source as is",
+        "suggested_fix": null
+      }
+    ],
+    "defaults": {
+      "matched": []
+    }
+  },
+  "palette_build": {
+    "strategy": null,
+    "accent": "#009597",
+    "light_bg": "#f4f8f8",
+    "dark_bg": null,
+    "neutral_tint": "primary",
+    "neutral_chroma": null,
+    "extra": []
+  }
+}

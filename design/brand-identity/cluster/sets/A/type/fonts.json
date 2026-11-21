@@ -1,0 +1,28 @@
+{
+  "display": {
+    "family": "Figtree",
+    "file": "C:\\Users\\Mayco\\.cache\\brand-identity\\fonts\\instances\\Figtree-59224b3cf3a6f197.ttf",
+    "location": {
+      "wght": 700
+    },
+    "weights": [
+      700
+    ],
+    "features": []
+  },
+  "text": {
+    "family": "Figtree",
+    "file": "C:\\Users\\Mayco\\.cache\\brand-identity\\fonts\\instances\\Figtree-8157f11ef2f89c2b.ttf",
+    "location": {
+      "wght": 400
+    },
+    "weights": [
+      400,
+      500,
+      600
+    ],
+    "features": [
+      "tnum"
+    ]
+  }
+}

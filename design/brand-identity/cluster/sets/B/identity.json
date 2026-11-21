@@ -1,0 +1,290 @@
+{
+  "schema": "brand-identity/identity@1",
+  "brand": {
+    "name": "Cluster",
+    "tagline": "Agency OS",
+    "languages": [
+      "es"
+    ],
+    "doc_lang": "es",
+    "sector": "Plataforma operativa interna de una agencia de marketing y producción de video",
+    "numbers": true,
+    "copy": {
+      "sentence": {
+        "es": "De la idea a la entrega: cada cliente, cada video y cada KPI del equipo en un solo lugar."
+      },
+      "nav": [
+        "Panel",
+        "Clientes",
+        "Producción",
+        "Rendimiento"
+      ],
+      "cta": "Nueva tarea"
+    }
+  },
+  "set": {
+    "id": "B",
+    "name": "Sala de edición",
+    "recommended": false,
+    "mechanism": "La sala de edición a oscuras: fondo grafito como la línea de tiempo, el magenta del cabezal de reproducción como único color, y titulares de Bricolage en su tamaño óptico mayor, donde las trampas de tinta se abren como cortes.",
+    "expression_move": "Los titulares de Bricolage a tamaño grande, con sus muescas de corte; la paleta se queda en grafito y un magenta pequeño.",
+    "differs_by": "Es la única dirección pensada desde lo oscuro y desde el oficio de editar video; los competidores son claros, de sans geométrica y violeta."
+  },
+  "axes": {
+    "quiet_loud": 2,
+    "warm_cool": 0,
+    "playful_serious": -1
+  },
+  "components": {
+    "logo": {
+      "mode": "keep",
+      "status": "fixed",
+      "source": "C:\\Users\\Mayco\\Videos\\ClusterAgV2\\src\\app\\assets\\cluster-mark.png",
+      "sha256": "d46237c47330fc54c9748c0e527919187cf0381f90ba55475c40b608559199fe"
+    },
+    "type": {
+      "mode": "new",
+      "status": "proposed",
+      "source": null,
+      "sha256": null
+    },
+    "palette": {
+      "mode": "new",
+      "status": "proposed",
+      "source": null,
+      "sha256": null
+    }
+  },
+  "type": {
+    "pairing_mode": "contrast",
+    "display": {
+      "family": "Bricolage Grotesque",
+      "source": "google",
+      "license": "OFL-1.1",
+      "weights": [
+        800
+      ],
+      "location": {
+        "wght": 800,
+        "opsz": 96,
+        "wdth": 100
+      },
+      "features": [],
+      "case": "as-is",
+      "tracking": -25,
+      "fallback": "system-ui, sans-serif",
+      "file": null
+    },
+    "text": {
+      "family": "Hanken Grotesk",
+      "source": "google",
+      "license": "OFL-1.1",
+      "weights": [
+        400,
+        500,
+        600
+      ],
+      "location": {
+        "wght": 400
+      },
+      "features": [
+        "tnum"
+      ],
+      "case": "as-is",
+      "tracking": 0,
+      "fallback": "system-ui, sans-serif",
+      "file": null
+    },
+    "mono": null
+  },
+  "logo": null,
+  "palette": "palette.json",
+  "defaults_used": [],
+  "rationale": [
+    {
+      "claim": "El magenta (h 357) está a más de 30 grados del rojo de alerta; los estados se acompañan siempre de icono y texto, nunca solo de color.",
+      "evidence": "judgement"
+    },
+    {
+      "claim": "Bricolage Grotesque tiene eje opsz 12-96: en titulares abre las trampas de tinta y a tamaño de interfaz se vuelve tranquila.",
+      "evidence": "practice"
+    },
+    {
+      "claim": "Ningún competidor nombrado usa un fondo oscuro como identidad; todos son claros.",
+      "evidence": "measured",
+      "source": "site/competitors.json"
+    }
+  ],
+  "derived": [
+    {
+      "file": "card.png",
+      "requires": [
+        "logo",
+        "type",
+        "palette"
+      ],
+      "inputs_sha256": "c2e16fab66115014506e4ce9543e4fdc88a8a6413f3732e024d7d21b6f6be7ee"
+    }
+  ],
+  "audit": {
+    "schema": "brand-identity/audit@1",
+    "passed": true,
+    "counts": {
+      "gate": 0,
+      "warn": 2,
+      "info": 9
+    },
+    "findings": [
+      {
+        "id": "palette.cvd.dark.deutan.primary-accent",
+        "component": "palette",
+        "severity": "warn",
+        "measured": 5.02,
+        "threshold": 10.0,
+        "message": "dark: primary and accent collapse to CIEDE2000 5.0 for deutanopia (#999792 vs #949599)",
+        "suggested_fix": {
+          "change": "modes.dark.accent",
+          "from": "#9b9299",
+          "to": "#837a81",
+          "how": "never carry meaning by colour alone (icon/label); or darken by OKLCH L -0.08, same hue"
+        },
+        "roles": [
+          "dark.primary",
+          "dark.accent"
+        ]
+      },
+      {
+        "id": "palette.contrast.light.border-on-background",
+        "component": "palette",
+        "severity": "info",
+        "measured": 1.25,
+        "threshold": 3.0,
+        "message": "light: border #e8e5e7 on background #ffffff is 1.25:1, below 3.0:1 (borders: dividers are exempt, input outlines need 3:1; WCAG 2, no rounding)",
+        "suggested_fix": {
+          "change": "modes.light.border",
+          "from": "#e8e5e7",
+          "to": "#7a6f77",
+          "how": "use neutral-500 (same scale)",
+          "ratio_after": 4.81
+        },
+        "roles": [
+          "light.border",
+          "light.background"
+        ]
+      },
+      {
+        "id": "palette.contrast.dark.border-on-background",
+        "component": "palette",
+        "severity": "info",
+        "measured": 1.86,
+        "threshold": 3.0,
+        "message": "dark: border #493d46 on background #110e11 is 1.86:1, below 3.0:1 (borders: dividers are exempt, input outlines need 3:1; WCAG 2, no rounding)",
+        "suggested_fix": {
+          "change": "modes.dark.border",
+          "from": "#493d46",
+          "to": "#7a6f77",
+          "how": "use neutral-500 (same scale)",
+          "ratio_after": 3.99
+        },
+        "roles": [
+          "dark.border",
+          "dark.background"
+        ]
+      },
+      {
+        "id": "palette.gamut.brand-1",
+        "component": "palette",
+        "severity": "info",
+        "measured": 0.92,
+        "threshold": 0.9,
+        "message": "#d02179 sits at the sRGB gamut edge (92% of max chroma); vivid colours like this often fall outside CMYK process gamut: specify Lab D50 + tolerance, check with the printer, consider a spot colour",
+        "suggested_fix": null,
+        "roles": [
+          "brand-1"
+        ]
+      },
+      {
+        "id": "palette.harmony.primary-accent",
+        "component": "palette",
+        "severity": "info",
+        "measured": -0.72,
+        "threshold": -0.3,
+        "message": "Ou-Luo two-colour model scores #d02179 + #231d22 at -0.72 (negative = less harmonious on a grey CRT test, no context): model signal only; the pairing table in references/pairing.md takes precedence",
+        "suggested_fix": null,
+        "roles": [
+          "light.primary",
+          "light.accent"
+        ]
+      },
+      {
+        "id": "type.display.coverage.es_Latn.extended",
+        "component": "type",
+        "severity": "info",
+        "measured": "90/96",
+        "threshold": "100% auxiliary + punctuation",
+        "message": "Bricolage Grotesque lacks Spanish auxiliary/punctuation characters: Ĕ Ĭ Ŏ ĕ ĭ ŏ",
+        "suggested_fix": "fine if the brand never writes them (loanwords, names); else another family"
+      },
+      {
+        "id": "type.display.confusables",
+        "component": "type",
+        "severity": "info",
+        "measured": 0.935,
+        "threshold": "0.9 (heuristic, uncalibrated)",
+        "message": "Bricolage Grotesque: I/l look alike at small sizes (IoU 0.94 at 48 px)",
+        "suggested_fix": "no ss/cv alternates; choose another face for small text and data"
+      },
+      {
+        "id": "type.display.web-weight",
+        "component": "type",
+        "severity": "info",
+        "measured": 132,
+        "threshold": null,
+        "message": "Bricolage Grotesque: ~132 KB WOFF2 for the brief's characters (one variable file, all weights; estimate)",
+        "suggested_fix": null
+      },
+      {
+        "id": "type.text.web-weight",
+        "component": "type",
+        "severity": "info",
+        "measured": 30,
+        "threshold": null,
+        "message": "Hanken Grotesk: ~30 KB WOFF2 for the brief's characters (one variable file, all weights; estimate)",
+        "suggested_fix": null
+      },
+      {
+        "id": "logo.kept-variants",
+        "component": "logo",
+        "severity": "warn",
+        "measured": null,
+        "threshold": null,
+        "message": "kept logo shown as is; no versions built: kept logo cluster-mark.png is raster: variants need an SVG source",
+        "suggested_fix": null
+      },
+      {
+        "id": "logo.kept",
+        "component": "logo",
+        "severity": "info",
+        "measured": null,
+        "threshold": null,
+        "message": "kept logo shown as is (cluster-mark.png); dark: source as is",
+        "suggested_fix": null
+      }
+    ],
+    "defaults": {
+      "matched": []
+    }
+  },
+  "card": {
+    "ground": "dark"
+  },
+  "palette_build": {
+    "strategy": null,
+    "accent": "#231d22",
+    "light_bg": null,
+    "dark_bg": "#110e11",
+    "neutral_tint": "#3d2e3a",
+    "neutral_chroma": null,
+    "extra": []
+  }
+}

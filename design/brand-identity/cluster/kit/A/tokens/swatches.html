@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trama muestras</title>
+<style>
+  :root { --ink:#16181d; --muted:#5b6170; --line:#e3e5ea; --paper:#ffffff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink);
+    font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
+  main { max-width:1180px; margin:0 auto; padding:48px 40px 64px; }
+  header { display:flex; justify-content:space-between; align-items:flex-end; gap:24px;
+    border-bottom:1px solid var(--line); padding-bottom:20px; margin-bottom:32px; }
+  h1 { font-size:34px; letter-spacing:-0.02em; margin:0; }
+  h2 { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin:40px 0 14px; }
+  header p { margin:6px 0 0; color:var(--muted); max-width:640px; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; }
+  .muted { color:var(--muted); }
+  .audit { margin:0; font-size:13px; color:var(--muted); white-space:nowrap; }
+  .brands { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:20px; }
+  .brand { margin:0; border:1px solid var(--line); border-radius:14px; overflow:hidden; break-inside:avoid; }
+  .brand .chip { height:150px; padding:16px; display:flex; justify-content:space-between; align-items:flex-end;
+    font-weight:600; font-size:16px; }
+  .brand em { font-style:normal; font-size:11px; letter-spacing:.08em; text-transform:uppercase; opacity:.8; }
+  .ext-chip { display:grid; grid-template-columns:1fr 1fr; height:120px; }
+  .ext-half { padding:12px; display:flex; flex-direction:column; justify-content:space-between; font-size:12px; }
+  figcaption { display:flex; flex-direction:column; gap:3px; padding:14px 16px; font-size:12.5px; }
+  figcaption b { font-size:15px; }
+  .scale { display:grid; grid-template-columns:120px 1fr; gap:12px; align-items:stretch; margin-bottom:8px;
+    break-inside:avoid; }
+  .scale-name { font-weight:600; display:flex; flex-direction:column; justify-content:center; }
+  .scale-name small { font-weight:400; color:var(--muted); font-size:11px; }
+  .steps { display:grid; grid-template-columns:repeat(11,1fr); border-radius:10px; overflow:hidden; }
+  .step { min-height:64px; padding:8px 6px; display:flex; flex-direction:column; justify-content:space-between;
+    font-size:11px; }
+  .step b { font-size:12px; }
+  .step .mono { font-size:10px; }
+  .step.anchor { outline:3px solid var(--ink); outline-offset:-3px; }
+  .modes { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  .mode { border:1px solid; border-radius:16px; padding:20px; break-inside:avoid; }
+  .mode-head { font-size:12px; letter-spacing:.12em; text-transform:uppercase; opacity:.7; margin-bottom:12px; }
+  .card { border:1px solid; border-radius:12px; padding:18px; }
+  .card h4 { margin:0 0 6px; font-size:18px; }
+  .card p { margin:0 0 14px; }
+  .card a { text-decoration:underline; }
+  .btns { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .btn { padding:9px 16px; border-radius:9px; font-weight:600; font-size:13px; border:1px solid transparent; }
+  .btn.ghost { background:transparent; }
+  .alt { border-radius:9px; padding:10px; display:flex; gap:8px; flex-wrap:wrap; }
+  .badge { border:1.5px solid; border-radius:999px; padding:2px 10px; font-size:12px; font-weight:600; }
+  .pairs { width:100%; border-collapse:collapse; margin-top:14px; font-size:12px; }
+  .pairs td { padding:4px 0; border-top:1px solid rgba(127,127,127,.25); }
+  .pairs td:nth-child(2) { text-align:right; padding-right:12px; }
+  .pairs td:last-child { text-align:right; width:70px; }
+  .ok { opacity:.75; }
+  .bad { color:#c4001a; font-weight:700; background:#fff; border-radius:4px; }
+  @media (max-width:760px) { main { padding:28px 16px; } .modes { grid-template-columns:1fr; }
+    .scale { grid-template-columns:1fr; } .step .mono { display:none; } header { flex-direction:column;
+    align-items:flex-start; } }
+  @media print { main { padding:0; } body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style></head>
+<body><main>
+<header><div><h1>Trama</h1><p>Tinta fría sobre papel, un turquesa Caribe solo para lo entregado.</p></div><p class=audit>Auditoría: <b>pasa</b> · 0 bloqueantes · 0 avisos · 3 notas</p></header>
+<h2>Colores de marca</h2>
+<section class="brands">
+<figure class="brand">
+  <div class="chip" style="background:#131d1e;color:#ffffff"><span>Tinta</span>
+    <em>fijo</em></div>
+  <figcaption><b class=mono>#131d1e</b><span class=mono>rgb(19 29 30)</span><span class=mono>oklch(22.2% 0.015 203.8)</span>
+    <span class=mono>Lab D50 9.8 / -4.4 / -2.2</span>
+    <span>sobre blanco 17,18:1 · sobre negro 1,22:1</span><span class=muted>texto, botón principal, iconos</span>
+  </figcaption>
+</figure>
+<figure class="brand">
+  <div class="chip" style="background:#009597;color:#111111"><span>Turquesa Caribe</span>
+    <em>fijo</em></div>
+  <figcaption><b class=mono>#009597</b><span class=mono>rgb(0 149 151)</span><span class=mono>oklch(60.7% 0.103 196.5)</span>
+    <span class=mono>Lab D50 55.5 / -33.4 / -11.1</span>
+    <span>sobre blanco 3,65:1 · sobre negro 5,75:1</span><span class=muted>dato principal, avance, KPI propio, foco</span>
+  </figcaption>
+</figure></section>
+<p class=muted>Se siente: ordenado, preciso, fresco</p>
+
+<h2>Escalas</h2>
+<section><div class=scale><div class=scale-name>primario<small>ancla 950</small></div><div class=steps><div class='step' style='background:#f4f8f9;color:#111111'><b>50</b><span class=mono>#f4f8f9</span></div><div class='step' style='background:#e5f1f2;color:#111111'><b>100</b><span class=mono>#e5f1f2</span></div><div class='step' style='background:#d1e0e2;color:#111111'><b>200</b><span class=mono>#d1e0e2</span></div><div class='step' style='background:#b9c8c9;color:#111111'><b>300</b><span class=mono>#b9c8c9</span></div><div class='step' style='background:#9baaab;color:#111111'><b>400</b><span class=mono>#9baaab</span></div><div class='step' style='background:#879697;color:#111111'><b>500</b><span class=mono>#879697</span></div><div class='step' style='background:#6a7879;color:#ffffff'><b>600</b><span class=mono>#6a7879</span></div><div class='step' style='background:#525f61;color:#ffffff'><b>700</b><span class=mono>#525f61</span></div><div class='step' style='background:#3f4c4d;color:#ffffff'><b>800</b><span class=mono>#3f4c4d</span></div><div class='step' style='background:#303d3e;color:#ffffff'><b>900</b><span class=mono>#303d3e</span></div><div class='step anchor' style='background:#131d1e;color:#ffffff'><b>950</b><span class=mono>#131d1e</span></div></div></div><div class=scale><div class=scale-name>neutro<small>teñido hacia none</small></div><div class=steps><div class='step' style='background:#fafafa;color:#111111'><b>50</b><span class=mono>#fafafa</span></div><div class='step' style='background:#f3f3f3;color:#111111'><b>100</b><span class=mono>#f3f3f3</span></div><div class='step' style='background:#e6e6e6;color:#111111'><b>200</b><span class=mono>#e6e6e6</span></div><div class='step' style='background:#d4d4d4;color:#111111'><b>300</b><span class=mono>#d4d4d4</span></div><div class='step' style='background:#a1a1a1;color:#111111'><b>400</b><span class=mono>#a1a1a1</span></div><div class='step' style='background:#737373;color:#ffffff'><b>500</b><span class=mono>#737373</span></div><div class='step' style='background:#555555;color:#ffffff'><b>600</b><span class=mono>#555555</span></div><div class='step' style='background:#414141;color:#ffffff'><b>700</b><span class=mono>#414141</span></div><div class='step' style='background:#2b2b2b;color:#ffffff'><b>800</b><span class=mono>#2b2b2b</span></div><div class='step' style='background:#1c1c1c;color:#ffffff'><b>900</b><span class=mono>#1c1c1c</span></div><div class='step' style='background:#0f0f0f;color:#ffffff'><b>950</b><span class=mono>#0f0f0f</span></div></div></div><div class=scale><div class=scale-name>acento<small>ancla 600</small></div><div class=steps><div class='step' style='background:#eafcfb;color:#111111'><b>50</b><span class=mono>#eafcfb</span></div><div class='step' style='background:#d0f8f8;color:#111111'><b>100</b><span class=mono>#d0f8f8</span></div><div class='step' style='background:#8ff4f5;color:#111111'><b>200</b><span class=mono>#8ff4f5</span></div><div class='step' style='background:#65e0e2;color:#111111'><b>300</b><span class=mono>#65e0e2</span></div><div class='step' style='background:#40c5c7;color:#111111'><b>400</b><span class=mono>#40c5c7</span></div><div class='step' style='background:#26b2b4;color:#111111'><b>500</b><span class=mono>#26b2b4</span></div><div class='step anchor' style='background:#009597;color:#111111'><b>600</b><span class=mono>#009597</span></div><div class='step' style='background:#097a7b;color:#ffffff'><b>700</b><span class=mono>#097a7b</span></div><div class='step' style='background:#066465;color:#ffffff'><b>800</b><span class=mono>#066465</span></div><div class='step' style='background:#045354;color:#ffffff'><b>900</b><span class=mono>#045354</span></div><div class='step' style='background:#092f2f;color:#ffffff'><b>950</b><span class=mono>#092f2f</span></div></div></div><div class=scale><div class=scale-name>éxito<small></small></div><div class=steps><div class='step' style='background:#ecfcf5;color:#111111'><b>50</b><span class=mono>#ecfcf5</span></div><div class='step' style='background:#d6f8eb;color:#111111'><b>100</b><span class=mono>#d6f8eb</span></div><div class='step' style='background:#98f4d5;color:#111111'><b>200</b><span class=mono>#98f4d5</span></div><div class='step' style='background:#66e2bc;color:#111111'><b>300</b><span class=mono>#66e2bc</span></div><div class='step' style='background:#3fc6a0;color:#111111'><b>400</b><span class=mono>#3fc6a0</span></div><div class='step' style='background:#2bb28e;color:#111111'><b>500</b><span class=mono>#2bb28e</span></div><div class='step' style='background:#0d9373;color:#111111'><b>600</b><span class=mono>#0d9373</span></div><div class='step' style='background:#08795e;color:#ffffff'><b>700</b><span class=mono>#08795e</span></div><div class='step' style='background:#06644d;color:#ffffff'><b>800</b><span class=mono>#06644d</span></div><div class='step' style='background:#045440;color:#ffffff'><b>900</b><span class=mono>#045440</span></div><div class='step' style='background:#073025;color:#ffffff'><b>950</b><span class=mono>#073025</span></div></div></div><div class=scale><div class=scale-name>advertencia<small></small></div><div class=steps><div class='step' style='background:#fff6ec;color:#111111'><b>50</b><span class=mono>#fff6ec</span></div><div class='step' style='background:#ffebd6;color:#111111'><b>100</b><span class=mono>#ffebd6</span></div><div class='step' style='background:#f9d9b4;color:#111111'><b>200</b><span class=mono>#f9d9b4</span></div><div class='step' style='background:#f3bd7f;color:#111111'><b>300</b><span class=mono>#f3bd7f</span></div><div class='step' style='background:#e59b37;color:#111111'><b>400</b><span class=mono>#e59b37</span></div><div class='step' style='background:#cf8925;color:#111111'><b>500</b><span class=mono>#cf8925</span></div><div class='step' style='background:#ad6e0a;color:#111111'><b>600</b><span class=mono>#ad6e0a</span></div><div class='step' style='background:#8f5a06;color:#ffffff'><b>700</b><span class=mono>#8f5a06</span></div><div class='step' style='background:#764a04;color:#ffffff'><b>800</b><span class=mono>#764a04</span></div><div class='step' style='background:#633d03;color:#ffffff'><b>900</b><span class=mono>#633d03</span></div><div class='step' style='background:#3a2305;color:#ffffff'><b>950</b><span class=mono>#3a2305</span></div></div></div><div class=scale><div class=scale-name>peligro<small></small></div><div class=steps><div class='step' style='background:#fff5f3;color:#111111'><b>50</b><span class=mono>#fff5f3</span></div><div class='step' style='background:#ffe9e6;color:#111111'><b>100</b><span class=mono>#ffe9e6</span></div><div class='step' style='background:#fed3cd;color:#111111'><b>200</b><span class=mono>#fed3cd</span></div><div class='step' style='background:#feb2a8;color:#111111'><b>300</b><span class=mono>#feb2a8</span></div><div class='step' style='background:#fe8477;color:#111111'><b>400</b><span class=mono>#fe8477</span></div><div class='step' style='background:#f86156;color:#111111'><b>500</b><span class=mono>#f86156</span></div><div class='step' style='background:#e0312e;color:#ffffff'><b>600</b><span class=mono>#e0312e</span></div><div class='step' style='background:#b4312b;color:#ffffff'><b>700</b><span class=mono>#b4312b</span></div><div class='step' style='background:#922c27;color:#ffffff'><b>800</b><span class=mono>#922c27</span></div><div class='step' style='background:#7a2520;color:#ffffff'><b>900</b><span class=mono>#7a2520</span></div><div class='step' style='background:#471713;color:#ffffff'><b>950</b><span class=mono>#471713</span></div></div></div><div class=scale><div class=scale-name>información<small></small></div><div class=steps><div class='step' style='background:#f2f8ff;color:#111111'><b>50</b><span class=mono>#f2f8ff</span></div><div class='step' style='background:#e3f0ff;color:#111111'><b>100</b><span class=mono>#e3f0ff</span></div><div class='step' style='background:#c7e2fe;color:#111111'><b>200</b><span class=mono>#c7e2fe</span></div><div class='step' style='background:#9ecdfe;color:#111111'><b>300</b><span class=mono>#9ecdfe</span></div><div class='step' style='background:#66b2fd;color:#111111'><b>400</b><span class=mono>#66b2fd</span></div><div class='step' style='background:#3e9ef7;color:#111111'><b>500</b><span class=mono>#3e9ef7</span></div><div class='step' style='background:#2681d2;color:#111111'><b>600</b><span class=mono>#2681d2</span></div><div class='step' style='background:#196aaf;color:#ffffff'><b>700</b><span class=mono>#196aaf</span></div><div class='step' style='background:#125792;color:#ffffff'><b>800</b><span class=mono>#125792</span></div><div class='step' style='background:#0f487a;color:#ffffff'><b>900</b><span class=mono>#0f487a</span></div><div class='step' style='background:#0c2a46;color:#ffffff'><b>950</b><span class=mono>#0c2a46</span></div></div></div></section>
+<h2>Roles en uso</h2>
+<section class="modes">
+<div class="mode" style="background:#f4f8f8;color:#1c1c1c;border-color:#d0d8d8">
+  <div class="mode-head"><span>claro</span></div>
+  <div class="card" style="background:#ffffff;border-color:#d0d8d8">
+    <h4 style="color:#1c1c1c">Título sobre superficie</h4>
+    <p style="color:#555555">Texto secundario de apoyo con un <a style="color:#097a7b">enlace de texto</a>.</p>
+    <div class="btns">
+      <span class="btn" style="background:#131d1e;color:#ffffff">Primario</span>
+      <span class="btn" style="background:#097a7b;color:#ffffff">Acento</span>
+      <span class="btn ghost" style="color:#1c1c1c;border-color:#d0d8d8;
+        box-shadow:0 0 0 2px #f4f8f8,0 0 0 4px #097a7b">Con foco</span>
+    </div>
+    <div class="alt" style="background:#eaeeee"><span class=badge style='color:#08795e;border-color:#08795e'>Éxito</span><span class=badge style='color:#8f5a06;border-color:#8f5a06'>Advertencia</span><span class=badge style='color:#b4312b;border-color:#b4312b'>Peligro</span><span class=badge style='color:#196aaf;border-color:#196aaf'>Información</span></div>
+  </div>
+  <table class="pairs" style="color:#1c1c1c"><tr><td>Tinta / Fondo</td><td class=mono>15,93:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Tinta secundaria / Fondo</td><td class=mono>6,97:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Tinta / Superficie</td><td class=mono>17,04:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Sobre primario / Primario</td><td class=mono>17,18:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Sobre acento / Acento</td><td class=mono>5,15:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Enlace / Fondo</td><td class=mono>4,81:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Foco / Fondo</td><td class=mono>4,81:1</td><td class='ok'>pasa 3,0</td></tr><tr><td>Peligro / Fondo</td><td class=mono>5,75:1</td><td class='ok'>pasa 3,0</td></tr><tr><td>Éxito / Fondo</td><td class=mono>5,02:1</td><td class='ok'>pasa 3,0</td></tr></table>
+</div>
+<div class="mode" style="background:#0f0f0f;color:#f3f3f3;border-color:#414141">
+  <div class="mode-head"><span>oscuro</span></div>
+  <div class="card" style="background:#1c1c1c;border-color:#414141">
+    <h4 style="color:#f3f3f3">Título sobre superficie</h4>
+    <p style="color:#a1a1a1">Texto secundario de apoyo con un <a style="color:#009597">enlace de texto</a>.</p>
+    <div class="btns">
+      <span class="btn" style="background:#009597;color:#0f0f0f">Primario</span>
+      <span class="btn" style="background:#009597;color:#0f0f0f">Acento</span>
+      <span class="btn ghost" style="color:#f3f3f3;border-color:#414141;
+        box-shadow:0 0 0 2px #0f0f0f,0 0 0 4px #009597">Con foco</span>
+    </div>
+    <div class="alt" style="background:#2b2b2b"><span class=badge style='color:#3fc6a0;border-color:#3fc6a0'>Éxito</span><span class=badge style='color:#e59b37;border-color:#e59b37'>Advertencia</span><span class=badge style='color:#fe8477;border-color:#fe8477'>Peligro</span><span class=badge style='color:#66b2fd;border-color:#66b2fd'>Información</span></div>
+  </div>
+  <table class="pairs" style="color:#f3f3f3"><tr><td>Tinta / Fondo</td><td class=mono>17,27:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Tinta secundaria / Fondo</td><td class=mono>7,42:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Tinta / Superficie</td><td class=mono>15,36:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Sobre primario / Primario</td><td class=mono>5,24:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Sobre acento / Acento</td><td class=mono>5,24:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Enlace / Fondo</td><td class=mono>5,24:1</td><td class='ok'>pasa 4,5</td></tr><tr><td>Foco / Fondo</td><td class=mono>5,24:1</td><td class='ok'>pasa 3,0</td></tr><tr><td>Peligro / Fondo</td><td class=mono>8,02:1</td><td class='ok'>pasa 3,0</td></tr><tr><td>Éxito / Fondo</td><td class=mono>8,94:1</td><td class='ok'>pasa 3,0</td></tr></table>
+</div></section>
+<p class="muted" style="margin-top:32px;font-size:12px">Contraste: proporciones WCAG 2.x sin redondear. Los valores Lab D50 se calculan desde sRGB para impresión; CMYK necesita el perfil ICC de la imprenta y Pantone una guía física. Generado por brand-identity desde palette.json. Edita la paleta, no este archivo.</p>
+</main></body></html>

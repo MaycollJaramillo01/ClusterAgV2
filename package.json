@@ -8,7 +8,7 @@
   "scripts": {
     "build": "npm run build:css && npm run build:js && node scripts/prepare-public.mjs",
     "build:css": "tailwindcss -c tailwind.config.cjs -i ./src/styles/tailwind.input.css -o ./src/styles/tailwind.generated.css --minify",
-    "build:js": "esbuild src/app/main.jsx --bundle --minify --target=es2020 --outfile=src/app/main.compiled.js --format=esm --legal-comments=none",
+    "build:js": "esbuild src/app/main.jsx --bundle --minify --target=es2020 --outfile=src/app/main.compiled.js --format=esm --legal-comments=none --loader:.woff2=file --loader:.woff=file --asset-names=fonts/[name]-[hash]",
     "check:design": "node scripts/check-design.mjs",
     "check:kpi": "node scripts/check-kpi.mjs && node --test src/app/utils/kpi.test.js",
     "check:polling": "node scripts/check-polling.mjs",
@@ -23,9 +23,12 @@
     "mobile:ios": "npm run mobile:sync && cap open ios"
   },
   "dependencies": {
+    "@astryxdesign/core": "^0.7.17",
+    "@astryxdesign/theme-neutral": "^0.7.17",
     "@aws-sdk/client-s3": "^3.1139.0",
     "@aws-sdk/s3-request-presigner": "^3.1139.0",
     "@phosphor-icons/react": "^2.1.10",
+    "@stylexjs/stylex": "^0.19.2",
     "canvas-confetti": "^1.9.2",
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.7",
@@ -37,11 +40,12 @@
     "nodemailer": "^9.0.3",
     "pdfkit": "^0.19.1",
     "pg": "^8.22.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "sqlite3": "^6.0.1"
   },
   "devDependencies": {
+    "@astryxdesign/cli": "^0.7.17",
     "@capacitor/android": "^8.3.1",
     "@capacitor/app": "^8.1.0",
     "@capacitor/cli": "^8.3.1",
