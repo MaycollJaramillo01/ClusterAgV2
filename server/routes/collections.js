@@ -103,7 +103,7 @@ const resolveListLimit = (collectionName, requested) => {
 const getChangedFields = (existing = {}, updated = {}, incoming = {}) => (
     Object.keys(incoming).filter((field) => (
         field !== 'updatedAt'
-        && JSON.stringify(existing[field]) !== JSON.stringify(updated[field])
+        && JSON.stringify(existing?.[field]) !== JSON.stringify(updated[field])
     ))
 );
 
