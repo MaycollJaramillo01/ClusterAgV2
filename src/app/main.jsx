@@ -19768,7 +19768,7 @@ const AttachmentLightbox = ({
           </div>
           <IconButton
             label="Descargar"
-            icon={<Icon name="ArrowRight" size={20} />}
+            icon={<Icon name="Download" size={20} />}
             variant="ghost"
             size="lg"
             tooltip="Descargar"
@@ -20430,7 +20430,7 @@ const TaskDetailModal = ({
   );
 
   const downloadTicketAttachment = async (att) => {
-    const url = att.data || attachmentUrls[att.id] || await resolveAttachmentUrl(att, { download: true });
+    const url = att.data || await resolveAttachmentUrl(att, { download: true });
     if (!url) return;
     const a = document.createElement("a");
     a.href = url;
@@ -20786,6 +20786,15 @@ const TaskDetailModal = ({
                         </p>
                       )}
                       <div className="flex flex-wrap gap-2">
+                        <AstryxButton
+                          label="Descargar"
+                          icon={<Icon name="Download" size={16} />}
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => downloadTicketAttachment(primaryDelivery)}
+                        >
+                          Descargar
+                        </AstryxButton>
                         {type === "editingTask" && canReviewEditedVideo && (
                           <>
                             <AstryxButton
@@ -21419,7 +21428,9 @@ const TaskDetailModal = ({
                   return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
                 };
                 const openAttachment = async (att, download = false) => {
-                  const url = att.data || attachmentUrls[att.id] || await resolveAttachmentUrl(att, { download });
+                  const url = att.data
+                    || (download ? "" : attachmentUrls[att.id])
+                    || await resolveAttachmentUrl(att, { download });
                   if (!url) return;
                   const a = document.createElement("a");
                   a.href = url;
@@ -21555,14 +21566,15 @@ const TaskDetailModal = ({
                                   compact
                                 />
                                 <div className="flex items-center justify-end gap-1">
-                                  <IconButton
+                                  <AstryxButton
                                     label="Descargar"
-                                    icon={<Icon name="ArrowRight" size={16} />}
-                                    variant="ghost"
+                                    icon={<Icon name="Download" size={14} />}
+                                    variant="secondary"
                                     size="sm"
-                                    tooltip="Descargar"
                                     onClick={() => openAttachment(att, true)}
-                                  />
+                                  >
+                                    Descargar
+                                  </AstryxButton>
                                   {(canAct || (taskFileBucket(att) === "editor" && canUploadEditedVideo)) && (
                                     <IconButton
                                       label="Eliminar"
@@ -21622,7 +21634,18 @@ const TaskDetailModal = ({
                                 {relativeTime(att.uploadedAt)}
                               </p>
                             </AstryxButton>
-                            <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                            <div className="flex shrink-0 items-center gap-1">
+                              <AstryxButton
+                                label="Descargar"
+                                icon={<Icon name="Download" size={14} />}
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => openAttachment(att, true)}
+                                isDisabled={isLoadingData(att)}
+                              >
+                                Descargar
+                              </AstryxButton>
+                              <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                               <IconButton
                                 label="Vista previa"
                                 icon={<Icon name="Eye" size={16} />}
@@ -21630,23 +21653,6 @@ const TaskDetailModal = ({
                                 size="sm"
                                 tooltip="Vista previa"
                                 onClick={() => openLightbox(att)}
-                              />
-                              <IconButton
-                                label={
-                                  isLoadingData(att)
-                                    ? "Cargando adjunto..."
-                                    : "Descargar"
-                                }
-                                icon={<Icon name="ArrowRight" size={16} />}
-                                variant="ghost"
-                                size="sm"
-                                tooltip={
-                                  isLoadingData(att)
-                                    ? "Cargando adjunto..."
-                                    : "Descargar"
-                                }
-                                onClick={() => openAttachment(att, true)}
-                                isDisabled={isLoadingData(att)}
                               />
                               {(canAct || (taskFileBucket(att) === "editor" && canUploadEditedVideo)) && (
                                 <IconButton
@@ -21660,6 +21666,7 @@ const TaskDetailModal = ({
                                   }
                                 />
                               )}
+                              </div>
                             </div>
                             </div>
                             )}
