@@ -23846,7 +23846,7 @@ const CreateTaskModal = ({
             </Chip>
             {assigneeOpen && canAssign && (
               <div
-                className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 py-1 w-52 max-h-60 overflow-y-auto"
+                className="absolute left-0 bottom-full mb-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 py-1 w-52 max-h-60 overflow-y-auto"
                 data-ctdrop
               >
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-4 pt-2 pb-1 sticky top-0 bg-white dark:bg-slate-800">
@@ -23917,7 +23917,7 @@ const CreateTaskModal = ({
               </Chip>
               {accountOpen && canAssign && (
                 <div
-                  className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 py-1 w-56 max-h-60 overflow-y-auto"
+                  className="absolute left-0 bottom-full mb-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 py-1 w-56 max-h-60 overflow-y-auto"
                   data-ctdrop
                 >
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-4 pt-2 pb-1 sticky top-0 bg-white dark:bg-slate-800">
@@ -23978,7 +23978,7 @@ const CreateTaskModal = ({
               {date || "Fecha límite"}
             </Chip>
             {datePickerOpen && canEditDue && (
-              <div className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 p-3">
+              <div className="absolute left-0 bottom-full mb-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 p-3">
                 <input
                   type="date"
                   value={date}
@@ -24010,7 +24010,7 @@ const CreateTaskModal = ({
             </Chip>
             {recurrenceOpen && !config.isEdit && (
               <div
-                className="absolute left-0 top-full mt-1 w-64 rounded-xl border border-slate-200 bg-white py-2 shadow-xl z-30 dark:border-slate-700 dark:bg-slate-800"
+                className="absolute left-0 bottom-full mb-1 w-64 rounded-xl border border-slate-200 bg-white py-2 shadow-xl z-30 dark:border-slate-700 dark:bg-slate-800"
                 data-ctdrop
               >
                 <p className="px-4 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
@@ -24091,7 +24091,7 @@ const CreateTaskModal = ({
             </AstryxButton>
             {priorityOpen && (
               <div
-                className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 py-1 w-44"
+                className="absolute left-0 bottom-full mb-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 py-1 w-44"
                 data-ctdrop
               >
                 {TASK_PRIORITIES.map((p) => (
@@ -24135,7 +24135,7 @@ const CreateTaskModal = ({
             </Chip>
             {clientOpen && (
               <div
-                className="absolute left-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 w-64 overflow-hidden"
+                className="absolute left-0 bottom-full mb-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 w-64 overflow-hidden"
                 data-ctdrop
               >
                 {/* Search */}
