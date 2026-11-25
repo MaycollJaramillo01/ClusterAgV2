@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Text } from "@astryxdesign/core/Text";
 import {
   buildClientQuotaUsage,
   getTaskApprovalTimestamp,
@@ -216,14 +217,25 @@ export default function SupervisionView({
       <Collapsible
         className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
         defaultIsOpen
-        trigger="Seguimiento de actividades"
+        trigger={(
+          <Text
+            type="large"
+            size="lg"
+            weight="bold"
+            color="primary"
+            display="block"
+            className="p-5"
+          >
+            Seguimiento de actividades
+          </Text>
+        )}
       >
-        <section className="space-y-4 border-t border-slate-100 p-4 dark:border-slate-800">
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        <section className="space-y-4 border-t border-slate-100 p-5 dark:border-slate-800">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             Revisa el estado, la cuota asignada y las personas responsables de cada entrega.
           </p>
           <form
-            className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
             onSubmit={(event) => event.preventDefault()}
           >
             <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
