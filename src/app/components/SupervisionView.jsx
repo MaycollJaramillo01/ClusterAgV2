@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
 import {
   buildClientQuotaUsage,
   getTaskApprovalTimestamp,
@@ -212,9 +213,12 @@ export default function SupervisionView({
         ))}
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <header className="border-b border-slate-100 p-4 dark:border-slate-800">
-          <h2 className="font-bold text-slate-800 dark:text-white">Seguimiento de actividades</h2>
+      <Collapsible
+        className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+        defaultIsOpen
+        trigger="Seguimiento de actividades"
+      >
+        <section className="space-y-4 border-t border-slate-100 p-4 dark:border-slate-800">
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Revisa el estado, la cuota asignada y las personas responsables de cada entrega.
           </p>
@@ -271,7 +275,6 @@ export default function SupervisionView({
               </select>
             </label>
           </form>
-        </header>
         {visibleTasks.length === 0 ? (
           <p className="p-6 text-sm text-slate-500 dark:text-slate-400">
             No hay actividades que coincidan con los filtros.
@@ -327,7 +330,8 @@ export default function SupervisionView({
             </table>
           </section>
         )}
-      </section>
+        </section>
+      </Collapsible>
 
       {canManagePlans && (
         <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
