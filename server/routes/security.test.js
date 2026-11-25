@@ -190,6 +190,21 @@ test('business collections require an authenticated session', async () => {
 });
 
 test('supervisor manages client plans, weighted tasks and report settings', async () => {
+    const plan = await request('/api/collections/client_plans', {
+        token: supervisorToken,
+        method: 'POST',
+        body: {
+            id: 'supervisor-basic-plan',
+            data: {
+                name: 'Plan Básico',
+                monthlyQuota: { videos: 10, publications: 5, advertising: 2 }
+            }
+        }
+    });
+    assert.equal(plan.status, 201);
+    assert.equal((await request('/api/collections/client_plans', { token: managerToken })).status, 200);
+    assert.equal((await request('/api/collections/client_plans', { token: viewerToken })).status, 403);
+
     const client = await request('/api/collections/clients', {
         token: supervisorToken,
         method: 'POST',
@@ -197,17 +212,31 @@ test('supervisor manages client plans, weighted tasks and report settings', asyn
             id: 'supervisor-plan-client',
             data: {
                 name: 'Plan Cliente',
-                planName: 'Plan personalizado',
-                monthlyQuota: { videos: 10, publications: 5, advertising: 2 }
+                planId: 'supervisor-basic-plan',
+                planName: 'No debe reemplazar el nombre del plan',
+                monthlyQuota: { videos: 1, publications: 1, advertising: 1 }
             }
         }
     });
     assert.equal(client.status, 201);
+    assert.equal(client.payload.record.planId, 'supervisor-basic-plan');
+    assert.equal(client.payload.record.planName, 'Plan Básico');
     assert.deepEqual(client.payload.record.monthlyQuota, {
         videos: 10,
         publications: 5,
         advertising: 2
     });
+
+    const missingPlan = await request('/api/collections/clients', {
+        token: supervisorToken,
+        method: 'POST',
+        body: {
+            id: 'supervisor-missing-plan-client',
+            data: { name: 'Cliente sin plan válido', planId: 'missing-plan' }
+        }
+    });
+    assert.equal(missingPlan.status, 400);
+    assert.equal(missingPlan.payload?.error?.code, 'document/invalid-reference');
 
     const task = await request('/api/collections/editing', {
         token: supervisorToken,
@@ -239,6 +268,17 @@ test('supervisor manages client plans, weighted tasks and report settings', asyn
     });
     assert.equal(invalidQuota.status, 400);
     assert.equal(invalidQuota.payload?.error?.code, 'client/invalid-quota');
+
+    const invalidPlan = await request('/api/collections/client_plans', {
+        token: supervisorToken,
+        method: 'POST',
+        body: {
+            id: 'supervisor-invalid-plan',
+            data: { name: 'Plan inválido', monthlyQuota: { videos: -1 } }
+        }
+    });
+    assert.equal(invalidPlan.status, 400);
+    assert.equal(invalidPlan.payload?.error?.code, 'client-plan/invalid-quota');
 
     const invalidWeight = await request('/api/collections/editing', {
         token: supervisorToken,

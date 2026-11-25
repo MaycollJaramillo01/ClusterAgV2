@@ -4,6 +4,21 @@ export const SUPERVISION_QUOTA_CATEGORIES = [
   { id: "advertising", label: "Pautas publicitarias" },
 ];
 
+export const resolveClientPlanAssignments = (clients = [], plans = []) => {
+  const plansById = new Map(plans.map((plan) => [String(plan.id), plan]));
+  return clients.map((client) => {
+    const plan = plansById.get(String(client.planId || ""));
+    return plan
+      ? {
+          ...client,
+          package: plan.name,
+          planName: plan.name,
+          monthlyQuota: { ...(plan.monthlyQuota || {}) },
+        }
+      : client;
+  });
+};
+
 export const getTaskApprovalTimestamp = (task = {}) => {
   const timestamps = task.statusTimestamps || {};
   const candidates = [

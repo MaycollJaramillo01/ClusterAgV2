@@ -3,7 +3,32 @@ import test from "node:test";
 import {
   buildClientQuotaUsage,
   getTaskApprovalTimestamp,
+  resolveClientPlanAssignments,
 } from "./supervision.js";
+
+test("assigned clients inherit the current reusable plan quotas", () => {
+  const clients = [
+    { id: "client-1", planId: "plan-1", planName: "Legacy", monthlyQuota: { videos: 1 } },
+    { id: "client-2", monthlyQuota: { videos: 3 } },
+  ];
+  const plans = [{
+    id: "plan-1",
+    name: "Growth",
+    monthlyQuota: { videos: 10, publications: 5, advertising: 2 },
+  }];
+
+  const [assigned, custom] = resolveClientPlanAssignments(clients, plans);
+  assert.equal(assigned.planName, "Growth");
+  assert.equal(assigned.package, "Growth");
+  assert.deepEqual(assigned.monthlyQuota, plans[0].monthlyQuota);
+  assert.equal(custom.monthlyQuota.videos, 3);
+
+  const updated = resolveClientPlanAssignments(clients, [{
+    ...plans[0],
+    monthlyQuota: { ...plans[0].monthlyQuota, videos: 12 },
+  }])[0];
+  assert.equal(updated.monthlyQuota.videos, 12);
+});
 
 test("weighted approvals calculate monthly quota use and allow overages", () => {
   const clients = [{ id: "client-1", monthlyQuota: { videos: 10 } }];

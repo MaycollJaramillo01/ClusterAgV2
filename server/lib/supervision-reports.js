@@ -1,7 +1,11 @@
 import { listRecords, upsertRecord } from "./records.js";
 import { sendEmail, escapeHtml } from "./email.js";
 import { collectReportRecipientEmails } from "./permissions.js";
-import { buildClientQuotaUsage, SUPERVISION_QUOTA_CATEGORIES } from "../../src/app/utils/supervision.js";
+import {
+  buildClientQuotaUsage,
+  resolveClientPlanAssignments,
+  SUPERVISION_QUOTA_CATEGORIES,
+} from "../../src/app/utils/supervision.js";
 import { nowIso } from "./time.js";
 
 const TIME_ZONE = "America/Tegucigalpa";
@@ -81,11 +85,13 @@ export const sendSupervisionReport = async ({ now = new Date() } = {}) => {
     return { skipped: period.due ? "already-sent" : "not-scheduled", period: periodToken };
   }
 
-  const [clients, editingTasks, users] = await Promise.all([
+  const [clients, clientPlans, editingTasks, users] = await Promise.all([
     listRecords({ collectionName: "clients" }),
+    listRecords({ collectionName: "client_plans" }),
     listRecords({ collectionName: "editing" }),
     listRecords({ collectionName: "users" }),
   ]);
+  const resolvedClients = resolveClientPlanAssignments(clients, clientPlans);
   const recipients = collectReportRecipientEmails({
     users,
     extraEmails: settings.recipients || [],
@@ -95,11 +101,11 @@ export const sendSupervisionReport = async ({ now = new Date() } = {}) => {
   const month = frequency === "monthly"
     ? period.key
     : `${getDateParts(now).year}-${getDateParts(now).month}`;
-  const usageByClient = buildClientQuotaUsage(clients, editingTasks, month);
+  const usageByClient = buildClientQuotaUsage(resolvedClients, editingTasks, month);
   await sendEmail({
     to: recipients,
     subject: `Supervisión de cuotas — ${period.label}`,
-    html: buildSupervisionReportHtml({ clients, usageByClient, periodLabel: period.label }),
+    html: buildSupervisionReportHtml({ clients: resolvedClients, usageByClient, periodLabel: period.label }),
     logLabel: "supervision-report",
   });
   await upsertRecord({

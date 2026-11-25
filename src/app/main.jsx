@@ -47,7 +47,10 @@ import { VStack } from "@astryxdesign/core/VStack";
 import { themes, defaultThemeSlug } from "../astryx-themes.js";
 import AppErrorBoundary from "./components/AppErrorBoundary.jsx";
 import SupervisionView from "./components/SupervisionView.jsx";
-import { SUPERVISION_QUOTA_CATEGORIES } from "./utils/supervision.js";
+import {
+  resolveClientPlanAssignments,
+  SUPERVISION_QUOTA_CATEGORIES,
+} from "./utils/supervision.js";
 import confetti from "canvas-confetti";
 import { Capacitor } from "@capacitor/core";
 import { App as CapacitorApp } from "@capacitor/app";
@@ -2454,7 +2457,12 @@ function App() {
   const isFlushingPendingTaskStatusesRef = useRef(false);
   const lastReconciledDuplicateSignatureRef = useRef("");
   const lastIdentityLinkSyncSignatureRef = useRef("");
-  const [clients, setClients] = useState([]);
+  const [storedClients, setStoredClients] = useState([]);
+  const [clientPlans, setClientPlans] = useState([]);
+  const clients = useMemo(
+    () => resolveClientPlanAssignments(storedClients, clientPlans),
+    [storedClients, clientPlans],
+  );
   const [supervisionSettings, setSupervisionSettings] = useState(null);
   const [teamGroups, setTeamGroups] = useState([]);
   const [events, setEvents] = useState([]);
@@ -3623,13 +3631,24 @@ function App() {
             id: docItem.id,
             ...docItem.data(),
           }));
-          setClients(list);
+          setStoredClients(list);
           setSelectedClient((current) =>
             current
               ? list.find((item) => item.id === current.id) || null
               : null,
           );
         },
+        errHandler,
+      ),
+      onSnapshot(
+        dataCollection("client_plans"),
+        (snapshot) =>
+          setClientPlans(
+            snapshot.docs.map((docItem) => ({
+              id: docItem.id,
+              ...docItem.data(),
+            })),
+          ),
         errHandler,
       ),
       onSnapshot(
@@ -5897,6 +5916,34 @@ function App() {
           { merge: true },
         ),
     });
+  const saveClientPlan = async (plan) => {
+    const isEdit = Boolean(plan.id);
+    const payload = {
+      name: String(plan.name || "").trim(),
+      monthlyQuota: {
+        videos: Number(plan.monthlyQuota?.videos) || 0,
+        publications: Number(plan.monthlyQuota?.publications) || 0,
+        advertising: Number(plan.monthlyQuota?.advertising) || 0,
+      },
+      updatedAt: nowIso(),
+    };
+    return runMutation({
+      permission: "manage_clients",
+      action: isEdit ? "update" : "create",
+      entityType: "clientPlan",
+      entityId: plan.id || "",
+      description: `${isEdit ? "Actualiza" : "Crea"} el plan ${payload.name}`,
+      changes: payload,
+      successMessage: isEdit ? "Plan actualizado" : "Plan creado",
+      execute: () =>
+        isEdit
+          ? updateDoc(dataDoc("client_plans", plan.id), payload)
+          : addDoc(dataCollection("client_plans"), {
+              ...payload,
+              createdAt: nowIso(),
+            }),
+    });
+  };
   const createTeamGroup = async ({ name, memberIds }) => {
     const title = String(name || "").trim();
     const ids = [...new Set((memberIds || []).map(String).filter(Boolean))];
@@ -8613,6 +8660,7 @@ function App() {
           {view === "supervision" && (
             <SupervisionView
               clients={clients}
+              plans={clientPlans}
               editingTasks={editingTasks}
               managers={managers}
               editors={editors}
@@ -8620,7 +8668,9 @@ function App() {
               period={getHondurasTodayStr().slice(0, 7)}
               canManageClients={userHasPermission(currentUserProfile, "manage_clients")}
               canManageReports={userHasPermission(currentUserProfile, "manage_supervision_reports")}
+              canManagePlans={userHasPermission(currentUserProfile, "manage_clients")}
               canCreateTasks={userHasPermission(currentUserProfile, "create_editing_tasks")}
+              onSavePlan={saveClientPlan}
               onCreateTask={() =>
                 setModalConfig({
                   isOpen: true,
@@ -9347,6 +9397,7 @@ function App() {
             onClientDraftChange={saveClientDraft}
             currentUserProfile={currentUserProfile}
             clients={clients}
+            clientPlans={clientPlans}
             managers={managers}
             editors={editorTeam}
             managementUsers={managementUsers}
@@ -24569,6 +24620,7 @@ const Modal = ({
   onClose,
   onClientDraftChange,
   clients,
+  clientPlans = [],
   managers,
   editors,
   managementUsers,
@@ -24577,6 +24629,9 @@ const Modal = ({
   const { type, data, isEdit } = config;
 
   const dialogTitleId = useId();
+  const [selectedClientPlanId, setSelectedClientPlanId] = useState(
+    String(data?.planId || ""),
+  );
   if (!config.isOpen) return null;
 
   const eventTitleMatch =
@@ -24607,6 +24662,7 @@ const Modal = ({
         actions.updateClient(data.id, {
           name: fd.name || "",
           niche: fd.niche || "",
+          planId: fd.planId || "",
           package: fd.package || "",
           planName: fd.package || "",
           monthlyQuota: {
@@ -24688,6 +24744,7 @@ const Modal = ({
         actions.addClient({
           name: fd.name || "",
           niche: fd.niche || "",
+          planId: fd.planId || "",
           package: fd.package || "",
           planName: fd.package || "",
           monthlyQuota: {
@@ -24880,12 +24937,43 @@ const Modal = ({
                   defaultValue={data?.niche}
                   required
                 />
+                <label htmlFor="client-plan-id" className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  Plan asignado
+                </label>
+                <select
+                  id="client-plan-id"
+                  name="planId"
+                  value={selectedClientPlanId}
+                  className={selectClassName}
+                  onChange={(event) => {
+                    setSelectedClientPlanId(event.target.value);
+                    const selectedPlan = clientPlans.find(
+                      (plan) => String(plan.id) === event.target.value,
+                    );
+                    const form = event.currentTarget.form;
+                    if (!selectedPlan || !form) return;
+                    const setField = (name, value) => {
+                      const field = form.elements.namedItem(name);
+                      if (field) field.value = String(value ?? "");
+                    };
+                    setField("package", selectedPlan.name);
+                    setField("quotaVideos", selectedPlan.monthlyQuota?.videos ?? 0);
+                    setField("quotaPublications", selectedPlan.monthlyQuota?.publications ?? 0);
+                    setField("quotaAdvertising", selectedPlan.monthlyQuota?.advertising ?? 0);
+                  }}
+                >
+                  <option value="">Plan personalizado</option>
+                  {clientPlans.map((plan) => (
+                    <option key={plan.id} value={String(plan.id)}>{plan.name}</option>
+                  ))}
+                </select>
                 <Input
                   name="package"
                   label="Nombre del plan"
                   placeholder="Plan personalizado"
                   defaultValue={data?.package}
                   required
+                  readOnly={Boolean(selectedClientPlanId)}
                 />
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                   Cuotas mensuales contratadas
@@ -24897,6 +24985,7 @@ const Modal = ({
                   min="0"
                   step="1"
                   defaultValue={data?.monthlyQuota?.videos ?? 0}
+                  readOnly={Boolean(selectedClientPlanId)}
                 />
                 <Input
                   name="quotaPublications"
@@ -24905,6 +24994,7 @@ const Modal = ({
                   min="0"
                   step="1"
                   defaultValue={data?.monthlyQuota?.publications ?? 0}
+                  readOnly={Boolean(selectedClientPlanId)}
                 />
                 <Input
                   name="quotaAdvertising"
@@ -24913,6 +25003,7 @@ const Modal = ({
                   min="0"
                   step="1"
                   defaultValue={data?.monthlyQuota?.advertising ?? 0}
+                  readOnly={Boolean(selectedClientPlanId)}
                 />
                 <Input
                   name="instagram"

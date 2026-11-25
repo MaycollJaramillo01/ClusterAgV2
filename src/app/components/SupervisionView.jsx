@@ -41,6 +41,7 @@ const formatTaskDate = (value) => {
 
 export default function SupervisionView({
   clients = [],
+  plans = [],
   editingTasks = [],
   managers = [],
   editors = [],
@@ -48,10 +49,12 @@ export default function SupervisionView({
   period,
   canManageClients = false,
   canManageReports = false,
+  canManagePlans = false,
   canCreateTasks = false,
   onEditClient,
   onCreateTask,
   onOpenTask,
+  onSavePlan,
   onSaveSettings,
 }) {
   const [frequency, setFrequency] = useState(settings?.frequency || "weekly");
@@ -61,6 +64,11 @@ export default function SupervisionView({
   const [statusFilter, setStatusFilter] = useState("active");
   const [searchTerm, setSearchTerm] = useState("");
   const [saving, setSaving] = useState(false);
+  const [planSaving, setPlanSaving] = useState(false);
+  const [planDraft, setPlanDraft] = useState({
+    name: "",
+    monthlyQuota: { videos: 0, publications: 0, advertising: 0 },
+  });
   const usageByClient = useMemo(
     () => buildClientQuotaUsage(clients, editingTasks, period),
     [clients, editingTasks, period],
@@ -114,6 +122,37 @@ export default function SupervisionView({
       setSaving(false);
     }
   };
+  const handleSavePlan = async (event) => {
+    event.preventDefault();
+    setPlanSaving(true);
+    try {
+      const saved = await onSavePlan?.({
+        ...planDraft,
+        name: planDraft.name.trim(),
+      });
+      if (saved) {
+        setPlanDraft({
+          name: "",
+          monthlyQuota: { videos: 0, publications: 0, advertising: 0 },
+        });
+      }
+    } finally {
+      setPlanSaving(false);
+    }
+  };
+  const editPlan = (plan) => setPlanDraft({
+    id: plan.id,
+    name: plan.name,
+    monthlyQuota: {
+      videos: plan.monthlyQuota?.videos ?? 0,
+      publications: plan.monthlyQuota?.publications ?? 0,
+      advertising: plan.monthlyQuota?.advertising ?? 0,
+    },
+  });
+  const resetPlanDraft = () => setPlanDraft({
+    name: "",
+    monthlyQuota: { videos: 0, publications: 0, advertising: 0 },
+  });
 
   return (
     <main className="space-y-6 fade-in">
@@ -270,6 +309,100 @@ export default function SupervisionView({
           </section>
         )}
       </section>
+
+      {canManagePlans && (
+        <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <header>
+            <h2 className="text-lg font-bold text-slate-800 dark:text-white">Planes de clientes</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Crea planes reutilizables; al asignarlos en la ficha del cliente, sus cuotas quedan vinculadas al plan.
+            </p>
+          </header>
+          <form onSubmit={handleSavePlan} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+              Nombre del plan
+              <input
+                type="text"
+                value={planDraft.name}
+                onChange={(event) => setPlanDraft((current) => ({ ...current, name: event.target.value }))}
+                placeholder="Ej. Plan crecimiento"
+                maxLength={120}
+                required
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              />
+            </label>
+            {SUPERVISION_QUOTA_CATEGORIES.map(({ id, label }) => (
+              <label key={id} className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                Cuota mensual: {label}
+                <input
+                  type="number"
+                  min="0"
+                  max="100000"
+                  step="1"
+                  value={planDraft.monthlyQuota[id]}
+                  onChange={(event) => setPlanDraft((current) => ({
+                    ...current,
+                    monthlyQuota: {
+                      ...current.monthlyQuota,
+                      [id]: event.target.value,
+                    },
+                  }))}
+                  required
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                />
+              </label>
+            ))}
+            <section className="flex items-end gap-2">
+              <button
+                type="submit"
+                disabled={planSaving}
+                className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-bold text-white hover:bg-cyan-800 disabled:opacity-50 dark:bg-cyan-600 dark:hover:bg-cyan-500"
+              >
+                {planSaving ? "Guardando..." : planDraft.id ? "Guardar cambios" : "Crear plan"}
+              </button>
+              {planDraft.id && (
+                <button
+                  type="button"
+                  onClick={resetPlanDraft}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                >
+                  Cancelar
+                </button>
+              )}
+            </section>
+          </form>
+          {plans.length === 0 ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">Todavía no hay planes creados.</p>
+          ) : (
+            <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {plans.map((plan) => (
+                <article key={plan.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                  <header className="flex items-start justify-between gap-3">
+                    <section>
+                      <h3 className="font-bold text-slate-800 dark:text-white">{plan.name}</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {clients.filter((client) => String(client.planId || "") === String(plan.id)).length} clientes asignados
+                      </p>
+                    </section>
+                    <button
+                      type="button"
+                      onClick={() => editPlan(plan)}
+                      className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-bold text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                    >
+                      Editar
+                    </button>
+                  </header>
+                  <p className="mt-3 text-xs text-slate-600 dark:text-slate-300">
+                    {SUPERVISION_QUOTA_CATEGORIES.map(({ id, label }) => (
+                      `${label}: ${plan.monthlyQuota?.[id] ?? 0}`
+                    )).join(" · ")}
+                  </p>
+                </article>
+              ))}
+            </section>
+          )}
+        </section>
+      )}
 
       <section className="space-y-4">
         <header>

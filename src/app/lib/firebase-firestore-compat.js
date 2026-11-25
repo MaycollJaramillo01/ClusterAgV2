@@ -11,8 +11,11 @@ const ROOM_POLL_MS = 5000;
 const CHAT_POLL_MS = 10000;
 const IDLE_AFTER_MS = 240000;
 const TASK_COLLECTIONS = TASK_WINDOW_COLLECTIONS;
-const STATIC_COLLECTIONS = new Set(['clients', 'events', 'managers', 'editors', 'users', 'client_chats', 'chat_reads', 'chat_mutes', 'chat_hidden', 'chat_reactions', 'chat_pins', 'chat_stickers', 'team_groups']);
+const STATIC_COLLECTIONS = new Set(['clients', 'client_plans', 'events', 'managers', 'editors', 'users', 'client_chats', 'chat_reads', 'chat_mutes', 'chat_hidden', 'chat_reactions', 'chat_pins', 'chat_stickers', 'team_groups']);
 const LIVE_COLLECTION_BY_VIEW = {
+    clients: ['client_plans'],
+    'client-detail': ['client_plans'],
+    supervision: ['client_plans'],
     'account-room': ['account_tasks'],
     editions: ['editing'],
     'management-room': ['management_tasks'],
@@ -228,7 +231,7 @@ const getPollMs = () => {
     const configured = Number(typeof window !== 'undefined' ? window.__cluster_poll_ms : DEFAULT_POLL_MS);
     if (Number.isFinite(configured) && configured >= 5000) return configured;
     const live = getLiveCollections();
-    if (live.some((name) => TASK_COLLECTIONS.has(name) || name === 'events')) return ROOM_POLL_MS;
+    if (live.some((name) => TASK_COLLECTIONS.has(name) || name === 'events' || name === 'client_plans')) return ROOM_POLL_MS;
     if (hasCollectionListeners('client_chats')) return CHAT_POLL_MS;
     return DEFAULT_POLL_MS;
 };

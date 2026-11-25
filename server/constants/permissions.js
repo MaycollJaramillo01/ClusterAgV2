@@ -156,6 +156,12 @@ export const COLLECTION_PERMISSIONS = {
         update: 'manage_clients',
         delete: 'manage_clients'
     },
+    client_plans: {
+        read: 'view_clients',
+        create: 'manage_clients',
+        update: 'manage_clients',
+        delete: null
+    },
     managers: {
         read: 'view_managers',
         create: 'manage_managers',

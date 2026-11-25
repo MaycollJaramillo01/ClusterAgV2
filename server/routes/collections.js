@@ -265,6 +265,16 @@ const validateReferences = async ({ collectionName, existing = null, payload, tr
     if (collectionName === 'clients') {
         await requireReference('managerId', ['managers']);
         await requireReference('editorId', PEOPLE_COLLECTIONS);
+        await requireReference('planId', ['client_plans']);
+        const planId = String(record.planId || '').trim();
+        if (planId) {
+            const plan = await getRecord({ collectionName: 'client_plans', recordId: planId, trx });
+            if (plan) {
+                payload.planName = String(plan.name || '');
+                payload.package = String(plan.name || '');
+                payload.monthlyQuota = { ...(plan.monthlyQuota || {}) };
+            }
+        }
     }
     if (collectionName === 'client_chats' && (record.kind === 'team_group' || existing?.kind === 'team_group')) {
         await requireReference('clientId', ['team_groups']);
@@ -646,6 +656,7 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         return {
             ...safePayload,
             name,
+            planId: String(safePayload.planId ?? existing?.planId ?? '').trim().slice(0, 120),
             monthlyQuota,
             planName: String(safePayload.planName ?? existing?.planName ?? safePayload.package ?? existing?.package ?? '').trim().slice(0, 120),
             priorityFlag: normalizeClientPriority(
@@ -653,6 +664,28 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
                     ? safePayload.priorityFlag
                     : (existing?.priorityFlag || existing?.priority)
             ),
+            createdAt: existing?.createdAt || safePayload.createdAt || stamp,
+            updatedAt: stamp
+        };
+    }
+    if (collectionName === 'client_plans') {
+        const name = String(safePayload.name ?? existing?.name ?? '').trim().slice(0, 120);
+        if (!name) {
+            throw createHttpError(400, 'El nombre del plan es obligatorio.', 'client-plan/name-required');
+        }
+        const sourceQuota = safePayload.monthlyQuota ?? existing?.monthlyQuota ?? {};
+        const monthlyQuota = {};
+        for (const key of ['videos', 'publications', 'advertising']) {
+            const value = Number(sourceQuota[key] ?? 0);
+            if (!Number.isInteger(value) || value < 0 || value > 100_000) {
+                throw createHttpError(400, 'Las cuotas mensuales deben ser números enteros entre 0 y 100000.', 'client-plan/invalid-quota');
+            }
+            monthlyQuota[key] = value;
+        }
+        return {
+            ...safePayload,
+            name,
+            monthlyQuota,
             createdAt: existing?.createdAt || safePayload.createdAt || stamp,
             updatedAt: stamp
         };
