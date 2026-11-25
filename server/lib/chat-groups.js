@@ -37,7 +37,7 @@ export const isDmParticipant = (clientId = '', candidateIds = []) => {
 
 export const canManageChatGroups = (userRecord) => (
     userRecord?.isActive !== false
-    && ['manager', 'super_admin'].includes(String(userRecord?.role || ''))
+    && ['manager', 'supervisor', 'super_admin'].includes(String(userRecord?.role || ''))
 );
 
 export const buildChatDirectory = ({ users = [], managers = [], editors = [] } = {}) => {

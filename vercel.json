@@ -25,6 +25,10 @@
     {
       "path": "/api/cron/afternoon-digest",
       "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/cron/supervision-reports",
+      "schedule": "0 12 * * *"
     }
   ],
   "functions": {

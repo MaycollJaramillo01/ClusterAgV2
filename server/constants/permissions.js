@@ -36,6 +36,43 @@ export const ROLE_DEFINITIONS = {
             'edit_due_date'
         ]
     },
+    supervisor: {
+        label: 'Supervisor',
+        permissions: [
+            'view_dashboard',
+            'view_clients',
+            'manage_clients',
+            'view_managers',
+            'manage_managers',
+            'view_editors',
+            'manage_editors',
+            'view_account_room',
+            'create_account_tasks',
+            'manage_account_tasks',
+            'view_editions_room',
+            'create_editing_tasks',
+            'manage_editing_tasks',
+            'view_management_room',
+            'create_management_tasks',
+            'manage_management_tasks',
+            'view_general_calendar',
+            'view_calendar',
+            'create_calendar_events',
+            'manage_calendar',
+            'view_client_chat',
+            'send_client_chat',
+            'moderate_client_chat',
+            'assign_tasks',
+            'edit_due_date',
+            'view_users',
+            'manage_users',
+            'view_audit_logs',
+            'view_supervision',
+            'manage_supervision_reports',
+            'manage_ranking_settings',
+            'receive_reports'
+        ]
+    },
     management: {
         label: 'Gestion',
         permissions: [
@@ -181,6 +218,12 @@ export const COLLECTION_PERMISSIONS = {
         create: 'manage_ranking_settings',
         update: 'manage_ranking_settings',
         delete: 'manage_ranking_settings'
+    },
+    supervision_settings: {
+        read: 'view_supervision',
+        create: 'manage_supervision_reports',
+        update: 'manage_supervision_reports',
+        delete: 'manage_supervision_reports'
     },
     client_chats: {
         read: 'view_client_chat',

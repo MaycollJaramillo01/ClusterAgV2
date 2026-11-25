@@ -46,6 +46,7 @@ let operationsToken;
 let managerToken;
 let editorToken;
 let superAdminToken;
+let supervisorToken;
 
 const createToken = async (userId) => {
     const token = randomToken(48);
@@ -98,6 +99,16 @@ before(async () => {
             name: 'Operations Test',
             email: 'operations@example.test',
             role: 'operations',
+            isActive: true
+        }
+    });
+    await createRecord({
+        collectionName: 'users',
+        recordId: 'supervisor',
+        payload: {
+            name: 'Supervisor Test',
+            email: 'supervisor@example.test',
+            role: 'supervisor',
             isActive: true
         }
     });
@@ -160,6 +171,7 @@ before(async () => {
 
     viewerToken = await createToken('viewer');
     operationsToken = await createToken('operations');
+    supervisorToken = await createToken('supervisor');
     managerToken = await createToken('manager');
     editorToken = await createToken('editor');
     superAdminToken = await createToken('super-admin');
@@ -175,6 +187,79 @@ test('business collections require an authenticated session', async () => {
     assert.equal((await request('/api/collections/clients')).status, 401);
     assert.equal((await request('/api/collections/clients', { token: viewerToken })).status, 403);
     assert.equal((await request('/api/collections/clients', { token: managerToken })).status, 200);
+});
+
+test('supervisor manages client plans, weighted tasks and report settings', async () => {
+    const client = await request('/api/collections/clients', {
+        token: supervisorToken,
+        method: 'POST',
+        body: {
+            id: 'supervisor-plan-client',
+            data: {
+                name: 'Plan Cliente',
+                planName: 'Plan personalizado',
+                monthlyQuota: { videos: 10, publications: 5, advertising: 2 }
+            }
+        }
+    });
+    assert.equal(client.status, 201);
+    assert.deepEqual(client.payload.record.monthlyQuota, {
+        videos: 10,
+        publications: 5,
+        advertising: 2
+    });
+
+    const task = await request('/api/collections/editing', {
+        token: supervisorToken,
+        method: 'POST',
+        body: {
+            id: 'supervisor-weighted-task',
+            data: {
+                title: 'Pauta de prueba',
+                clientId: 'supervisor-plan-client',
+                contextId: 'editor',
+                accountId: 'manager',
+                quotaCategory: 'advertising',
+                quotaPercent: 30,
+                status: 'editar'
+            }
+        }
+    });
+    assert.equal(task.status, 201);
+    assert.equal(task.payload.record.quotaCategory, 'advertising');
+    assert.equal(task.payload.record.quotaPercent, 30);
+
+    const invalidQuota = await request('/api/collections/clients', {
+        token: supervisorToken,
+        method: 'POST',
+        body: {
+            id: 'supervisor-invalid-client',
+            data: { name: 'Cuota inválida', monthlyQuota: { videos: -1 } }
+        }
+    });
+    assert.equal(invalidQuota.status, 400);
+    assert.equal(invalidQuota.payload?.error?.code, 'client/invalid-quota');
+
+    const invalidWeight = await request('/api/collections/editing', {
+        token: supervisorToken,
+        method: 'POST',
+        body: {
+            id: 'supervisor-invalid-task',
+            data: { title: 'Peso inválido', quotaPercent: 120 }
+        }
+    });
+    assert.equal(invalidWeight.status, 400);
+    assert.equal(invalidWeight.payload?.error?.code, 'task/invalid-quota-percent');
+
+    const settings = await request('/api/collections/supervision_settings/global', {
+        token: supervisorToken,
+        method: 'PUT',
+        body: { data: { frequency: 'monthly', recipients: ['report@example.test'] } }
+    });
+    assert.equal(settings.status, 200);
+    assert.equal(settings.payload.record.frequency, 'monthly');
+    assert.deepEqual(settings.payload.record.recipients, ['report@example.test']);
+    assert.equal((await request('/api/collections/supervision_settings', { token: viewerToken })).status, 403);
 });
 
 test('unsafe cross-origin requests are rejected and security headers are present', async () => {

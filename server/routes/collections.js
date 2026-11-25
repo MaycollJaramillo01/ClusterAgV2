@@ -80,6 +80,7 @@ const BATCH_COLLECTIONS = new Set([
 const VALID_USER_ROLES = new Set([
     'super_admin',
     'operations',
+    'supervisor',
     'management',
     'manager',
     'editor',
@@ -599,6 +600,17 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         if (!title) {
             throw createHttpError(400, 'El titulo de la tarea es obligatorio.', 'task/title-required');
         }
+        if (collectionName === 'editing') {
+            const quotaCategory = String(safePayload.quotaCategory ?? existing?.quotaCategory ?? 'videos');
+            const quotaPercent = Number(safePayload.quotaPercent ?? existing?.quotaPercent ?? 100);
+            if (!['videos', 'publications', 'advertising'].includes(quotaCategory)) {
+                throw createHttpError(400, 'La categoría de cuota no es válida.', 'task/invalid-quota-category');
+            }
+            if (!Number.isFinite(quotaPercent) || quotaPercent < 1 || quotaPercent > 100) {
+                throw createHttpError(400, 'El porcentaje de cuota debe estar entre 1 y 100.', 'task/invalid-quota-percent');
+            }
+            safePayload = { ...safePayload, quotaCategory, quotaPercent };
+        }
         const assignerName = String(actor?.name || actor?.email || existing?.assignedByName || '').trim();
         const shouldStampAssigner = isCreate || !String(existing?.assignedByEmail || '').trim();
         return applyStageLog(collectionName, {
@@ -622,14 +634,46 @@ const prepareCollectionPayload = ({ collectionName, payload, existing = null, ac
         if (!name) {
             throw createHttpError(400, 'El nombre del cliente es obligatorio.', 'client/name-required');
         }
+        const sourceQuota = safePayload.monthlyQuota ?? existing?.monthlyQuota ?? {};
+        const monthlyQuota = {};
+        for (const key of ['videos', 'publications', 'advertising']) {
+            const value = Number(sourceQuota[key] ?? 0);
+            if (!Number.isInteger(value) || value < 0 || value > 100_000) {
+                throw createHttpError(400, 'Las cuotas mensuales deben ser números enteros entre 0 y 100000.', 'client/invalid-quota');
+            }
+            monthlyQuota[key] = value;
+        }
         return {
             ...safePayload,
             name,
+            monthlyQuota,
+            planName: String(safePayload.planName ?? existing?.planName ?? safePayload.package ?? existing?.package ?? '').trim().slice(0, 120),
             priorityFlag: normalizeClientPriority(
                 Object.hasOwn(safePayload, 'priorityFlag')
                     ? safePayload.priorityFlag
                     : (existing?.priorityFlag || existing?.priority)
             ),
+            createdAt: existing?.createdAt || safePayload.createdAt || stamp,
+            updatedAt: stamp
+        };
+    }
+    if (collectionName === 'supervision_settings') {
+        const frequency = String(safePayload.frequency ?? existing?.frequency ?? 'weekly');
+        if (!['daily', 'weekly', 'monthly'].includes(frequency)) {
+            throw createHttpError(400, 'La frecuencia de reporte no es válida.', 'supervision/invalid-frequency');
+        }
+        const recipients = [...new Set(
+            (Array.isArray(safePayload.recipients) ? safePayload.recipients : (existing?.recipients || []))
+                .map((value) => normalizeEmail(value))
+                .filter(Boolean)
+        )];
+        if (recipients.length > 50 || recipients.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+            throw createHttpError(400, 'La lista de destinatarios no es válida.', 'supervision/invalid-recipients');
+        }
+        return {
+            ...safePayload,
+            frequency,
+            recipients,
             createdAt: existing?.createdAt || safePayload.createdAt || stamp,
             updatedAt: stamp
         };

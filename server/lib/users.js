@@ -8,6 +8,7 @@ import { resolveBootstrapRole } from './bootstrap.js';
 const rolePriority = {
     super_admin: 500,
     operations: 400,
+    supervisor: 390,
     management: 350,
     manager: 300,
     editor: 250,

@@ -52,6 +52,14 @@ requiere el permiso `assign_tasks` (paquete «Asignar responsables»).
 
 La limpieza real del historial exige `--apply --backup-confirmed`. No se debe ejecutar contra produccion sin una copia verificada.
 
+## Supervisión de clientes y cuotas
+
+El rol **Supervisor** tiene acceso global de visualización y gestión de clientes, equipo, tareas y calendario, además de usuarios, auditoría y configuración de reportes. Asígnalo desde **Usuarios y Accesos**.
+
+Cada ficha de cliente admite un plan personalizado con cuotas mensuales de videos, publicaciones y pautas publicitarias. Las tareas de la sala de Edición permiten elegir la categoría y ponderar cada actividad aprobada al 30% o al 100% de una unidad contratada. La planilla suma esas unidades por mes de aprobación y calcula el porcentaje contra la cuota; no limita el resultado, por lo que un cliente puede llegar al 120% o más. Una actividad sin cliente no afecta cuotas.
+
+La **Sala de Supervisión** está disponible en las salas de trabajo para Supervisores. Permite crear y revisar actividades, consultar responsables y estado, filtrar por cliente/tipo, y ver las cuotas mensuales actualizadas con cada aprobación. Desde allí se configuran reportes diarios, semanales o mensuales y destinatarios por correo. El reporte mensual enviado al inicio del mes corresponde al mes anterior; los reportes diario y semanal muestran el consumo del mes vigente. El envío automático requiere `SMTP_*`, el cron de Vercel y al menos un destinatario configurado o un usuario activo con permiso `receive_reports`.
+
 ## Control de Eventos y Cumplimiento (Compliance)
 
 El sistema vigila de forma continua el cumplimiento operativo en tareas y penaliza el KPI mensual:
@@ -94,7 +102,9 @@ El sistema vigila de forma continua el cumplimiento operativo en tareas y penali
 - `server/routes/cron.js`: tareas programadas protegidas con `CRON_SECRET` y locks distribuidos.
 - `server/lib/compliance-events.js`: motor de evaluación y despacho de eventos de cumplimiento.
 - `server/lib/task-reminders.js`: cálculo y despacho de recordatorios y escalación jerárquica.
+- `server/lib/supervision-reports.js`: envío automático de reportes de cuotas por cliente.
 - `src/app/utils/compliance.js`: reglas compartidas de metas, ritmo laboral, escalación y deducción de KPI.
+- `src/app/utils/supervision.js`: cómputo mensual de unidades y porcentajes de cuota.
 - `server/lib/audit.js`: auditoria inmutable generada por el servidor.
 - `server/db/migrate.js`: migraciones versionadas y serializadas en PostgreSQL.
 - `src/app/lib/firebase-*-compat.js`: adaptadores del frontend hacia la API y Firebase Auth.

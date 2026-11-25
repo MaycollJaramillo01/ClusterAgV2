@@ -55,7 +55,7 @@ export const reminderContextCollection = (collectionName = '', task = {}) => {
     return 'users';
 };
 
-const KNOWN_ROLES = new Set(['super_admin', 'operations', 'management', 'manager', 'editor']);
+const KNOWN_ROLES = new Set(['super_admin', 'operations', 'supervisor', 'management', 'manager', 'editor']);
 // Si no se puede determinar el rol del responsable se conserva el comportamiento
 // historico: avisan operations y super_admin (prioridad mayor a management).
 const LEGACY_SUPERVISION_ROLE = 'management';

@@ -14,6 +14,7 @@ import { getKpiTaskMeta } from "./kpi.js";
 export const ROLE_PRIORITY = {
   super_admin: 500,
   operations: 400,
+  supervisor: 390,
   management: 350,
   manager: 300,
   editor: 250,

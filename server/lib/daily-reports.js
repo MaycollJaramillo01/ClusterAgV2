@@ -384,7 +384,7 @@ export const mergeGeneralPerformance = (summaries = []) => {
 
 const getCollectionPeople = async ({ collectionName }) => listRecords({ collectionName });
 
-const MANAGEMENT_ROLES = new Set(['super_admin', 'operations', 'management', 'manager']);
+const MANAGEMENT_ROLES = new Set(['super_admin', 'operations', 'supervisor', 'management', 'manager']);
 
 const selectManagementPeople = (users = [], tasks = []) => {
     const assignedIds = new Set();

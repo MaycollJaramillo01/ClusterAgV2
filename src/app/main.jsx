@@ -46,6 +46,8 @@ import { useToast } from "@astryxdesign/core/Toast";
 import { VStack } from "@astryxdesign/core/VStack";
 import { themes, defaultThemeSlug } from "../astryx-themes.js";
 import AppErrorBoundary from "./components/AppErrorBoundary.jsx";
+import SupervisionView from "./components/SupervisionView.jsx";
+import { SUPERVISION_QUOTA_CATEGORIES } from "./utils/supervision.js";
 import confetti from "canvas-confetti";
 import { Capacitor } from "@capacitor/core";
 import { App as CapacitorApp } from "@capacitor/app";
@@ -433,6 +435,7 @@ if (GOOGLE_PROVIDER)
   GOOGLE_PROVIDER.setCustomParameters({ prompt: "select_account" });
 const VIEW_PERMISSIONS = {
   dashboard: "view_dashboard",
+  supervision: "view_supervision",
   clients: "view_clients",
   "client-detail": "view_clients",
   chat: "view_client_chat",
@@ -2452,6 +2455,7 @@ function App() {
   const lastReconciledDuplicateSignatureRef = useRef("");
   const lastIdentityLinkSyncSignatureRef = useRef("");
   const [clients, setClients] = useState([]);
+  const [supervisionSettings, setSupervisionSettings] = useState(null);
   const [teamGroups, setTeamGroups] = useState([]);
   const [events, setEvents] = useState([]);
   const [managers, setManagers] = useState([]);
@@ -3171,7 +3175,7 @@ function App() {
       .reduce((accumulator, item) => {
         const managementKey =
           item.managementKey ||
-          (["management", "super_admin", "operations"].includes(item.role)
+          (["management", "super_admin", "operations", "supervisor"].includes(item.role)
             ? getManagementDirectoryKey(item)
             : "");
         const emailKey = normalizeEmail(item.email);
@@ -3277,7 +3281,7 @@ function App() {
   const privilegedUsers = appUsers.filter(
     (item) =>
       item.isActive !== false &&
-      ["super_admin", "operations"].includes(item.role),
+      ["super_admin", "operations", "supervisor"].includes(item.role),
   );
   const dataCollection = (name) =>
     collection(db, "artifacts", appId, "public", "data", name);
@@ -3816,6 +3820,24 @@ function App() {
 
     return () => unsubs.forEach((unsubscribe) => unsubscribe());
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !db || !userHasPermission(currentUserProfile, "view_supervision")) {
+      setSupervisionSettings(null);
+      return undefined;
+    }
+    return onSnapshot(
+      dataCollection("supervision_settings"),
+      (snapshot) => {
+        const record = snapshot.docs.find((item) => item.id === "global");
+        setSupervisionSettings(record ? { id: record.id, ...record.data() } : null);
+      },
+      (error) => {
+        console.error("Error al cargar configuración de supervisión:", error);
+        setDataLoadFailed(true);
+      },
+    );
+  }, [user, currentUserProfile?.role, currentUserProfile?.isActive]);
 
   useEffect(() => {
     if (!user || !db || view !== "control-center") return;
@@ -5676,7 +5698,7 @@ function App() {
   const totalActiveManagementTasks = managementTasks.filter(
     (t) => t.status !== "cerrado",
   ).length;
-  const isAdminConfigVisible = ["super_admin", "operations"].includes(
+  const isAdminConfigVisible = ["super_admin", "operations", "supervisor"].includes(
     currentUserProfile?.role,
   );
   // "Espacio recien creado" solo si la API contesto. Si no cargo, esta pantalla
@@ -5852,6 +5874,29 @@ function App() {
       }
     }
   };
+  const saveSupervisionSettings = async (settings) =>
+    runMutation({
+      permission: "manage_supervision_reports",
+      action: "update",
+      entityType: "supervisionSettings",
+      entityId: "global",
+      description: "Actualiza destinatarios y frecuencia de reportes de supervisión",
+      changes: {
+        frequency: settings.frequency,
+        recipients: settings.recipients,
+      },
+      successMessage: "Configuración de reportes guardada",
+      execute: () =>
+        setDoc(
+          dataDoc("supervision_settings", "global"),
+          {
+            frequency: settings.frequency,
+            recipients: settings.recipients,
+            updatedAt: nowIso(),
+          },
+          { merge: true },
+        ),
+    });
   const createTeamGroup = async ({ name, memberIds }) => {
     const title = String(name || "").trim();
     const ids = [...new Set((memberIds || []).map(String).filter(Boolean))];
@@ -8000,7 +8045,7 @@ function App() {
     if (
       privilegedUsers.length === 1 &&
       privilegedUsers[0].id === id &&
-      (!["super_admin", "operations"].includes(nextRole) || !nextActive)
+      (!["super_admin", "operations", "supervisor"].includes(nextRole) || !nextActive)
     ) {
       showToast(
         "Debe existir al menos un usuario administrador activo",
@@ -8424,6 +8469,13 @@ function App() {
           })}
       </SideNavSection>
       <SideNavSection title="Salas de trabajo">
+        {canAccessView(currentUserProfile, "supervision") &&
+          navItem({
+            label: "Sala de Supervisión",
+            icon: "ClipboardList",
+            isSelected: view === "supervision",
+            onClick: () => handleNavigate("supervision"),
+          })}
         {canAccessView(currentUserProfile, "account-room") &&
           navItem({
             label: "Sala de Accounts",
@@ -8558,6 +8610,36 @@ function App() {
                 onOpenTask={openTaskDetail}
               />
             ))}
+          {view === "supervision" && (
+            <SupervisionView
+              clients={clients}
+              editingTasks={editingTasks}
+              managers={managers}
+              editors={editors}
+              settings={supervisionSettings}
+              period={getHondurasTodayStr().slice(0, 7)}
+              canManageClients={userHasPermission(currentUserProfile, "manage_clients")}
+              canManageReports={userHasPermission(currentUserProfile, "manage_supervision_reports")}
+              canCreateTasks={userHasPermission(currentUserProfile, "create_editing_tasks")}
+              onCreateTask={() =>
+                setModalConfig({
+                  isOpen: true,
+                  type: "editingTask",
+                  data: { date: getHondurasTodayStr(), contextId: defaultEditingAssigneeId },
+                })
+              }
+              onOpenTask={handleEditingTaskClick}
+              onEditClient={(client) =>
+                setModalConfig({
+                  isOpen: true,
+                  type: "client",
+                  data: client,
+                  isEdit: true,
+                })
+              }
+              onSaveSettings={saveSupervisionSettings}
+            />
+          )}
           {view === "clients" && (
             <ClientsView
               clients={clients}
@@ -9552,6 +9634,7 @@ const FirstTimeView = ({ role, onNavigate }) => {
     "manager",
     "management",
     "operations",
+    "supervisor",
     "super_admin",
   ].includes(role)
     ? role
@@ -9634,6 +9717,26 @@ const FirstTimeView = ({ role, onNavigate }) => {
         icon: "LayoutDashboard",
         title: "Panel Central",
         desc: "Monitorea volumen, atrasos y avance global.",
+        view: "dashboard",
+      },
+    ],
+    supervisor: [
+      {
+        icon: "ClipboardList",
+        title: "Sala de Supervisión",
+        desc: "Asigna actividades y controla responsables, aprobaciones y cuotas por cliente.",
+        view: "supervision",
+      },
+      {
+        icon: "Briefcase",
+        title: "Planes de clientes",
+        desc: "Configura cuotas mensuales y responsables de cada cuenta.",
+        view: "clients",
+      },
+      {
+        icon: "LayoutDashboard",
+        title: "Panel Central",
+        desc: "Consulta la actividad operativa global.",
         view: "dashboard",
       },
     ],
@@ -14374,7 +14477,7 @@ const UsersAccessView = ({
             users.filter(
               (item) =>
                 item.isActive !== false &&
-                ["super_admin", "operations"].includes(item.role),
+                ["super_admin", "operations", "supervisor"].includes(item.role),
             ).length
           }
           icon="ClipboardList"
@@ -22848,6 +22951,8 @@ const CreateTaskModal = ({
   const [priority, setPriority] = useState("");
   const [status, setStatus] = useState("editar");
   const [hierarchy, setHierarchy] = useState("p2");
+  const [quotaCategory, setQuotaCategory] = useState("videos");
+  const [quotaPercent, setQuotaPercent] = useState("100");
   const [time, setTime] = useState("");
   const [category, setCategory] = useState("seguimiento");
   const [assigneeOpen, setAssigneeOpen] = useState(false);
@@ -22916,6 +23021,8 @@ const CreateTaskModal = ({
         }
         setPriority(data.priority || "");
         setHierarchy(data.hierarchy || data.editingHierarchy || "p2");
+        setQuotaCategory(data.quotaCategory || "videos");
+        setQuotaPercent(String(data.quotaPercent || 100));
         setCategory(data.category || "seguimiento");
         setStatus(
           type === "editingTask"
@@ -22966,6 +23073,8 @@ const CreateTaskModal = ({
         }
         setPriority("");
         setHierarchy("p2");
+        setQuotaCategory("videos");
+        setQuotaPercent("100");
         setCategory("seguimiento");
         setStatus("editar");
       }
@@ -23245,6 +23354,8 @@ const CreateTaskModal = ({
             title: title.trim(),
             priority: priority || "normal",
             hierarchy,
+            quotaCategory,
+            quotaPercent: Number(quotaPercent),
             status,
             notes,
             clientId,
@@ -23300,6 +23411,8 @@ const CreateTaskModal = ({
             title: title.trim(),
             priority: priority || "normal",
             hierarchy,
+            quotaCategory,
+            quotaPercent: Number(quotaPercent),
             status,
             notes,
             contextId: assigneeIds[0] || assigneeId || "",
@@ -24310,6 +24423,35 @@ const CreateTaskModal = ({
             </select>
           )}
 
+          {type === "editingTask" && (
+            <section className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 p-2 dark:border-slate-700">
+              <label className="sr-only" htmlFor="task-quota-category">Tipo de cuota</label>
+              <select
+                id="task-quota-category"
+                value={quotaCategory}
+                onChange={(event) => setQuotaCategory(event.target.value)}
+                className="min-w-40 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                {SUPERVISION_QUOTA_CATEGORIES.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </select>
+              <label className="sr-only" htmlFor="task-quota-percent">Porcentaje de unidad</label>
+              <select
+                id="task-quota-percent"
+                value={quotaPercent}
+                onChange={(event) => setQuotaPercent(event.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                <option value="30">30% de una unidad</option>
+                <option value="100">100% de una unidad</option>
+              </select>
+              <p className="basis-full text-[11px] text-slate-500 dark:text-slate-400">
+                Se suma a la cuota mensual del cliente cuando la tarea llega a Aprobado.
+              </p>
+            </section>
+          )}
+
           {/* Hora límite en zona local del usuario; se guarda en Honduras */}
           {(type === "accountTask" || type === "editingTask" || type === "managementTask") && (
             <div className="relative flex items-center gap-2">
@@ -24466,6 +24608,12 @@ const Modal = ({
           name: fd.name || "",
           niche: fd.niche || "",
           package: fd.package || "",
+          planName: fd.package || "",
+          monthlyQuota: {
+            videos: Number.parseInt(fd.quotaVideos, 10) || 0,
+            publications: Number.parseInt(fd.quotaPublications, 10) || 0,
+            advertising: Number.parseInt(fd.quotaAdvertising, 10) || 0,
+          },
           instagram: fd.instagram || "",
           managerId: fd.managerId || "",
           editorId: fd.editorId || "",
@@ -24504,9 +24652,12 @@ const Modal = ({
           title: fd.title || "",
           priority: fd.priority || "normal",
           hierarchy: fd.hierarchy || "p2",
+          quotaCategory: fd.quotaCategory || "videos",
+          quotaPercent: Number(fd.quotaPercent) || 100,
           status: fd.status || data.status || "editar",
           notes: fd.notes || "",
           contextId: fd.editor || data.contextId || "",
+          accountId: fd.accountId || "",
           clientId: fd.clientId || "",
         });
       if (type === "managementTask")
@@ -24538,6 +24689,12 @@ const Modal = ({
           name: fd.name || "",
           niche: fd.niche || "",
           package: fd.package || "",
+          planName: fd.package || "",
+          monthlyQuota: {
+            videos: Number.parseInt(fd.quotaVideos, 10) || 0,
+            publications: Number.parseInt(fd.quotaPublications, 10) || 0,
+            advertising: Number.parseInt(fd.quotaAdvertising, 10) || 0,
+          },
           instagram: fd.instagram || "",
           managerId: fd.managerId || "",
           editorId: fd.editorId || "",
@@ -24584,9 +24741,12 @@ const Modal = ({
           title: fd.title || "",
           priority: fd.priority || "normal",
           hierarchy: fd.hierarchy || "p2",
+          quotaCategory: fd.quotaCategory || "videos",
+          quotaPercent: Number(fd.quotaPercent) || 100,
           status: fd.status || "editar",
           notes: fd.notes || "",
           contextId: fd.editor || data.contextId || "",
+          accountId: fd.accountId || "",
           clientId: fd.clientId || "",
         });
       if (type === "managementTask")
@@ -24722,9 +24882,37 @@ const Modal = ({
                 />
                 <Input
                   name="package"
-                  placeholder="Paquete"
+                  label="Nombre del plan"
+                  placeholder="Plan personalizado"
                   defaultValue={data?.package}
                   required
+                />
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Cuotas mensuales contratadas
+                </p>
+                <Input
+                  name="quotaVideos"
+                  label="Videos"
+                  type="number"
+                  min="0"
+                  step="1"
+                  defaultValue={data?.monthlyQuota?.videos ?? 0}
+                />
+                <Input
+                  name="quotaPublications"
+                  label="Publicaciones"
+                  type="number"
+                  min="0"
+                  step="1"
+                  defaultValue={data?.monthlyQuota?.publications ?? 0}
+                />
+                <Input
+                  name="quotaAdvertising"
+                  label="Pautas publicitarias"
+                  type="number"
+                  min="0"
+                  step="1"
+                  defaultValue={data?.monthlyQuota?.advertising ?? 0}
                 />
                 <Input
                   name="instagram"
@@ -24995,6 +25183,46 @@ const Modal = ({
                       {e.name}
                     </option>
                     ))}
+                </select>
+
+                <select
+                  name="accountId"
+                  defaultValue={
+                    data?.accountId ||
+                    managers.find(
+                      (manager) =>
+                        manager.id ===
+                        clients.find((client) => client.id === data?.clientId)?.managerId,
+                    )?.id ||
+                    ""
+                  }
+                  className={selectClassName}
+                >
+                  <option value="">Sin Account Manager</option>
+                  {managers
+                    .filter((manager) => manager.isActive !== false)
+                    .map((manager) => (
+                      <option key={manager.id} value={manager.id}>{manager.name}</option>
+                    ))}
+                </select>
+
+                <select
+                  name="quotaCategory"
+                  defaultValue={data?.quotaCategory || "videos"}
+                  className={selectClassName}
+                >
+                  {SUPERVISION_QUOTA_CATEGORIES.map((item) => (
+                    <option key={item.id} value={item.id}>{item.label}</option>
+                  ))}
+                </select>
+
+                <select
+                  name="quotaPercent"
+                  defaultValue={String(data?.quotaPercent || 100)}
+                  className={selectClassName}
+                >
+                  <option value="30">30% de una unidad</option>
+                  <option value="100">100% de una unidad</option>
                 </select>
 
                 <textarea
@@ -26421,6 +26649,7 @@ const ReportsView = ({
   const roleLabelByKey = {
     super_admin: "Admin",
     operations: "Operaciones",
+    supervisor: "Supervisor",
     management: "Gestion",
     manager: "Manager",
     editor: "Editor",

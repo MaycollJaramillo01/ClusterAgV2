@@ -1,6 +1,7 @@
 export const KANBAN_PRIORITY_ROLES = new Set([
   "super_admin",
   "operations",
+  "supervisor",
   "management",
 ]);
 

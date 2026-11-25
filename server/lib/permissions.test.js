@@ -3,6 +3,7 @@ import test from "node:test";
 import { SUPER_ADMIN_EMAILS } from "../../src/app/constants/app.constants.js";
 import { DEFAULT_SUPER_ADMIN_EMAILS } from "../config/bootstrap.js";
 import { ROLE_DEFINITIONS } from "../constants/permissions.js";
+import { ROLE_DEFINITIONS as APP_ROLE_DEFINITIONS } from "../../src/app/constants/app.constants.js";
 import {
   assertTaskPrivilegedFields,
   collectReportRecipientEmails,
@@ -67,6 +68,38 @@ test("operations can change due dates and assignees without extra packs", () => 
   assert.equal(hasPermission(operations, "assign_tasks"), true);
   assert.equal(hasPermission(operations, "edit_due_date"), true);
   assert.equal(hasPermission(operations, "receive_reports"), false);
+});
+
+test("supervisor has global operational access and matching frontend permissions", () => {
+  const supervisor = { role: "supervisor", isActive: true };
+  for (const permission of [
+    "view_clients",
+    "manage_clients",
+    "view_managers",
+    "manage_editors",
+    "view_account_room",
+    "manage_account_tasks",
+    "view_editions_room",
+    "manage_editing_tasks",
+    "view_management_room",
+    "manage_management_tasks",
+    "assign_tasks",
+    "edit_due_date",
+    "view_users",
+    "manage_users",
+    "view_audit_logs",
+    "view_supervision",
+    "manage_supervision_reports",
+    "receive_reports",
+  ]) {
+    assert.equal(hasPermission(supervisor, permission), true, permission);
+    assert.ok(APP_ROLE_DEFINITIONS.supervisor.permissions.includes(permission), permission);
+  }
+  assert.deepEqual(
+    APP_ROLE_DEFINITIONS.supervisor.permissions,
+    ROLE_DEFINITIONS.supervisor.permissions,
+  );
+  assert.equal(hasPermission({ role: "viewer", isActive: true }, "view_supervision"), false);
 });
 
 test("managers cannot change due dates or assignees unless the pack is assigned", () => {
