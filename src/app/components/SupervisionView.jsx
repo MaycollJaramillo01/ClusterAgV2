@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
 import {
   buildClientQuotaUsage,
   getTaskApprovalTimestamp,
@@ -63,6 +64,7 @@ export default function SupervisionView({
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("active");
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState("");
   const [saving, setSaving] = useState(false);
   const [planSaving, setPlanSaving] = useState(false);
   const [planDraft, setPlanDraft] = useState({
@@ -77,6 +79,18 @@ export default function SupervisionView({
     () => new Map(clients.map((client) => [String(client.id), client])),
     [clients],
   );
+  const selectedClient = clients.find(
+    (client) => String(client.id) === selectedClientId,
+  ) || clients[0] || null;
+  const selectedClientUsage = selectedClient
+    ? usageByClient.get(String(selectedClient.id))
+    : null;
+  const selectedManager = selectedClient
+    ? managers.find((person) => String(person.id) === String(selectedClient.managerId || ""))
+    : null;
+  const selectedEditor = selectedClient
+    ? editors.find((person) => String(person.id) === String(selectedClient.editorId || ""))
+    : null;
   const approvedThisMonth = editingTasks.filter((task) => (
     getTaskApprovalTimestamp(task).slice(0, 7) === period
   )).length;
@@ -108,6 +122,11 @@ export default function SupervisionView({
     setFrequency(settings?.frequency || "weekly");
     setRecipientsText((settings?.recipients || []).join("\n"));
   }, [settings?.frequency, settings?.recipients]);
+  useEffect(() => {
+    if (!clients.some((client) => String(client.id) === selectedClientId)) {
+      setSelectedClientId(String(clients[0]?.id || ""));
+    }
+  }, [clients, selectedClientId]);
 
   const handleSaveSettings = async (event) => {
     event.preventDefault();
@@ -415,63 +434,84 @@ export default function SupervisionView({
           <p className="rounded-xl border border-slate-200 p-6 text-sm text-slate-500 dark:border-slate-800">
             No hay clientes registrados.
           </p>
-        ) : clients.map((client) => {
-          const clientUsage = usageByClient.get(String(client.id));
-          const manager = managers.find((person) => String(person.id) === String(client.managerId || ""));
-          const editor = editors.find((person) => String(person.id) === String(client.editorId || ""));
-          return (
-            <article key={client.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-              <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 p-4 dark:border-slate-800">
-                <section>
-                  <h2 className="font-bold text-slate-800 dark:text-white">{client.name}</h2>
-                  <p className="text-xs text-slate-500">
-                    {client.planName || client.package || "Plan sin nombre"} · Account: {manager?.name || "Sin asignar"} · Editor: {editor?.name || "Sin asignar"}
-                  </p>
+        ) : (
+          <>
+            <TabList
+              value={String(selectedClient?.id || "")}
+              onChange={setSelectedClientId}
+              aria-label="Clientes supervisados"
+              size="sm"
+              hasDivider
+              overflow="auto"
+            >
+              {clients.map((client) => (
+                <Tab
+                  key={client.id}
+                  value={String(client.id)}
+                  label={client.name || "Cliente sin nombre"}
+                  panelId="supervision-client-panel"
+                />
+              ))}
+            </TabList>
+            {selectedClient && (
+              <article
+                id="supervision-client-panel"
+                role="tabpanel"
+                aria-label={`${selectedClient.name} cuotas mensuales`}
+                className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+              >
+                <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 p-4 dark:border-slate-800">
+                  <section>
+                    <h3 className="font-bold text-slate-800 dark:text-white">{selectedClient.name}</h3>
+                    <p className="text-xs text-slate-500">
+                      {selectedClient.planName || selectedClient.package || "Plan sin nombre"} · Account: {selectedManager?.name || "Sin asignar"} · Editor: {selectedEditor?.name || "Sin asignar"}
+                    </p>
+                  </section>
+                  {canManageClients && (
+                    <button
+                      type="button"
+                      onClick={() => onEditClient?.(selectedClient)}
+                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Editar plan y responsables
+                    </button>
+                  )}
+                </header>
+                <section className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-950">
+                      <tr>
+                        <th className="px-4 py-3">Actividad</th>
+                        <th className="px-4 py-3">Cuota mensual</th>
+                        <th className="px-4 py-3">Unidades aprobadas</th>
+                        <th className="px-4 py-3">Consumo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {SUPERVISION_QUOTA_CATEGORIES.map(({ id, label }) => {
+                        const usage = selectedClientUsage?.[id] || { quota: 0, units: 0, percentage: 0, taskCount: 0 };
+                        const exceeded = usage.percentage > 100;
+                        return (
+                          <tr key={id} className="border-t border-slate-100 dark:border-slate-800">
+                            <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-200">{label}</th>
+                            <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{usage.quota || "Sin cuota"}</td>
+                            <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                              {formatUnits(usage.units)} <span className="text-xs text-slate-400">({usage.taskCount} tareas)</span>
+                            </td>
+                            <td className={`px-4 py-3 font-black ${exceeded ? "text-red-600 dark:text-red-400" : "text-slate-800 dark:text-white"}`}>
+                              {usage.quota ? `${Math.round(usage.percentage)}%` : "—"}
+                              {exceeded && <span className="ml-2 text-xs uppercase">Excedido</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </section>
-                {canManageClients && (
-                  <button
-                    type="button"
-                    onClick={() => onEditClient?.(client)}
-                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                  >
-                    Editar plan y responsables
-                  </button>
-                )}
-              </header>
-              <section className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-950">
-                    <tr>
-                      <th className="px-4 py-3">Actividad</th>
-                      <th className="px-4 py-3">Cuota mensual</th>
-                      <th className="px-4 py-3">Unidades aprobadas</th>
-                      <th className="px-4 py-3">Consumo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {SUPERVISION_QUOTA_CATEGORIES.map(({ id, label }) => {
-                      const usage = clientUsage?.[id] || { quota: 0, units: 0, percentage: 0, taskCount: 0 };
-                      const exceeded = usage.percentage > 100;
-                      return (
-                        <tr key={id} className="border-t border-slate-100 dark:border-slate-800">
-                          <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-200">{label}</th>
-                          <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{usage.quota || "Sin cuota"}</td>
-                          <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                            {formatUnits(usage.units)} <span className="text-xs text-slate-400">({usage.taskCount} tareas)</span>
-                          </td>
-                          <td className={`px-4 py-3 font-black ${exceeded ? "text-red-600 dark:text-red-400" : "text-slate-800 dark:text-white"}`}>
-                            {usage.quota ? `${Math.round(usage.percentage)}%` : "—"}
-                            {exceeded && <span className="ml-2 text-xs uppercase">Excedido</span>}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </section>
-            </article>
-          );
-        })}
+              </article>
+            )}
+          </>
+        )}
       </section>
 
       {canManageReports && (
